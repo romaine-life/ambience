@@ -354,6 +354,33 @@ func (r *Rain) EffectiveConfig() Config {
 	return r.cfg
 }
 
+// RestoreState overwrites the sim's tick + event-timer state from an external
+// snapshot (e.g., the first SSE message to a joining client). Does not touch
+// config or drops.
+func (r *Rain) RestoreState(s State) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tick = s.Tick
+	r.downpourTicks = s.DownpourTicks
+	r.downpourMult = s.DownpourMult
+	r.calmTicks = s.CalmTicks
+	r.gustTicks = s.GustTicks
+	r.gustWind = s.GustWind
+}
+
+// GridCopy returns a snapshot of the current grid. The caller owns the
+// returned slice and can read it without holding any sim lock.
+func (r *Rain) GridCopy() [][]Pixel {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([][]Pixel, len(r.Grid))
+	for y := range r.Grid {
+		out[y] = make([]Pixel, len(r.Grid[y]))
+		copy(out[y], r.Grid[y])
+	}
+	return out
+}
+
 // TriggerEvent fires a discrete event immediately, bypassing probability.
 // Returns true on recognized event names ("downpour", "calm", "gust", "splash").
 func (r *Rain) TriggerEvent(name string) bool {
