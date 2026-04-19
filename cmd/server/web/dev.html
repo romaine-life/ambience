@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ambience — dev</title>
+<style>
+	html, body { margin: 0; padding: 0; height: 100%; background: #0a0a0a; overflow: hidden; color: #e0e0e0; font-family: monospace; }
+	#c { position: absolute; inset: 0; width: 100vw; height: 100vh; image-rendering: pixelated; }
+	#panel {
+		position: absolute; top: 10px; right: 10px; z-index: 10;
+		background: rgba(0,0,0,0.7); padding: 12px 16px;
+		border: 1px solid #333; border-radius: 4px;
+		font-size: 12px; min-width: 240px;
+	}
+	#panel h1 { font-size: 12px; margin: 0 0 10px 0; opacity: 0.6; text-transform: uppercase; letter-spacing: 1px; }
+	.row { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; gap: 12px; }
+	.row label { opacity: 0.8; }
+	.row input[type=range] { flex: 1; min-width: 100px; }
+	.row select { background: #1a1a1a; color: #e0e0e0; border: 1px solid #333; padding: 2px 4px; }
+	.row .val { opacity: 0.6; min-width: 40px; text-align: right; }
+	.status { margin-top: 10px; opacity: 0.5; font-size: 10px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="panel">
+	<h1>ambience dev — rain</h1>
+	<div class="row">
+		<label>wind</label>
+		<select id="wind">
+			<option value="-1">left</option>
+			<option value="0" selected>vertical</option>
+			<option value="1">right</option>
+		</select>
+	</div>
+	<div class="row">
+		<label>spawn 1/</label>
+		<input type="range" id="spawn" min="1" max="30" value="5">
+		<span class="val" id="spawnVal">5</span>
+	</div>
+	<div class="row">
+		<label>fade</label>
+		<input type="range" id="fade" min="40" max="95" value="65">
+		<span class="val" id="fadeVal">0.65</span>
+	</div>
+	<div class="row">
+		<label>palette</label>
+		<select id="palette">
+			<option value="blue" selected>blue</option>
+			<option value="warm">warm</option>
+			<option value="neon">neon</option>
+		</select>
+	</div>
+	<div class="status" id="status">connecting…</div>
+</div>
+<script src="/ambience.js"></script>
+<script>
+	const canvas = document.getElementById('c');
+	const status = document.getElementById('status');
+	let amb = null;
+
+	function currentQuery() {
+		const q = new URLSearchParams();
+		q.set('wind', document.getElementById('wind').value);
+		q.set('spawn', document.getElementById('spawn').value);
+		q.set('fade', (document.getElementById('fade').value / 100).toFixed(2));
+		q.set('palette', document.getElementById('palette').value);
+		return q.toString();
+	}
+
+	function reconnect() {
+		if (amb) amb.close();
+		const q = currentQuery();
+		status.textContent = '? ' + q;
+		amb = new Ambience({ canvas, stream: '/dev/stream?' + q });
+	}
+
+	// Rebuild on any control change, debounced
+	let debounceT = null;
+	function schedule() {
+		if (debounceT) clearTimeout(debounceT);
+		debounceT = setTimeout(reconnect, 150);
+	}
+
+	document.getElementById('wind').addEventListener('change', schedule);
+	document.getElementById('palette').addEventListener('change', schedule);
+	document.getElementById('spawn').addEventListener('input', (e) => {
+		document.getElementById('spawnVal').textContent = e.target.value;
+		schedule();
+	});
+	document.getElementById('fade').addEventListener('input', (e) => {
+		document.getElementById('fadeVal').textContent = (e.target.value / 100).toFixed(2);
+		schedule();
+	});
+
+	reconnect();
+</script>
+</body>
+</html>

@@ -3,20 +3,32 @@
 //
 // Routes:
 //
-//	GET /              — demo HTML page (full-screen canvas)
+//	GET /              — canonical demo page (full-screen canvas, shared world)
 //	GET /ambience.js   — browser renderer module
-//	GET /stream        — SSE stream of grid snapshots (~10 Hz)
+//	GET /stream        — SSE stream of the shared global sim (~10 Hz)
+//	GET /dev           — dev page with sliders for tweaking effect parameters
+//	GET /dev/stream    — SSE stream of a PRIVATE sim configured via query params,
+//	                     isolated from the shared global state
 //
-// Run from repo root: `go run ./cmd/server` then open http://localhost:8080/.
+// Dev-stream query params (all optional, sensible defaults):
+//
+//	wind=-1|0|1        WindDir
+//	spawn=N            SpawnEvery (new drop every 1/N probability)
+//	fade=0.65          FadeFactor (0..1)
+//	palette=blue|warm  Palette preset
+//
+// Run from repo root: `go run ./cmd/server`, then open http://localhost:8080/.
 package main
 
 import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"io/fs"
 	"log"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -83,10 +95,10 @@ func (b *broadcaster) broadcast(data []byte) {
 }
 
 func main() {
-	r := sim.NewRain(gridW, gridH, time.Now().UnixNano())
+	shared := sim.NewRain(gridW, gridH, time.Now().UnixNano(), sim.Config{})
 	bc := newBroadcaster()
 
-	go tickLoop(r, bc)
+	go sharedTickLoop(shared, bc)
 
 	web, err := fs.Sub(webFS, "web")
 	if err != nil {
@@ -94,14 +106,15 @@ func main() {
 	}
 	http.Handle("/", http.FileServer(http.FS(web)))
 	http.HandleFunc("/stream", func(w http.ResponseWriter, req *http.Request) {
-		handleSSE(w, req, bc)
+		handleSharedSSE(w, req, bc)
 	})
+	http.HandleFunc("/dev/stream", handleDevSSE)
 
 	log.Printf("ambience listening on %s (grid %dx%d, tick %s)", addr, gridW, gridH, tickRate)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
 
-func tickLoop(r *sim.Rain, bc *broadcaster) {
+func sharedTickLoop(r *sim.Rain, bc *broadcaster) {
 	t := time.NewTicker(tickRate)
 	defer t.Stop()
 	for range t.C {
@@ -131,19 +144,25 @@ func snapshot(r *sim.Rain) []byte {
 	return b
 }
 
-func handleSSE(w http.ResponseWriter, req *http.Request, bc *broadcaster) {
+func sseHeaders(w http.ResponseWriter) (http.Flusher, bool) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
-		return
+		return nil, false
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	return flusher, true
+}
 
+func handleSharedSSE(w http.ResponseWriter, req *http.Request, bc *broadcaster) {
+	flusher, ok := sseHeaders(w)
+	if !ok {
+		return
+	}
 	ch := bc.subscribe()
 	defer bc.unsubscribe(ch)
-
 	ctx := req.Context()
 	for {
 		select {
@@ -157,4 +176,73 @@ func handleSSE(w http.ResponseWriter, req *http.Request, bc *broadcaster) {
 			flusher.Flush()
 		}
 	}
+}
+
+// handleDevSSE runs a private sim for this single connection, configured via
+// query params. When the client disconnects, the sim is garbage-collected.
+func handleDevSSE(w http.ResponseWriter, req *http.Request) {
+	flusher, ok := sseHeaders(w)
+	if !ok {
+		return
+	}
+	cfg := parseDevConfig(req)
+	r := sim.NewRain(gridW, gridH, time.Now().UnixNano(), cfg)
+
+	ctx := req.Context()
+	t := time.NewTicker(tickRate)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			r.Step()
+			fmt.Fprintf(w, "data: %s\n\n", snapshot(r))
+			flusher.Flush()
+		}
+	}
+}
+
+var palettes = map[string][]color.RGBA{
+	"blue": {
+		{180, 220, 255, 255},
+		{140, 190, 240, 255},
+		{100, 160, 220, 255},
+	},
+	"warm": {
+		{255, 220, 180, 255},
+		{240, 180, 140, 255},
+		{220, 140, 100, 255},
+	},
+	"neon": {
+		{150, 255, 180, 255},
+		{180, 150, 255, 255},
+		{255, 150, 200, 255},
+	},
+}
+
+func parseDevConfig(req *http.Request) sim.Config {
+	q := req.URL.Query()
+	cfg := sim.Config{}
+	if s := q.Get("wind"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			cfg.WindDir = n
+		}
+	}
+	if s := q.Get("spawn"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			cfg.SpawnEvery = n
+		}
+	}
+	if s := q.Get("fade"); s != "" {
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			cfg.FadeFactor = f
+		}
+	}
+	if s := q.Get("palette"); s != "" {
+		if p, ok := palettes[s]; ok {
+			cfg.Palette = p
+		}
+	}
+	return cfg
 }
