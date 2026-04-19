@@ -1,5 +1,8 @@
 # Routes ambience.romaine.life to the ambience Service.
-# ExternalDNS creates the DNS record from this resource.
+# Dual parentRefs:
+#   - Gateway main (platform HTTP listener on 80 — ExternalDNS reads this
+#     to create the A record; external-dns#5694 tracks following XListenerSet)
+#   - XListenerSet ambience (HTTPS on 443 with cert)
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -13,6 +16,9 @@ spec:
       kind: Gateway
       name: main
       namespace: envoy-gateway-system
+    - group: gateway.networking.x-k8s.io
+      kind: XListenerSet
+      name: ambience
   rules:
     - matches:
         - path:
