@@ -10,15 +10,15 @@
 		position: absolute; top: 10px; right: 10px; z-index: 10;
 		background: rgba(0,0,0,0.7); padding: 12px 16px;
 		border: 1px solid #333; border-radius: 4px;
-		font-size: 12px; min-width: 240px;
+		font-size: 12px; min-width: 280px;
 	}
 	#panel h1 { font-size: 12px; margin: 0 0 10px 0; opacity: 0.6; text-transform: uppercase; letter-spacing: 1px; }
-	.row { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; gap: 12px; }
-	.row label { opacity: 0.8; }
+	.row { display: flex; align-items: center; margin: 6px 0; gap: 12px; }
+	.row label { opacity: 0.8; min-width: 56px; }
 	.row input[type=range] { flex: 1; min-width: 100px; }
-	.row select { background: #1a1a1a; color: #e0e0e0; border: 1px solid #333; padding: 2px 4px; }
-	.row .val { opacity: 0.6; min-width: 40px; text-align: right; }
-	.status { margin-top: 10px; opacity: 0.5; font-size: 10px; }
+	.row .val { opacity: 0.6; min-width: 48px; text-align: right; font-variant-numeric: tabular-nums; }
+	.row .swatch { width: 48px; height: 14px; border: 1px solid #333; }
+	.status { margin-top: 10px; opacity: 0.5; font-size: 10px; word-break: break-all; }
 </style>
 </head>
 <body>
@@ -27,11 +27,8 @@
 	<h1>ambience dev — rain</h1>
 	<div class="row">
 		<label>wind</label>
-		<select id="wind">
-			<option value="-1">left</option>
-			<option value="0" selected>vertical</option>
-			<option value="1">right</option>
-		</select>
+		<input type="range" id="wind" min="-20" max="20" value="0">
+		<span class="val" id="windVal">0.0</span>
 	</div>
 	<div class="row">
 		<label>spawn 1/</label>
@@ -44,12 +41,10 @@
 		<span class="val" id="fadeVal">0.65</span>
 	</div>
 	<div class="row">
-		<label>palette</label>
-		<select id="palette">
-			<option value="blue" selected>blue</option>
-			<option value="warm">warm</option>
-			<option value="neon">neon</option>
-		</select>
+		<label>hue</label>
+		<input type="range" id="hue" min="0" max="359" value="210">
+		<span class="val" id="hueVal">210°</span>
+		<span class="swatch" id="hueSwatch"></span>
 	</div>
 	<div class="status" id="status">connecting…</div>
 </div>
@@ -59,12 +54,26 @@
 	const status = document.getElementById('status');
 	let amb = null;
 
+	function windVal() { return (+document.getElementById('wind').value) / 10; }
+	function fadeVal() { return (+document.getElementById('fade').value) / 100; }
+	function hueVal() { return +document.getElementById('hue').value; }
+	function spawnVal() { return +document.getElementById('spawn').value; }
+
+	function updateReadouts() {
+		document.getElementById('windVal').textContent = windVal().toFixed(1);
+		document.getElementById('spawnVal').textContent = spawnVal();
+		document.getElementById('fadeVal').textContent = fadeVal().toFixed(2);
+		const h = hueVal();
+		document.getElementById('hueVal').textContent = h + '°';
+		document.getElementById('hueSwatch').style.background = `hsl(${h} 60% 65%)`;
+	}
+
 	function currentQuery() {
 		const q = new URLSearchParams();
-		q.set('wind', document.getElementById('wind').value);
-		q.set('spawn', document.getElementById('spawn').value);
-		q.set('fade', (document.getElementById('fade').value / 100).toFixed(2));
-		q.set('palette', document.getElementById('palette').value);
+		q.set('wind', windVal().toFixed(2));
+		q.set('spawn', spawnVal());
+		q.set('fade', fadeVal().toFixed(2));
+		q.set('hue', hueVal());
 		return q.toString();
 	}
 
@@ -75,24 +84,18 @@
 		amb = new Ambience({ canvas, stream: '/dev/stream?' + q });
 	}
 
-	// Rebuild on any control change, debounced
 	let debounceT = null;
 	function schedule() {
+		updateReadouts();
 		if (debounceT) clearTimeout(debounceT);
 		debounceT = setTimeout(reconnect, 150);
 	}
 
-	document.getElementById('wind').addEventListener('change', schedule);
-	document.getElementById('palette').addEventListener('change', schedule);
-	document.getElementById('spawn').addEventListener('input', (e) => {
-		document.getElementById('spawnVal').textContent = e.target.value;
-		schedule();
-	});
-	document.getElementById('fade').addEventListener('input', (e) => {
-		document.getElementById('fadeVal').textContent = (e.target.value / 100).toFixed(2);
-		schedule();
+	['wind', 'spawn', 'fade', 'hue'].forEach((id) => {
+		document.getElementById(id).addEventListener('input', schedule);
 	});
 
+	updateReadouts();
 	reconnect();
 </script>
 </body>

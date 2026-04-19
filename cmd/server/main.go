@@ -12,10 +12,10 @@
 //
 // Dev-stream query params (all optional, sensible defaults):
 //
-//	wind=-1|0|1        WindDir
-//	spawn=N            SpawnEvery (new drop every 1/N probability)
-//	fade=0.65          FadeFactor (0..1)
-//	palette=blue|warm  Palette preset
+//	wind=0.0       Wind (continuous spectrum, typical range [-2, 2])
+//	spawn=N        SpawnEvery (new drop every 1/N probability)
+//	fade=0.65      FadeFactor (0..1)
+//	hue=210        Hue (base hue in degrees [0, 360))
 //
 // Run from repo root: `go run ./cmd/server`, then open http://localhost:8080/.
 package main
@@ -24,7 +24,6 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"image/color"
 	"io/fs"
 	"log"
 	"net/http"
@@ -107,6 +106,21 @@ func main() {
 	http.Handle("/", http.FileServer(http.FS(web)))
 	http.HandleFunc("/stream", func(w http.ResponseWriter, req *http.Request) {
 		handleSharedSSE(w, req, bc)
+	})
+	// Serve the dev page at a clean /dev URL (not /dev.html) by reading the
+	// embedded file and streaming it as HTML.
+	http.HandleFunc("/dev", func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path != "/dev" {
+			http.NotFound(w, req)
+			return
+		}
+		data, err := fs.ReadFile(web, "dev.html")
+		if err != nil {
+			http.Error(w, "dev page not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(data)
 	})
 	http.HandleFunc("/dev/stream", handleDevSSE)
 
@@ -203,30 +217,12 @@ func handleDevSSE(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-var palettes = map[string][]color.RGBA{
-	"blue": {
-		{180, 220, 255, 255},
-		{140, 190, 240, 255},
-		{100, 160, 220, 255},
-	},
-	"warm": {
-		{255, 220, 180, 255},
-		{240, 180, 140, 255},
-		{220, 140, 100, 255},
-	},
-	"neon": {
-		{150, 255, 180, 255},
-		{180, 150, 255, 255},
-		{255, 150, 200, 255},
-	},
-}
-
 func parseDevConfig(req *http.Request) sim.Config {
 	q := req.URL.Query()
 	cfg := sim.Config{}
 	if s := q.Get("wind"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil {
-			cfg.WindDir = n
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			cfg.Wind = f
 		}
 	}
 	if s := q.Get("spawn"); s != "" {
@@ -239,9 +235,9 @@ func parseDevConfig(req *http.Request) sim.Config {
 			cfg.FadeFactor = f
 		}
 	}
-	if s := q.Get("palette"); s != "" {
-		if p, ok := palettes[s]; ok {
-			cfg.Palette = p
+	if s := q.Get("hue"); s != "" {
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			cfg.Hue = f
 		}
 	}
 	return cfg
