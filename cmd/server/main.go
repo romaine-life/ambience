@@ -220,25 +220,36 @@ func handleDevSSE(w http.ResponseWriter, req *http.Request) {
 func parseDevConfig(req *http.Request) sim.Config {
 	q := req.URL.Query()
 	cfg := sim.Config{}
-	if s := q.Get("wind"); s != "" {
-		if f, err := strconv.ParseFloat(s, 64); err == nil {
-			cfg.Wind = f
-		}
-	}
-	if s := q.Get("spawn"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			cfg.SpawnEvery = n
-		}
-	}
-	if s := q.Get("fade"); s != "" {
-		if f, err := strconv.ParseFloat(s, 64); err == nil {
-			cfg.FadeFactor = f
-		}
-	}
-	if s := q.Get("hue"); s != "" {
-		if f, err := strconv.ParseFloat(s, 64); err == nil {
-			cfg.Hue = f
-		}
-	}
+	getFloat(q, "wind", &cfg.Wind)
+	getFloat(q, "wind_jit", &cfg.WindJitter)
+	getFloat(q, "speed", &cfg.Speed)
+	getFloat(q, "speed_jit", &cfg.SpeedJitter)
+	getInt(q, "streak", &cfg.StreakLen)
+	getFloat(q, "fade", &cfg.FadeFactor)
+	getInt(q, "spawn", &cfg.SpawnEvery)
+	getInt(q, "burst", &cfg.SpawnBurst)
+	getFloat(q, "hue", &cfg.Hue)
+	getFloat(q, "hue_sp", &cfg.HueSpread)
+	getFloat(q, "sat", &cfg.Saturation)
+	getFloat(q, "lmin", &cfg.LightnessMin)
+	getFloat(q, "lmax", &cfg.LightnessMax)
+	getInt(q, "layers", &cfg.Layers)
+	getFloat(q, "lbal", &cfg.LayerBalance)
 	return cfg
+}
+
+func getFloat(q map[string][]string, key string, dst *float64) {
+	if v, ok := q[key]; ok && len(v) > 0 && v[0] != "" {
+		if f, err := strconv.ParseFloat(v[0], 64); err == nil {
+			*dst = f
+		}
+	}
+}
+
+func getInt(q map[string][]string, key string, dst *int) {
+	if v, ok := q[key]; ok && len(v) > 0 && v[0] != "" {
+		if n, err := strconv.Atoi(v[0]); err == nil {
+			*dst = n
+		}
+	}
 }
