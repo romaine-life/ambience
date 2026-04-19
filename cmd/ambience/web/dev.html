@@ -12,29 +12,49 @@
 		border: 1px solid #333; border-radius: 4px;
 		font-size: 11px; width: 300px; max-width: 300px;
 		max-height: calc(100vh - 20px); overflow-y: auto;
+		display: flex; flex-direction: column; gap: 0;
 	}
 	#panel.collapsed .body { display: none; }
 	#panel.collapsed { width: auto; }
 	#panel h1 {
-		font-size: 11px; margin: 0 0 8px 0; opacity: 0.6;
+		font-size: 11px; margin: 0 0 8px 0; opacity: 0.7;
 		text-transform: uppercase; letter-spacing: 1.2px;
-		display: flex; justify-content: space-between; align-items: center;
+		display: flex; justify-content: space-between; align-items: center; gap: 8px;
 	}
-	#panel h2 {
-		font-size: 10px; margin: 12px 0 4px 0; opacity: 0.65;
+	.btnbar { display: flex; gap: 4px; }
+	.iconbtn {
+		background: none; border: 1px solid #333; color: #e0e0e0;
+		font-family: monospace; font-size: 10px; padding: 0 6px;
+		cursor: pointer; border-radius: 2px; line-height: 1.5;
+	}
+	.iconbtn:hover { background: #1a1a1a; border-color: #555; }
+
+	/* Accordion sections. */
+	.section { margin: 6px 0 0 0; }
+	.section-head {
+		display: flex; align-items: center; gap: 6px;
+		padding: 3px 0; cursor: pointer; user-select: none;
+		border-bottom: 1px solid #2a2a2a;
+		font-size: 10px; opacity: 0.75;
 		text-transform: uppercase; letter-spacing: 1px;
-		border-bottom: 1px solid #2a2a2a; padding-bottom: 2px;
 	}
+	.section-head:hover { opacity: 1; }
+	.section-head .chev {
+		display: inline-block; width: 10px; transition: transform 0.15s;
+		opacity: 0.6; font-size: 9px;
+	}
+	.section.closed .section-head .chev { transform: rotate(-90deg); }
+	.section-head .name { flex: 1; }
+	.section-head .count { opacity: 0.4; font-size: 9px; }
+	.section-body { padding: 4px 0 6px 0; }
+	.section.closed .section-body { display: none; }
+
 	#panel h3 {
 		font-size: 9px; margin: 6px 0 2px 0; opacity: 0.4;
 		text-transform: uppercase; letter-spacing: 1px; font-weight: normal;
 	}
-	.empty-slot { opacity: 0.3; font-size: 10px; margin: 2px 0 6px 0; font-style: italic; }
-	#toggle {
-		background: none; border: 1px solid #333; color: #e0e0e0;
-		font-family: monospace; font-size: 10px; padding: 0 6px;
-		cursor: pointer; border-radius: 2px;
-	}
+	.empty-slot { opacity: 0.3; font-size: 10px; padding: 4px 0; font-style: italic; }
+
 	.row { display: flex; align-items: center; margin: 3px 0; gap: 6px; }
 	.row label { opacity: 0.75; min-width: 70px; font-size: 10px; }
 	.row input[type=range] { flex: 1; min-width: 50px; }
@@ -55,42 +75,38 @@
 	}
 	.fire:hover { background: #3a3a3a; border-color: #888; }
 	.fire:active { background: #555; }
-	#log {
-		margin-top: 12px; border-top: 1px solid #2a2a2a; padding-top: 8px;
-	}
-	#log h2 { margin-top: 0; display: flex; justify-content: space-between; }
-	#log .entries {
-		font-size: 9px; max-height: 120px; overflow-y: auto;
+
+	#logEntries {
+		font-size: 9px; max-height: 180px; overflow-y: auto;
 		background: #060606; border: 1px solid #1a1a1a; padding: 4px 6px;
-		opacity: 0.85;
+		opacity: 0.9;
 	}
-	#log .entry { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; }
-	#log .entry .t { opacity: 0.5; margin-right: 4px; }
-	#log .entry .k { opacity: 0.9; margin-right: 4px; font-weight: bold; }
-	#log .entry.downpour .k { color: #9cdcfe; }
-	#log .entry.calm .k { color: #ce9178; }
-	#log .entry.gust .k { color: #dcdcaa; }
-	#log .entry.splash .k { color: #c586c0; }
-	#logClear {
-		background: none; border: 1px solid #333; color: #888;
-		font-family: monospace; font-size: 9px; padding: 0 4px;
-		cursor: pointer; border-radius: 2px;
-	}
+	#logEntries .entry { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; }
+	#logEntries .entry .t { opacity: 0.5; margin-right: 4px; }
+	#logEntries .entry .k { opacity: 0.9; margin-right: 4px; font-weight: bold; }
+	#logEntries .entry.downpour .k { color: #9cdcfe; }
+	#logEntries .entry.calm .k { color: #ce9178; }
+	#logEntries .entry.gust .k { color: #dcdcaa; }
+	#logEntries .entry.splash .k { color: #c586c0; }
+	.log-actions { display: flex; gap: 4px; margin-top: 6px; justify-content: flex-end; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="panel">
-	<h1><span id="title">ambience dev</span><button id="toggle" title="collapse / expand (h)">–</button></h1>
+	<h1>
+		<span id="title">ambience dev</span>
+		<span class="btnbar">
+			<button class="iconbtn" id="toggleAll" title="collapse / expand all sections">⊟</button>
+			<button class="iconbtn" id="toggle" title="collapse / expand panel (h)">–</button>
+		</span>
+	</h1>
 	<div class="body" id="body"></div>
 </div>
 <script src="/ambience.js"></script>
 <script>
-	// Portable schema-driven dev panel.
-	// Per-session sim: the server keeps our sim alive across URL-param
-	// reconnects, so tweaking a knob updates the running world instead of
-	// resetting it. Event knobs also get a "fire" button that POSTs to
-	// /dev/trigger. Log panel shows event occurrences.
+	// Portable schema-driven dev panel with accordion sections + event log.
+	// Per-section collapse state is persisted in localStorage.
 
 	const SLOT_LABELS = {
 		'spawn':     'spawn config',
@@ -100,8 +116,10 @@
 		'end':       'end conditions',
 	};
 	const SLOT_ORDER = ['spawn', 'lever', 'event', 'event-mod', 'end'];
+	const LS_PREFIX = 'ambience.dev.section.';
+	const CHEV = '▾';
 
-	// Stable session ID so every URL-param change reuses the same server-side sim.
+	// Stable session ID — server keeps our sim alive across URL-param reconnects.
 	const SESSION_ID = (crypto.randomUUID ? crypto.randomUUID() :
 		Math.random().toString(36).slice(2) + Date.now().toString(36));
 
@@ -138,13 +156,9 @@
 	function reconnect() {
 		if (amb) amb.close();
 		amb = new Ambience({ canvas, stream: '/dev/stream?' + currentQuery() });
-		// Our Ambience renderer only knows about grid pixels; intercept SSE
-		// messages here too so we can pick log entries out of the same frame.
 		patchAmbForLog(amb);
 	}
 
-	// Monkey-patch: listen to the EventSource that Ambience opened and extract
-	// log entries from each frame. Grid rendering still happens inside Ambience.
 	function patchAmbForLog(amb) {
 		if (!amb || !amb.es) return;
 		amb.es.addEventListener('message', (e) => {
@@ -200,6 +214,37 @@
 		return row;
 	}
 
+	// Build an accordion section. `id` is the localStorage key part; title is the
+	// visible header; count optionally shown in the header; bodyBuilder populates
+	// the body element.
+	function buildSection(id, title, count, defaultOpen, bodyBuilder) {
+		const section = document.createElement('div');
+		section.className = 'section';
+		section.dataset.id = id;
+
+		const storedClosed = localStorage.getItem(LS_PREFIX + id) === 'closed';
+		const initiallyClosed = storedClosed || (!defaultOpen && localStorage.getItem(LS_PREFIX + id) === null);
+		if (initiallyClosed) section.classList.add('closed');
+
+		const head = document.createElement('div');
+		head.className = 'section-head';
+		head.innerHTML = `<span class="chev">${CHEV}</span><span class="name">${title}</span>` +
+			(count != null ? `<span class="count">${count}</span>` : '');
+		head.addEventListener('click', () => {
+			section.classList.toggle('closed');
+			localStorage.setItem(LS_PREFIX + id,
+				section.classList.contains('closed') ? 'closed' : 'open');
+		});
+		section.appendChild(head);
+
+		const bodyEl = document.createElement('div');
+		bodyEl.className = 'section-body';
+		bodyBuilder(bodyEl);
+		section.appendChild(bodyEl);
+
+		return section;
+	}
+
 	function renderPanel(schema) {
 		title.textContent = 'ambience dev — ' + schema.name;
 		body.innerHTML = '';
@@ -209,39 +254,55 @@
 		for (const k of knobs) (bySlot[k.slot] ||= {})[k.group || ''] ??= [], (bySlot[k.slot][k.group || ''] ||= []).push(k);
 
 		for (const slot of SLOT_ORDER) {
-			const h2 = document.createElement('h2');
-			h2.textContent = SLOT_LABELS[slot] || slot;
-			body.appendChild(h2);
+			const slotKnobs = bySlot[slot] ? Object.values(bySlot[slot]).flat() : [];
+			const count = slotKnobs.length;
+			// Spawn open by default, others closed, since spawn is most-used.
+			const defaultOpen = slot === 'spawn';
 
-			if (!bySlot[slot]) {
-				const empty = document.createElement('div');
-				empty.className = 'empty-slot';
-				empty.textContent = 'none yet';
-				body.appendChild(empty);
-				continue;
-			}
-
-			const groups = bySlot[slot];
-			const groupNames = Object.keys(groups);
-			const showSubHeaders = !(groupNames.length === 1 && groupNames[0] === '');
-			for (const g of groupNames) {
-				if (showSubHeaders && g) {
-					const h3 = document.createElement('h3');
-					h3.textContent = g;
-					body.appendChild(h3);
+			const section = buildSection(
+				'slot.' + slot,
+				SLOT_LABELS[slot] || slot,
+				count > 0 ? count : 'none',
+				defaultOpen,
+				(bodyEl) => {
+					if (!bySlot[slot]) {
+						const empty = document.createElement('div');
+						empty.className = 'empty-slot';
+						empty.textContent = 'none yet';
+						bodyEl.appendChild(empty);
+						return;
+					}
+					const groups = bySlot[slot];
+					const groupNames = Object.keys(groups);
+					const showSubHeaders = !(groupNames.length === 1 && groupNames[0] === '');
+					for (const g of groupNames) {
+						if (showSubHeaders && g) {
+							const h3 = document.createElement('h3');
+							h3.textContent = g;
+							bodyEl.appendChild(h3);
+						}
+						for (const k of groups[g]) bodyEl.appendChild(buildRow(k));
+					}
 				}
-				for (const k of groups[g]) body.appendChild(buildRow(k));
-			}
+			);
+			body.appendChild(section);
 		}
 
-		// Log panel.
-		const logDiv = document.createElement('div');
-		logDiv.id = 'log';
-		logDiv.innerHTML = '<h2><span>event log</span><button id="logClear">clear</button></h2><div class="entries" id="logEntries"></div>';
-		body.appendChild(logDiv);
-		document.getElementById('logClear').addEventListener('click', () => {
-			document.getElementById('logEntries').innerHTML = '';
+		// Event-log section — its own collapsible with its own scroll.
+		const logSection = buildSection('log', 'event log', null, true, (bodyEl) => {
+			const entries = document.createElement('div');
+			entries.id = 'logEntries';
+			bodyEl.appendChild(entries);
+			const actions = document.createElement('div');
+			actions.className = 'log-actions';
+			const clearBtn = document.createElement('button');
+			clearBtn.className = 'iconbtn';
+			clearBtn.textContent = 'clear';
+			clearBtn.addEventListener('click', () => { entries.innerHTML = ''; });
+			actions.append(clearBtn);
+			bodyEl.appendChild(actions);
 		});
+		body.appendChild(logSection);
 
 		for (const k of knobs) {
 			document.getElementById(k.key).addEventListener('input', schedule);
@@ -257,12 +318,11 @@
 			row.innerHTML = '<span class="t">t=' + e.tick + '</span><span class="k">' + e.type + '</span><span class="d">' + e.desc + '</span>';
 			box.appendChild(row);
 		}
-		// Trim to last 100 entries, scroll to bottom.
-		while (box.children.length > 100) box.removeChild(box.firstChild);
+		while (box.children.length > 200) box.removeChild(box.firstChild);
 		box.scrollTop = box.scrollHeight;
 	}
 
-	// Collapse toggle
+	// Panel-level collapse / expand all.
 	const panel = document.getElementById('panel');
 	const toggle = document.getElementById('toggle');
 	function setCollapsed(on) {
@@ -273,6 +333,16 @@
 	window.addEventListener('keydown', (e) => {
 		if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
 		if (e.key === 'h') setCollapsed(!panel.classList.contains('collapsed'));
+	});
+
+	// Collapse / expand every section at once.
+	document.getElementById('toggleAll').addEventListener('click', () => {
+		const sections = document.querySelectorAll('.section');
+		const anyOpen = [...sections].some(s => !s.classList.contains('closed'));
+		for (const s of sections) {
+			s.classList.toggle('closed', anyOpen);
+			localStorage.setItem(LS_PREFIX + s.dataset.id, anyOpen ? 'closed' : 'open');
+		}
 	});
 
 	// Boot
