@@ -29,6 +29,7 @@
 		font-size: 9px; margin: 6px 0 2px 0; opacity: 0.4;
 		text-transform: uppercase; letter-spacing: 1px; font-weight: normal;
 	}
+	.empty-slot { opacity: 0.3; font-size: 10px; margin: 2px 0 6px 0; font-style: italic; }
 	#toggle {
 		background: none; border: 1px solid #333; color: #e0e0e0;
 		font-family: monospace; font-size: 10px; padding: 0 6px;
@@ -134,14 +135,20 @@
 		for (const k of knobs) (bySlot[k.slot] ||= {})[k.group || ''] ??= [], (bySlot[k.slot][k.group || ''] ||= []).push(k);
 
 		for (const slot of SLOT_ORDER) {
-			if (!bySlot[slot]) continue;
 			const h2 = document.createElement('h2');
 			h2.textContent = SLOT_LABELS[slot] || slot;
 			body.appendChild(h2);
 
+			if (!bySlot[slot]) {
+				const empty = document.createElement('div');
+				empty.className = 'empty-slot';
+				empty.textContent = 'none yet';
+				body.appendChild(empty);
+				continue;
+			}
+
 			const groups = bySlot[slot];
 			const groupNames = Object.keys(groups);
-			// If only one group and it's the empty one, skip sub-headers.
 			const showSubHeaders = !(groupNames.length === 1 && groupNames[0] === '');
 			for (const g of groupNames) {
 				if (showSubHeaders && g) {
