@@ -239,6 +239,21 @@ func parseDevConfig(req *http.Request) sim.Config {
 	getFloat(q, "lmax", &cfg.LightnessMax)
 	getInt(q, "layers", &cfg.Layers)
 	getFloat(q, "lbal", &cfg.LayerBalance)
+	// Levers
+	getFloat(q, "hue_drift", &cfg.HueDriftAmp)
+	getFloat(q, "wind_drift", &cfg.WindDriftAmp)
+	// Event chances
+	getFloat(q, "downpour_p", &cfg.DownpourChance)
+	getFloat(q, "calm_p", &cfg.CalmChance)
+	getFloat(q, "gust_p", &cfg.GustChance)
+	getFloat(q, "splash_p", &cfg.SplashChance)
+	// Event modifiers
+	getInt(q, "downpour_dur", &cfg.DownpourDur)
+	getFloat(q, "downpour_mult", &cfg.DownpourMult)
+	getInt(q, "calm_dur", &cfg.CalmDur)
+	getInt(q, "gust_dur", &cfg.GustDur)
+	getFloat(q, "gust_str", &cfg.GustStrength)
+	getInt(q, "splash_size", &cfg.SplashSize)
 	return cfg
 }
 

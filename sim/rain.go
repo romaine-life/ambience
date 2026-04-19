@@ -83,6 +83,43 @@ type Config struct {
 	// LayerBalance is the fraction of new drops that go into the background
 	// layer (0..1). Ignored when Layers < 2.
 	LayerBalance float64
+
+	// LEVERS (continuous drift)
+
+	// HueDriftAmp is the amplitude (±degrees) the base hue wanders over time
+	// around its static Hue value. 0 = no drift.
+	HueDriftAmp float64
+	// WindDriftAmp is the amplitude the effective base wind wanders around
+	// Wind (in cols/row). Creates gentle sway.
+	WindDriftAmp float64
+
+	// EVENTS (per-tick probability)
+
+	// DownpourChance is the per-tick probability of a downpour event firing
+	// (while one isn't already active). 0.001 = ~once per 10s at 10Hz.
+	DownpourChance float64
+	// CalmChance is the per-tick probability of a calm event (spawn pause).
+	CalmChance float64
+	// GustChance is the per-tick probability of a wind gust.
+	GustChance float64
+	// SplashChance is the per-tick probability of a splash event.
+	SplashChance float64
+
+	// EVENT MODIFIERS (typical per-event values; each event randomizes ±30%)
+
+	// DownpourDur is the typical downpour duration in ticks.
+	DownpourDur int
+	// DownpourMult is the spawn-rate multiplier during a downpour.
+	DownpourMult float64
+	// CalmDur is the typical calm duration in ticks (no drops spawn).
+	CalmDur int
+	// GustDur is the typical gust duration in ticks.
+	GustDur int
+	// GustStrength is the magnitude of the wind delta added during a gust
+	// (sign randomized per event).
+	GustStrength float64
+	// SplashSize is the typical splash radius in pixels.
+	SplashSize int
 }
 
 func (c Config) withDefaults() Config {
@@ -118,6 +155,24 @@ func (c Config) withDefaults() Config {
 	}
 	if c.Layers <= 0 {
 		c.Layers = 1
+	}
+	if c.DownpourDur <= 0 {
+		c.DownpourDur = 60
+	}
+	if c.DownpourMult <= 0 {
+		c.DownpourMult = 4
+	}
+	if c.CalmDur <= 0 {
+		c.CalmDur = 50
+	}
+	if c.GustDur <= 0 {
+		c.GustDur = 30
+	}
+	if c.GustStrength <= 0 {
+		c.GustStrength = 1.5
+	}
+	if c.SplashSize <= 0 {
+		c.SplashSize = 4
 	}
 	return c
 }
@@ -188,8 +243,36 @@ func RainSchema() EffectSchema {
 			// depth
 			{Key: "layers", Label: "layers", Slot: SlotSpawn, Group: "depth", Type: KnobInt, Min: 1, Max: 2, Step: 1, Default: 1},
 			{Key: "lbal", Label: "bg balance", Slot: SlotSpawn, Group: "depth", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0.4},
+
+			// CONTINUOUS LEVERS — slow drift over time.
+			{Key: "hue_drift", Label: "hue drift", Slot: SlotLever, Type: KnobFloat, Min: 0, Max: 60, Step: 1, Default: 0},
+			{Key: "wind_drift", Label: "wind drift", Slot: SlotLever, Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0},
+
+			// DISCRETE EVENTS — per-tick probability of firing.
+			{Key: "downpour_p", Label: "downpour", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.01, Step: 0.0005, Default: 0},
+			{Key: "calm_p", Label: "calm", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.01, Step: 0.0005, Default: 0},
+			{Key: "gust_p", Label: "gust", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.01, Step: 0.0005, Default: 0},
+			{Key: "splash_p", Label: "splash", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.05, Step: 0.002, Default: 0},
+
+			// EVENT MODIFIERS — typical per-event values (each event randomizes ±30%).
+			{Key: "downpour_dur", Label: "downpour dur", Slot: SlotEventMod, Group: "downpour", Type: KnobInt, Min: 10, Max: 300, Step: 10, Default: 60},
+			{Key: "downpour_mult", Label: "downpour ×", Slot: SlotEventMod, Group: "downpour", Type: KnobFloat, Min: 1.5, Max: 10, Step: 0.5, Default: 4},
+			{Key: "calm_dur", Label: "calm dur", Slot: SlotEventMod, Group: "calm", Type: KnobInt, Min: 10, Max: 300, Step: 10, Default: 50},
+			{Key: "gust_dur", Label: "gust dur", Slot: SlotEventMod, Group: "gust", Type: KnobInt, Min: 5, Max: 100, Step: 5, Default: 30},
+			{Key: "gust_str", Label: "gust strength", Slot: SlotEventMod, Group: "gust", Type: KnobFloat, Min: 0.3, Max: 3, Step: 0.1, Default: 1.5},
+			{Key: "splash_size", Label: "splash size", Slot: SlotEventMod, Group: "splash", Type: KnobInt, Min: 2, Max: 12, Step: 1, Default: 4},
 		},
 	}
+}
+
+// splashInstance is an active splash event — a small radial ring that
+// expands outward from (row, col) over maxAge ticks and fades as it grows.
+type splashInstance struct {
+	row, col  int
+	age       int
+	maxAge    int
+	maxRadius int
+	color     color.RGBA
 }
 
 // Rain is the rain simulation.
@@ -199,6 +282,17 @@ type Rain struct {
 	drops []drop
 	rng   *rand.Rand
 	cfg   Config
+
+	// lever state
+	tick int
+
+	// event state
+	downpourTicks int
+	downpourMult  float64
+	calmTicks     int
+	gustTicks     int
+	gustWind      float64
+	splashes      []splashInstance
 }
 
 // NewRain builds a Rain sim. Zero Config gets sensible defaults.
@@ -216,21 +310,70 @@ func NewRain(w, h int, seed int64, cfg Config) *Rain {
 	}
 }
 
-// Step advances the sim by one tick:
-//  1. Clear the grid (drops repaint their trails each tick; no residual state).
-//  2. Roll for spawn; if hit, emit 1..SpawnBurst new drops.
-//  3. Advance every active drop; paint its head + streak trail into the grid.
-//  4. Drop drops whose trail has fully exited the bottom.
+// Step advances the sim by one tick. Flow:
+//  1. Tick bookkeeping; decrement active event timers.
+//  2. Roll for new events (downpour, calm, gust, splash) if not already active.
+//  3. Clear the grid.
+//  4. Paint active splashes.
+//  5. Roll for drop spawn (respecting calm / downpour multiplier).
+//  6. Advance every active drop; paint its head + streak trail.
+//  7. Cull drops whose trail has fully exited the bottom.
+//  8. Age/remove expired splashes.
 func (r *Rain) Step() {
-	// 1. Clear.
+	r.tick++
+
+	// 1. Decrement active event timers.
+	if r.downpourTicks > 0 {
+		r.downpourTicks--
+	}
+	if r.calmTicks > 0 {
+		r.calmTicks--
+	}
+	if r.gustTicks > 0 {
+		r.gustTicks--
+	} else {
+		r.gustWind = 0
+	}
+
+	// 2. Roll for new events.
+	if r.downpourTicks == 0 && r.rng.Float64() < r.cfg.DownpourChance {
+		r.downpourTicks = jitterInt(r.rng, r.cfg.DownpourDur, 0.3)
+		r.downpourMult = r.cfg.DownpourMult
+	}
+	if r.calmTicks == 0 && r.rng.Float64() < r.cfg.CalmChance {
+		r.calmTicks = jitterInt(r.rng, r.cfg.CalmDur, 0.3)
+	}
+	if r.gustTicks == 0 && r.rng.Float64() < r.cfg.GustChance {
+		r.gustTicks = jitterInt(r.rng, r.cfg.GustDur, 0.3)
+		sign := 1.0
+		if r.rng.Float64() < 0.5 {
+			sign = -1
+		}
+		r.gustWind = sign * r.cfg.GustStrength * (0.7 + r.rng.Float64()*0.6)
+	}
+	if r.rng.Float64() < r.cfg.SplashChance {
+		r.spawnSplash()
+	}
+
+	// 3. Clear.
 	for y := range r.Grid {
 		for x := range r.Grid[y] {
 			r.Grid[y][x] = Pixel{}
 		}
 	}
 
-	// 2. Spawn.
-	if r.rng.Intn(r.cfg.SpawnEvery) == 0 {
+	// 4. Paint splashes.
+	r.paintSplashes()
+
+	// 5. Spawn drops — unless in a calm period. Downpour multiplies spawn rate.
+	effectiveSpawn := r.cfg.SpawnEvery
+	if r.downpourTicks > 0 && r.downpourMult > 1 {
+		effectiveSpawn = int(float64(r.cfg.SpawnEvery) / r.downpourMult)
+		if effectiveSpawn < 1 {
+			effectiveSpawn = 1
+		}
+	}
+	if r.calmTicks == 0 && r.rng.Intn(effectiveSpawn) == 0 {
 		burst := 1
 		if r.cfg.SpawnBurst > 1 {
 			burst = 1 + r.rng.Intn(r.cfg.SpawnBurst)
@@ -240,19 +383,101 @@ func (r *Rain) Step() {
 		}
 	}
 
-	// 3 + 4. Advance + paint + cull.
+	// 6 + 7. Advance + paint + cull drops.
 	alive := r.drops[:0]
 	for _, d := range r.drops {
 		d.Row += d.vRow
 		d.Col += d.vCol
 		r.paintDrop(d)
-		// Keep alive until the tail has cleared the bottom.
 		tailRow := d.Row - float64(d.streakLen-1)*d.vRow
 		if tailRow < float64(r.H) && d.Row > -float64(d.streakLen) {
 			alive = append(alive, d)
 		}
 	}
 	r.drops = alive
+
+	// 8. Age splashes; drop expired.
+	splashesAlive := r.splashes[:0]
+	for _, s := range r.splashes {
+		s.age++
+		if s.age < s.maxAge {
+			splashesAlive = append(splashesAlive, s)
+		}
+	}
+	r.splashes = splashesAlive
+}
+
+// jitterInt returns an int in [base*(1-spread), base*(1+spread)], uniform.
+func jitterInt(rng *rand.Rand, base int, spread float64) int {
+	f := float64(base) * (1 + spread*(rng.Float64()*2-1))
+	n := int(math.Round(f))
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+// currentHue returns the base hue drifted by the HueDriftAmp lever, using a
+// slow sine with fixed period (~30s at 10Hz). 0 amplitude = static.
+func (r *Rain) currentHue() float64 {
+	base := r.cfg.Hue
+	if r.cfg.HueDriftAmp > 0 {
+		base += r.cfg.HueDriftAmp * math.Sin(float64(r.tick)*0.02)
+	}
+	return math.Mod(base+360, 360)
+}
+
+// currentWind returns the base wind drifted by WindDriftAmp plus any active
+// gust delta.
+func (r *Rain) currentWind() float64 {
+	w := r.cfg.Wind
+	if r.cfg.WindDriftAmp > 0 {
+		w += r.cfg.WindDriftAmp * math.Sin(float64(r.tick)*0.013+1.7)
+	}
+	w += r.gustWind
+	return w
+}
+
+func (r *Rain) spawnSplash() {
+	if r.cfg.SplashSize <= 0 {
+		return
+	}
+	radius := jitterInt(r.rng, r.cfg.SplashSize, 0.3)
+	hue := math.Mod(r.currentHue()+(r.rng.Float64()*2-1)*r.cfg.HueSpread+360, 360)
+	c := hslToRGB(hue, r.cfg.Saturation, r.cfg.LightnessMax)
+	r.splashes = append(r.splashes, splashInstance{
+		row:       r.rng.Intn(r.H),
+		col:       r.rng.Intn(r.W),
+		maxAge:    radius * 2,
+		maxRadius: radius,
+		color:     c,
+	})
+}
+
+func (r *Rain) paintSplashes() {
+	for _, s := range r.splashes {
+		t := float64(s.age) / float64(s.maxAge) // 0..1
+		radius := t * float64(s.maxRadius)
+		alpha := 1 - t
+		c := s.color
+		c.R = uint8(float64(c.R) * alpha)
+		c.G = uint8(float64(c.G) * alpha)
+		c.B = uint8(float64(c.B) * alpha)
+		// Plot a ring at the current radius.
+		steps := int(2 * math.Pi * radius)
+		if steps < 8 {
+			steps = 8
+		}
+		for i := 0; i < steps; i++ {
+			theta := 2 * math.Pi * float64(i) / float64(steps)
+			gc := s.col + int(math.Round(radius*math.Cos(theta)))
+			gr := s.row + int(math.Round(radius*math.Sin(theta)))
+			if gr < 0 || gr >= r.H || gc < 0 || gc >= r.W {
+				continue
+			}
+			r.Grid[gr][gc] = Pixel{Filled: true, C: c}
+		}
+	}
 }
 
 // paintDrop lays down StreakLen cells from the drop's head backward along its
@@ -280,11 +505,11 @@ func (r *Rain) paintDrop(d drop) {
 func (r *Rain) spawnDrop() {
 	isBG := r.cfg.Layers >= 2 && r.rng.Float64() < r.cfg.LayerBalance
 
-	// Motion jitter.
+	// Motion jitter. Wind uses currentWind() so lever drift + gust events apply.
 	sJit := (r.rng.Float64()*2 - 1) * r.cfg.SpeedJitter
 	wJit := (r.rng.Float64()*2 - 1) * r.cfg.WindJitter
 	effSpeed := r.cfg.Speed * (1 + sJit)
-	effWind := r.cfg.Wind * (1 + wJit)
+	effWind := r.currentWind() + wJit*r.cfg.Wind // jitter relative to static base magnitude
 	if effSpeed < 0.1 {
 		effSpeed = 0.1
 	}
@@ -293,9 +518,9 @@ func (r *Rain) spawnDrop() {
 		effSpeed *= 0.6
 	}
 
-	// Color: hue base + jitter, lightness sampled from [min, max], saturation from cfg.
+	// Color: hue base (possibly drifted) + jitter, lightness sampled from [min, max].
 	hJit := (r.rng.Float64()*2 - 1) * r.cfg.HueSpread
-	hue := math.Mod(r.cfg.Hue+hJit+360, 360)
+	hue := math.Mod(r.currentHue()+hJit+360, 360)
 	t := r.rng.Float64()
 	lightness := r.cfg.LightnessMin + t*(r.cfg.LightnessMax-r.cfg.LightnessMin)
 	if isBG {
