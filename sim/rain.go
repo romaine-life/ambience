@@ -161,6 +161,37 @@ func clamp01(v float64) float64 {
 	return v
 }
 
+// RainSchema describes Rain's tunable knobs for the dev UI. Every current
+// knob is spawn-config (set per drop at creation). When we add events
+// (downpour, splash, calm) they'll gain SlotEvent / SlotEventMod entries.
+func RainSchema() EffectSchema {
+	return EffectSchema{
+		Name: "rain",
+		Knobs: []Knob{
+			// motion
+			{Key: "wind", Label: "wind", Slot: SlotSpawn, Group: "motion", Type: KnobFloat, Min: -3, Max: 3, Step: 0.1, Default: 0},
+			{Key: "wind_jit", Label: "wind jitter", Slot: SlotSpawn, Group: "motion", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0},
+			{Key: "speed", Label: "speed", Slot: SlotSpawn, Group: "motion", Type: KnobFloat, Min: 0.3, Max: 3, Step: 0.1, Default: 1.0},
+			{Key: "speed_jit", Label: "speed jitter", Slot: SlotSpawn, Group: "motion", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0},
+			// shape
+			{Key: "streak", Label: "streak len", Slot: SlotSpawn, Group: "shape", Type: KnobInt, Min: 1, Max: 16, Step: 1, Default: 5},
+			{Key: "fade", Label: "fade", Slot: SlotSpawn, Group: "shape", Type: KnobFloat, Min: 0.5, Max: 1, Step: 0.01, Default: 0.88},
+			// spawn rate
+			{Key: "spawn", Label: "spawn 1/", Slot: SlotSpawn, Group: "density", Type: KnobInt, Min: 1, Max: 30, Step: 1, Default: 5},
+			{Key: "burst", Label: "burst max", Slot: SlotSpawn, Group: "density", Type: KnobInt, Min: 1, Max: 8, Step: 1, Default: 1},
+			// color
+			{Key: "hue", Label: "hue", Slot: SlotSpawn, Group: "color", Type: KnobFloat, Min: 0, Max: 359, Step: 1, Default: 210},
+			{Key: "hue_sp", Label: "hue spread", Slot: SlotSpawn, Group: "color", Type: KnobFloat, Min: 0, Max: 180, Step: 1, Default: 0},
+			{Key: "sat", Label: "saturation", Slot: SlotSpawn, Group: "color", Type: KnobFloat, Min: 0, Max: 1, Step: 0.01, Default: 0.6},
+			{Key: "lmin", Label: "light min", Slot: SlotSpawn, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.95, Step: 0.01, Default: 0.55},
+			{Key: "lmax", Label: "light max", Slot: SlotSpawn, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.95, Step: 0.01, Default: 0.85},
+			// depth
+			{Key: "layers", Label: "layers", Slot: SlotSpawn, Group: "depth", Type: KnobInt, Min: 1, Max: 2, Step: 1, Default: 1},
+			{Key: "lbal", Label: "bg balance", Slot: SlotSpawn, Group: "depth", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0.4},
+		},
+	}
+}
+
 // Rain is the rain simulation.
 type Rain struct {
 	W, H  int

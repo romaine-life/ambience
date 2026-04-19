@@ -20,107 +20,82 @@
 		text-transform: uppercase; letter-spacing: 1.2px;
 		display: flex; justify-content: space-between; align-items: center;
 	}
+	#panel h2 {
+		font-size: 10px; margin: 12px 0 4px 0; opacity: 0.65;
+		text-transform: uppercase; letter-spacing: 1px;
+		border-bottom: 1px solid #2a2a2a; padding-bottom: 2px;
+	}
+	#panel h3 {
+		font-size: 9px; margin: 6px 0 2px 0; opacity: 0.4;
+		text-transform: uppercase; letter-spacing: 1px; font-weight: normal;
+	}
 	#toggle {
 		background: none; border: 1px solid #333; color: #e0e0e0;
 		font-family: monospace; font-size: 10px; padding: 0 6px;
 		cursor: pointer; border-radius: 2px;
 	}
-	#panel h2 { font-size: 10px; margin: 12px 0 4px 0; opacity: 0.5; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #222; padding-bottom: 2px; }
 	.row { display: flex; align-items: center; margin: 3px 0; gap: 8px; }
 	.row label { opacity: 0.75; min-width: 76px; font-size: 10px; }
 	.row input[type=range] { flex: 1; min-width: 70px; }
 	.row .val { opacity: 0.6; min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; font-size: 10px; }
-	.row .swatch { width: 36px; height: 12px; border: 1px solid #333; }
-	.status { margin-top: 10px; opacity: 0.5; font-size: 9px; word-break: break-all; line-height: 1.3; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="panel">
-	<h1><span>ambience dev — rain</span><button id="toggle" title="collapse / expand (h)">–</button></h1>
-	<div class="body">
-
-	<h2>motion</h2>
-	<div class="row"><label>wind</label><input type="range" id="wind" min="-30" max="30" value="0"><span class="val" id="wind_v">0.00</span></div>
-	<div class="row"><label>wind jitter</label><input type="range" id="wind_jit" min="0" max="100" value="0"><span class="val" id="wind_jit_v">0.00</span></div>
-	<div class="row"><label>speed</label><input type="range" id="speed" min="3" max="30" value="10"><span class="val" id="speed_v">1.00</span></div>
-	<div class="row"><label>speed jitter</label><input type="range" id="speed_jit" min="0" max="100" value="0"><span class="val" id="speed_jit_v">0.00</span></div>
-
-	<h2>shape</h2>
-	<div class="row"><label>streak len</label><input type="range" id="streak" min="1" max="16" value="5"><span class="val" id="streak_v">5</span></div>
-	<div class="row"><label>fade</label><input type="range" id="fade" min="50" max="100" value="88"><span class="val" id="fade_v">0.88</span></div>
-
-	<h2>spawn</h2>
-	<div class="row"><label>spawn 1/</label><input type="range" id="spawn" min="1" max="30" value="5"><span class="val" id="spawn_v">5</span></div>
-	<div class="row"><label>burst max</label><input type="range" id="burst" min="1" max="8" value="1"><span class="val" id="burst_v">1</span></div>
-
-	<h2>color</h2>
-	<div class="row"><label>hue</label><input type="range" id="hue" min="0" max="359" value="210"><span class="val" id="hue_v">210°</span><span class="swatch" id="hue_s"></span></div>
-	<div class="row"><label>hue spread</label><input type="range" id="hue_sp" min="0" max="180" value="0"><span class="val" id="hue_sp_v">0°</span></div>
-	<div class="row"><label>saturation</label><input type="range" id="sat" min="0" max="100" value="60"><span class="val" id="sat_v">0.60</span></div>
-	<div class="row"><label>light min</label><input type="range" id="lmin" min="5" max="95" value="55"><span class="val" id="lmin_v">0.55</span></div>
-	<div class="row"><label>light max</label><input type="range" id="lmax" min="5" max="95" value="85"><span class="val" id="lmax_v">0.85</span></div>
-
-	<h2>depth</h2>
-	<div class="row"><label>layers</label><input type="range" id="layers" min="1" max="2" value="1"><span class="val" id="layers_v">1</span></div>
-	<div class="row"><label>bg balance</label><input type="range" id="lbal" min="0" max="100" value="40"><span class="val" id="lbal_v">0.40</span></div>
-
-	<div class="status" id="status">connecting…</div>
-	</div>
+	<h1><span id="title">ambience dev</span><button id="toggle" title="collapse / expand (h)">–</button></h1>
+	<div class="body" id="body"></div>
 </div>
 <script src="/ambience.js"></script>
 <script>
+	// Portable schema-driven dev panel. Fetches the effect's schema and builds
+	// controls dynamically, grouped by slot (spawn / lever / event / etc.)
+	// and by the optional sub-group within each slot.
+
+	const SLOT_LABELS = {
+		'spawn':     'spawn config',
+		'lever':     'continuous levers',
+		'event':     'discrete events',
+		'event-mod': 'event modifiers',
+		'end':       'end conditions',
+	};
+	const SLOT_ORDER = ['spawn', 'lever', 'event', 'event-mod', 'end'];
+
 	const canvas = document.getElementById('c');
-	const status = document.getElementById('status');
+	const body = document.getElementById('body');
+	const title = document.getElementById('title');
 	let amb = null;
+	let knobs = [];
 
-	// Each control maps its raw input value to the effective sim param via a
-	// divisor (or no divisor for ints). Render formatter for the readout.
-	const ctrls = [
-		{ id: 'wind',     div: 10,  fmt: v => v.toFixed(2) },
-		{ id: 'wind_jit', div: 100, fmt: v => v.toFixed(2) },
-		{ id: 'speed',    div: 10,  fmt: v => v.toFixed(2) },
-		{ id: 'speed_jit',div: 100, fmt: v => v.toFixed(2) },
-		{ id: 'streak',   div: 1,   fmt: v => v.toFixed(0) },
-		{ id: 'fade',     div: 100, fmt: v => v.toFixed(2) },
-		{ id: 'spawn',    div: 1,   fmt: v => v.toFixed(0) },
-		{ id: 'burst',    div: 1,   fmt: v => v.toFixed(0) },
-		{ id: 'hue',      div: 1,   fmt: v => v.toFixed(0) + '°' },
-		{ id: 'hue_sp',   div: 1,   fmt: v => v.toFixed(0) + '°' },
-		{ id: 'sat',      div: 100, fmt: v => v.toFixed(2) },
-		{ id: 'lmin',     div: 100, fmt: v => v.toFixed(2) },
-		{ id: 'lmax',     div: 100, fmt: v => v.toFixed(2) },
-		{ id: 'layers',   div: 1,   fmt: v => v.toFixed(0) },
-		{ id: 'lbal',     div: 100, fmt: v => v.toFixed(2) },
-	];
+	function fmt(knob, v) {
+		if (knob.type === 'int') return String(Math.round(v));
+		// decimals from step
+		const d = (knob.step < 0.1) ? 2 : (knob.step < 1 ? 1 : 0);
+		return v.toFixed(d) + (knob.key === 'hue' || knob.key === 'hue_sp' ? '°' : '');
+	}
 
-	function valOf(id) {
-		const c = ctrls.find(c => c.id === id);
-		return (+document.getElementById(id).value) / c.div;
+	function valOf(key) {
+		return +document.getElementById(key).value;
 	}
 
 	function updateReadouts() {
-		for (const c of ctrls) {
-			document.getElementById(c.id + '_v').textContent = c.fmt(valOf(c.id));
+		for (const k of knobs) {
+			document.getElementById(k.key + '_v').textContent = fmt(k, valOf(k.key));
 		}
-		const h = valOf('hue');
-		document.getElementById('hue_s').style.background = `hsl(${h} ${Math.round(valOf('sat')*100)}% ${Math.round(((valOf('lmin')+valOf('lmax'))/2)*100)}%)`;
 	}
 
 	function currentQuery() {
 		const q = new URLSearchParams();
-		for (const c of ctrls) {
-			const v = valOf(c.id);
-			q.set(c.id, c.div === 1 ? v.toFixed(0) : v.toFixed(3));
+		for (const k of knobs) {
+			const v = valOf(k.key);
+			q.set(k.key, k.type === 'int' ? String(Math.round(v)) : v.toString());
 		}
 		return q.toString();
 	}
 
 	function reconnect() {
 		if (amb) amb.close();
-		const q = currentQuery();
-		status.textContent = '? ' + q;
-		amb = new Ambience({ canvas, stream: '/dev/stream?' + q });
+		amb = new Ambience({ canvas, stream: '/dev/stream?' + currentQuery() });
 	}
 
 	let debounceT = null;
@@ -130,10 +105,60 @@
 		debounceT = setTimeout(reconnect, 150);
 	}
 
-	for (const c of ctrls) {
-		document.getElementById(c.id).addEventListener('input', schedule);
+	function buildRow(knob) {
+		const row = document.createElement('div');
+		row.className = 'row';
+		const label = document.createElement('label');
+		label.textContent = knob.label;
+		const input = document.createElement('input');
+		input.type = 'range';
+		input.id = knob.key;
+		input.min = knob.min;
+		input.max = knob.max;
+		input.step = knob.step;
+		input.value = knob.default;
+		const val = document.createElement('span');
+		val.className = 'val';
+		val.id = knob.key + '_v';
+		row.append(label, input, val);
+		return row;
 	}
 
+	function renderPanel(schema) {
+		title.textContent = 'ambience dev — ' + schema.name;
+		body.innerHTML = '';
+		knobs = schema.knobs;
+
+		// Group: slot → subgroup → knobs
+		const bySlot = {};
+		for (const k of knobs) (bySlot[k.slot] ||= {})[k.group || ''] ??= [], (bySlot[k.slot][k.group || ''] ||= []).push(k);
+
+		for (const slot of SLOT_ORDER) {
+			if (!bySlot[slot]) continue;
+			const h2 = document.createElement('h2');
+			h2.textContent = SLOT_LABELS[slot] || slot;
+			body.appendChild(h2);
+
+			const groups = bySlot[slot];
+			const groupNames = Object.keys(groups);
+			// If only one group and it's the empty one, skip sub-headers.
+			const showSubHeaders = !(groupNames.length === 1 && groupNames[0] === '');
+			for (const g of groupNames) {
+				if (showSubHeaders && g) {
+					const h3 = document.createElement('h3');
+					h3.textContent = g;
+					body.appendChild(h3);
+				}
+				for (const k of groups[g]) body.appendChild(buildRow(k));
+			}
+		}
+
+		for (const k of knobs) {
+			document.getElementById(k.key).addEventListener('input', schedule);
+		}
+	}
+
+	// Collapse toggle
 	const panel = document.getElementById('panel');
 	const toggle = document.getElementById('toggle');
 	function setCollapsed(on) {
@@ -146,8 +171,15 @@
 		if (e.key === 'h') setCollapsed(!panel.classList.contains('collapsed'));
 	});
 
-	updateReadouts();
-	reconnect();
+	// Boot: fetch schema, render, connect
+	fetch('/effects/rain/schema')
+		.then(r => r.json())
+		.then(schema => {
+			renderPanel(schema);
+			updateReadouts();
+			reconnect();
+		})
+		.catch(err => console.error('failed to load schema', err));
 </script>
 </body>
 </html>

@@ -123,6 +123,10 @@ func main() {
 		_, _ = w.Write(data)
 	})
 	http.HandleFunc("/dev/stream", handleDevSSE)
+	http.HandleFunc("/effects/rain/schema", func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(sim.RainSchema())
+	})
 
 	log.Printf("ambience listening on %s (grid %dx%d, tick %s)", addr, gridW, gridH, tickRate)
 	log.Fatal(http.ListenAndServe(addr, nil))
