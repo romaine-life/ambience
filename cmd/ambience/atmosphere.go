@@ -117,9 +117,10 @@ func (a *atmosphere) broadcast(cmd Command) {
 
 func (a *atmosphere) snapshot() snapshotData {
 	a.mu.Lock()
-	cfg := a.cfg
 	seed := a.seed
 	a.mu.Unlock()
+	// Use the sim's effective config (defaults applied), not our raw stored cfg.
+	cfg := a.sim.EffectiveConfig()
 	s := a.sim.SnapshotState()
 	return snapshotData{
 		Tick:         s.Tick,

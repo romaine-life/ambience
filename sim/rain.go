@@ -346,6 +346,14 @@ func (r *Rain) CurrentTick() int {
 	return r.tick
 }
 
+// EffectiveConfig returns the sim's current config with all defaults applied.
+// Used by atmospheres to share the effective values with clients via snapshot.
+func (r *Rain) EffectiveConfig() Config {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cfg
+}
+
 // TriggerEvent fires a discrete event immediately, bypassing probability.
 // Returns true on recognized event names ("downpour", "calm", "gust", "splash").
 func (r *Rain) TriggerEvent(name string) bool {
