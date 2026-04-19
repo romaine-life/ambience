@@ -109,6 +109,7 @@
 	function buildRow(knob) {
 		const row = document.createElement('div');
 		row.className = 'row';
+		if (knob.description) row.title = knob.description;
 		const label = document.createElement('label');
 		label.textContent = knob.label;
 		const input = document.createElement('input');
@@ -118,6 +119,7 @@
 		input.max = knob.max;
 		input.step = knob.step;
 		input.value = knob.default;
+		if (knob.description) input.title = knob.description;
 		const val = document.createElement('span');
 		val.className = 'val';
 		val.id = knob.key + '_v';

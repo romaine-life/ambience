@@ -48,6 +48,9 @@ type Knob struct {
 	// Group is an optional sub-label within the slot for visual clustering
 	// (e.g. "motion", "color"). Empty = ungrouped.
 	Group string `json:"group,omitempty"`
+	// Description is a short blurb (< 120 chars) explaining what the knob
+	// does. Rendered as a hover tooltip in the dev UI.
+	Description string `json:"description,omitempty"`
 }
 
 // EffectSchema is an effect's full control surface. Served from
