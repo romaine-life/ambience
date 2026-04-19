@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ambience
+  namespace: ambience
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ambience
+  template:
+    metadata:
+      labels:
+        app: ambience
+    spec:
+      containers:
+        - name: ambience
+          image: romainecr.azurecr.io/ambience:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
