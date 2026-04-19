@@ -35,93 +35,40 @@ type drop struct {
 // withDefaults().
 type Config struct {
 	// MOTION
-
-	// Wind is slope (cols per row of descent). 0 = vertical, ±1 = 45°.
-	Wind float64
-	// WindJitter is the fractional per-drop variation in Wind. 0.25 means each
-	// drop's effective Wind is Wind × (1 ± up-to-25%). Adds organic scatter.
-	WindJitter float64
-	// Speed is base rows descended per tick.
-	Speed float64
-	// SpeedJitter is per-drop fractional variation in Speed (same scheme).
-	SpeedJitter float64
-
+	Wind        float64 `json:"wind"`
+	WindJitter  float64 `json:"wind_jit"`
+	Speed       float64 `json:"speed"`
+	SpeedJitter float64 `json:"speed_jit"`
 	// SHAPE
-
-	// StreakLen is the pixel length of each drop's trail (head included).
-	// 1 = single-pixel dots; higher = longer visible streaks.
-	StreakLen int
-	// FadeFactor is the brightness multiplier per position back from the head
-	// along a streak. 1.0 = uniformly lit streak; 0.5 = steep tail fade.
-	FadeFactor float64
-
+	StreakLen  int     `json:"streak"`
+	FadeFactor float64 `json:"fade"`
 	// SPAWN
-
-	// SpawnEvery is the RNG denominator: spawn rolls 1 in SpawnEvery per tick.
-	SpawnEvery int
-	// SpawnBurst is the max drops emitted per spawn event. A single roll fires
-	// a burst of 1..SpawnBurst drops (uniform random). 1 = no clumping.
-	SpawnBurst int
-
+	SpawnEvery int `json:"spawn"`
+	SpawnBurst int `json:"burst"`
 	// COLOR
-
-	// Hue is the base hue in degrees [0, 360).
-	Hue float64
-	// HueSpread is ± degrees each drop can deviate from Hue.
-	HueSpread float64
-	// Saturation of generated palette tones (0..1).
-	Saturation float64
-	// LightnessMin / LightnessMax define the lightness range drops are drawn
-	// from. Each drop picks a random lightness in [min, max]. Larger spread =
-	// more tonal variety within the rain.
-	LightnessMin float64
-	LightnessMax float64
-
+	Hue          float64 `json:"hue"`
+	HueSpread    float64 `json:"hue_sp"`
+	Saturation   float64 `json:"sat"`
+	LightnessMin float64 `json:"lmin"`
+	LightnessMax float64 `json:"lmax"`
 	// DEPTH
-
-	// Layers is 1 or 2. With 2, a background layer of dimmer/shorter/slower
-	// drops is spawned alongside the foreground.
-	Layers int
-	// LayerBalance is the fraction of new drops that go into the background
-	// layer (0..1). Ignored when Layers < 2.
-	LayerBalance float64
-
-	// LEVERS (continuous drift)
-
-	// HueDriftAmp is the amplitude (±degrees) the base hue wanders over time
-	// around its static Hue value. 0 = no drift.
-	HueDriftAmp float64
-	// WindDriftAmp is the amplitude the effective base wind wanders around
-	// Wind (in cols/row). Creates gentle sway.
-	WindDriftAmp float64
-
-	// EVENTS (per-tick probability)
-
-	// DownpourChance is the per-tick probability of a downpour event firing
-	// (while one isn't already active). 0.001 = ~once per 10s at 10Hz.
-	DownpourChance float64
-	// CalmChance is the per-tick probability of a calm event (spawn pause).
-	CalmChance float64
-	// GustChance is the per-tick probability of a wind gust.
-	GustChance float64
-	// SplashChance is the per-tick probability of a splash event.
-	SplashChance float64
-
-	// EVENT MODIFIERS (typical per-event values; each event randomizes ±30%)
-
-	// DownpourDur is the typical downpour duration in ticks.
-	DownpourDur int
-	// DownpourMult is the spawn-rate multiplier during a downpour.
-	DownpourMult float64
-	// CalmDur is the typical calm duration in ticks (no drops spawn).
-	CalmDur int
-	// GustDur is the typical gust duration in ticks.
-	GustDur int
-	// GustStrength is the magnitude of the wind delta added during a gust
-	// (sign randomized per event).
-	GustStrength float64
-	// SplashSize is the typical splash radius in pixels.
-	SplashSize int
+	Layers       int     `json:"layers"`
+	LayerBalance float64 `json:"lbal"`
+	// LEVERS
+	HueDriftAmp  float64 `json:"hue_drift"`
+	WindDriftAmp float64 `json:"wind_drift"`
+	// EVENT CHANCES
+	DownpourChance float64 `json:"downpour_p"`
+	CalmChance     float64 `json:"calm_p"`
+	GustChance     float64 `json:"gust_p"`
+	SplashChance   float64 `json:"splash_p"`
+	// EVENT MODIFIERS
+	DownpourDur  int     `json:"downpour_dur"`
+	DownpourMult float64 `json:"downpour_mult"`
+	CalmDur      int     `json:"calm_dur"`
+	GustDur      int     `json:"gust_dur"`
+	GustStrength float64 `json:"gust_str"`
+	SplashSize   int     `json:"splash_size"`
 }
 
 func (c Config) withDefaults() Config {
@@ -364,6 +311,39 @@ func (r *Rain) SetConfig(cfg Config) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.cfg = cfg.withDefaults()
+}
+
+// State is the subset of Rain state a snapshot exposes to clients so they
+// can initialize a matching local replica.
+type State struct {
+	Tick          int     `json:"tick"`
+	DownpourTicks int     `json:"downpourTicks"`
+	DownpourMult  float64 `json:"downpourMult"`
+	CalmTicks     int     `json:"calmTicks"`
+	GustTicks     int     `json:"gustTicks"`
+	GustWind      float64 `json:"gustWind"`
+}
+
+// SnapshotState returns a copy of the event-timer state at this instant so
+// a joining client can replicate the atmosphere.
+func (r *Rain) SnapshotState() State {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return State{
+		Tick:          r.tick,
+		DownpourTicks: r.downpourTicks,
+		DownpourMult:  r.downpourMult,
+		CalmTicks:     r.calmTicks,
+		GustTicks:     r.gustTicks,
+		GustWind:      r.gustWind,
+	}
+}
+
+// CurrentTick returns the current sim tick number.
+func (r *Rain) CurrentTick() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.tick
 }
 
 // TriggerEvent fires a discrete event immediately, bypassing probability.

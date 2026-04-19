@@ -12,7 +12,6 @@
 		border: 1px solid #333; border-radius: 4px;
 		font-size: 11px; width: 300px; max-width: 300px;
 		max-height: calc(100vh - 20px); overflow-y: auto;
-		display: flex; flex-direction: column; gap: 0;
 	}
 	#panel.collapsed .body { display: none; }
 	#panel.collapsed { width: auto; }
@@ -29,7 +28,6 @@
 	}
 	.iconbtn:hover { background: #1a1a1a; border-color: #555; }
 
-	/* Accordion sections. */
 	.section { margin: 6px 0 0 0; }
 	.section-head {
 		display: flex; align-items: center; gap: 6px;
@@ -103,10 +101,11 @@
 	</h1>
 	<div class="body" id="body"></div>
 </div>
-<script src="/ambience.js"></script>
+<script src="/sim.js"></script>
 <script>
-	// Portable schema-driven dev panel with accordion sections + event log.
-	// Per-section collapse state is persisted in localStorage.
+	// Dev panel runs a local Rain sim (same code as the canonical demo) and
+	// drives a per-session atmosphere on the server via POST /dev/config and
+	// /dev/trigger. State commands return over SSE.
 
 	const SLOT_LABELS = {
 		'spawn':     'spawn config',
@@ -118,16 +117,26 @@
 	const SLOT_ORDER = ['spawn', 'lever', 'event', 'event-mod', 'end'];
 	const LS_PREFIX = 'ambience.dev.section.';
 	const CHEV = '▾';
+	const GRID_W = 160, GRID_H = 80;
 
-	// Stable session ID — server keeps our sim alive across URL-param reconnects.
 	const SESSION_ID = (crypto.randomUUID ? crypto.randomUUID() :
 		Math.random().toString(36).slice(2) + Date.now().toString(36));
 
 	const canvas = document.getElementById('c');
+	const ctx = canvas.getContext('2d');
 	const body = document.getElementById('body');
 	const title = document.getElementById('title');
-	let amb = null;
 	let knobs = [];
+	const rain = new AmbienceSim.Rain(GRID_W, GRID_H, {});
+	let ready = false;
+
+	function resize() {
+		const dpr = window.devicePixelRatio || 1;
+		canvas.width = window.innerWidth * dpr;
+		canvas.height = window.innerHeight * dpr;
+	}
+	resize();
+	window.addEventListener('resize', resize);
 
 	function fmt(knob, v) {
 		if (knob.type === 'int') return String(Math.round(v));
@@ -153,31 +162,23 @@
 		return q.toString();
 	}
 
-	function reconnect() {
-		if (amb) amb.close();
-		amb = new Ambience({ canvas, stream: '/dev/stream?' + currentQuery() });
-		patchAmbForLog(amb);
+	// Push a fresh config to the server (debounced when sliders move).
+	async function pushConfig() {
+		try {
+			await fetch('/dev/config?' + currentQuery(), { method: 'POST' });
+		} catch (e) { console.error('config push', e); }
 	}
-
-	function patchAmbForLog(amb) {
-		if (!amb || !amb.es) return;
-		amb.es.addEventListener('message', (e) => {
-			try {
-				const f = JSON.parse(e.data);
-				if (f.log && f.log.length) appendLog(f.log);
-			} catch (_) {}
-		});
-	}
-
 	let debounceT = null;
 	function schedule() {
 		updateReadouts();
 		if (debounceT) clearTimeout(debounceT);
-		debounceT = setTimeout(reconnect, 150);
+		debounceT = setTimeout(pushConfig, 150);
 	}
 
 	async function fire(eventName) {
-		await fetch('/dev/trigger/' + encodeURIComponent(SESSION_ID) + '/' + encodeURIComponent(eventName), { method: 'POST' });
+		try {
+			await fetch('/dev/trigger/' + encodeURIComponent(SESSION_ID) + '/' + encodeURIComponent(eventName), { method: 'POST' });
+		} catch (e) { console.error('trigger', e); }
 	}
 
 	function buildRow(knob) {
@@ -214,21 +215,17 @@
 		return row;
 	}
 
-	// Build an accordion section. `id` is the localStorage key part; title is the
-	// visible header; count optionally shown in the header; bodyBuilder populates
-	// the body element.
-	function buildSection(id, title, count, defaultOpen, bodyBuilder) {
+	function buildSection(id, titleText, count, defaultOpen, bodyBuilder) {
 		const section = document.createElement('div');
 		section.className = 'section';
 		section.dataset.id = id;
-
 		const storedClosed = localStorage.getItem(LS_PREFIX + id) === 'closed';
-		const initiallyClosed = storedClosed || (!defaultOpen && localStorage.getItem(LS_PREFIX + id) === null);
+		const initiallyClosed = storedClosed ||
+			(!defaultOpen && localStorage.getItem(LS_PREFIX + id) === null);
 		if (initiallyClosed) section.classList.add('closed');
-
 		const head = document.createElement('div');
 		head.className = 'section-head';
-		head.innerHTML = `<span class="chev">${CHEV}</span><span class="name">${title}</span>` +
+		head.innerHTML = `<span class="chev">${CHEV}</span><span class="name">${titleText}</span>` +
 			(count != null ? `<span class="count">${count}</span>` : '');
 		head.addEventListener('click', () => {
 			section.classList.toggle('closed');
@@ -236,12 +233,10 @@
 				section.classList.contains('closed') ? 'closed' : 'open');
 		});
 		section.appendChild(head);
-
 		const bodyEl = document.createElement('div');
 		bodyEl.className = 'section-body';
 		bodyBuilder(bodyEl);
 		section.appendChild(bodyEl);
-
 		return section;
 	}
 
@@ -249,46 +244,34 @@
 		title.textContent = 'ambience dev — ' + schema.name;
 		body.innerHTML = '';
 		knobs = schema.knobs;
-
 		const bySlot = {};
 		for (const k of knobs) (bySlot[k.slot] ||= {})[k.group || ''] ??= [], (bySlot[k.slot][k.group || ''] ||= []).push(k);
-
 		for (const slot of SLOT_ORDER) {
 			const slotKnobs = bySlot[slot] ? Object.values(bySlot[slot]).flat() : [];
 			const count = slotKnobs.length;
-			// Spawn open by default, others closed, since spawn is most-used.
 			const defaultOpen = slot === 'spawn';
-
-			const section = buildSection(
-				'slot.' + slot,
-				SLOT_LABELS[slot] || slot,
-				count > 0 ? count : 'none',
-				defaultOpen,
-				(bodyEl) => {
-					if (!bySlot[slot]) {
-						const empty = document.createElement('div');
-						empty.className = 'empty-slot';
-						empty.textContent = 'none yet';
-						bodyEl.appendChild(empty);
-						return;
-					}
-					const groups = bySlot[slot];
-					const groupNames = Object.keys(groups);
-					const showSubHeaders = !(groupNames.length === 1 && groupNames[0] === '');
-					for (const g of groupNames) {
-						if (showSubHeaders && g) {
-							const h3 = document.createElement('h3');
-							h3.textContent = g;
-							bodyEl.appendChild(h3);
-						}
-						for (const k of groups[g]) bodyEl.appendChild(buildRow(k));
-					}
+			const section = buildSection('slot.' + slot, SLOT_LABELS[slot] || slot, count > 0 ? count : 'none', defaultOpen, (bodyEl) => {
+				if (!bySlot[slot]) {
+					const empty = document.createElement('div');
+					empty.className = 'empty-slot';
+					empty.textContent = 'none yet';
+					bodyEl.appendChild(empty);
+					return;
 				}
-			);
+				const groups = bySlot[slot];
+				const groupNames = Object.keys(groups);
+				const showSubHeaders = !(groupNames.length === 1 && groupNames[0] === '');
+				for (const g of groupNames) {
+					if (showSubHeaders && g) {
+						const h3 = document.createElement('h3');
+						h3.textContent = g;
+						bodyEl.appendChild(h3);
+					}
+					for (const k of groups[g]) bodyEl.appendChild(buildRow(k));
+				}
+			});
 			body.appendChild(section);
 		}
-
-		// Event-log section — its own collapsible with its own scroll.
 		const logSection = buildSection('log', 'event log', null, true, (bodyEl) => {
 			const entries = document.createElement('div');
 			entries.id = 'logEntries';
@@ -303,26 +286,23 @@
 			bodyEl.appendChild(actions);
 		});
 		body.appendChild(logSection);
-
 		for (const k of knobs) {
 			document.getElementById(k.key).addEventListener('input', schedule);
 		}
 	}
 
-	function appendLog(entries) {
+	function appendLog(entry) {
 		const box = document.getElementById('logEntries');
 		if (!box) return;
-		for (const e of entries) {
-			const row = document.createElement('div');
-			row.className = 'entry ' + e.type;
-			row.innerHTML = '<span class="t">t=' + e.tick + '</span><span class="k">' + e.type + '</span><span class="d">' + e.desc + '</span>';
-			box.appendChild(row);
-		}
+		const row = document.createElement('div');
+		row.className = 'entry ' + entry.type;
+		row.innerHTML = '<span class="t">t=' + entry.tick + '</span><span class="k">' + entry.type + '</span><span class="d">' + (entry.desc || '') + '</span>';
+		box.appendChild(row);
 		while (box.children.length > 200) box.removeChild(box.firstChild);
 		box.scrollTop = box.scrollHeight;
 	}
 
-	// Panel-level collapse / expand all.
+	// Panel collapse (global) + per-section collapse.
 	const panel = document.getElementById('panel');
 	const toggle = document.getElementById('toggle');
 	function setCollapsed(on) {
@@ -334,8 +314,6 @@
 		if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
 		if (e.key === 'h') setCollapsed(!panel.classList.contains('collapsed'));
 	});
-
-	// Collapse / expand every section at once.
 	document.getElementById('toggleAll').addEventListener('click', () => {
 		const sections = document.querySelectorAll('.section');
 		const anyOpen = [...sections].some(s => !s.classList.contains('closed'));
@@ -345,15 +323,55 @@
 		}
 	});
 
-	// Boot
+	// Local tick + render loops
+	setInterval(() => { if (ready) rain.step(); }, 100);
+	(function draw() {
+		rain.render(ctx, canvas.width, canvas.height);
+		requestAnimationFrame(draw);
+	})();
+
+	// Subscribe to dev events — also funnels triggers into the log panel.
+	// We wrap AmbienceSim.subscribe to catch trigger messages for log display.
+	const es = new EventSource('/dev/events?session=' + encodeURIComponent(SESSION_ID));
+	es.addEventListener('message', (e) => {
+		let cmd;
+		try { cmd = JSON.parse(e.data); } catch (_) { return; }
+		switch (cmd.kind) {
+			case 'snapshot':
+				try {
+					const snap = typeof cmd.data === 'string' ? JSON.parse(cmd.data) : cmd.data;
+					rain.restoreSnapshot(snap);
+					ready = true;
+					// Initialize sliders to the server's current config.
+					if (snap.config && knobs.length) {
+						for (const k of knobs) {
+							if (snap.config[k.key] != null) {
+								document.getElementById(k.key).value = snap.config[k.key];
+							}
+						}
+						updateReadouts();
+					}
+				} catch (err) { console.error('bad snapshot', err); }
+				break;
+			case 'config':
+				try {
+					const cfg = typeof cmd.data === 'string' ? JSON.parse(cmd.data) : cmd.data;
+					rain.setConfig(cfg);
+				} catch (err) { console.error('bad config', err); }
+				break;
+			case 'trigger':
+				rain.triggerEvent(cmd.event);
+				appendLog({ tick: cmd.tick, type: cmd.event, desc: cmd.desc });
+				break;
+		}
+	});
+
+	// Boot: fetch schema, render panel; SSE will deliver the initial snapshot
+	// which sets the sliders.
 	fetch('/effects/rain/schema')
 		.then(r => r.json())
-		.then(schema => {
-			renderPanel(schema);
-			updateReadouts();
-			reconnect();
-		})
-		.catch(err => console.error('failed to load schema', err));
+		.then(schema => { renderPanel(schema); updateReadouts(); })
+		.catch(err => console.error('schema', err));
 </script>
 </body>
 </html>

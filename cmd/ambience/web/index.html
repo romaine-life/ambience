@@ -10,9 +10,35 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<script src="/ambience.js"></script>
+<script src="/sim.js"></script>
 <script>
-	new Ambience({ canvas: document.getElementById('c'), stream: '/stream' });
+	// Canonical demo. Runs a local Rain sim, subscribes to the shared
+	// atmosphere's command stream, and renders to canvas.
+	const canvas = document.getElementById('c');
+	const ctx = canvas.getContext('2d');
+
+	function resize() {
+		const dpr = window.devicePixelRatio || 1;
+		canvas.width = window.innerWidth * dpr;
+		canvas.height = window.innerHeight * dpr;
+	}
+	resize();
+	window.addEventListener('resize', resize);
+
+	// Grid dimensions must match the server's (cmd/ambience/main.go gridW/gridH).
+	const GRID_W = 160, GRID_H = 80;
+	const rain = new AmbienceSim.Rain(GRID_W, GRID_H, {});
+
+	let ready = false;
+	AmbienceSim.subscribe('/events', rain, () => { ready = true; });
+
+	// Local tick loop at 10 Hz (server tick rate).
+	setInterval(() => { if (ready) rain.step(); }, 100);
+	// Render every animation frame.
+	(function draw() {
+		rain.render(ctx, canvas.width, canvas.height);
+		requestAnimationFrame(draw);
+	})();
 </script>
 </body>
 </html>
