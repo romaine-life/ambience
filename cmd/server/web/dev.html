@@ -10,10 +10,21 @@
 		position: absolute; top: 10px; right: 10px; z-index: 10;
 		background: rgba(0,0,0,0.78); padding: 10px 14px;
 		border: 1px solid #333; border-radius: 4px;
-		font-size: 11px; min-width: 300px; max-height: calc(100vh - 20px);
-		overflow-y: auto;
+		font-size: 11px; width: 280px; max-width: 280px;
+		max-height: calc(100vh - 20px); overflow-y: auto;
 	}
-	#panel h1 { font-size: 11px; margin: 0 0 8px 0; opacity: 0.6; text-transform: uppercase; letter-spacing: 1.2px; }
+	#panel.collapsed .body { display: none; }
+	#panel.collapsed { width: auto; }
+	#panel h1 {
+		font-size: 11px; margin: 0 0 8px 0; opacity: 0.6;
+		text-transform: uppercase; letter-spacing: 1.2px;
+		display: flex; justify-content: space-between; align-items: center;
+	}
+	#toggle {
+		background: none; border: 1px solid #333; color: #e0e0e0;
+		font-family: monospace; font-size: 10px; padding: 0 6px;
+		cursor: pointer; border-radius: 2px;
+	}
 	#panel h2 { font-size: 10px; margin: 12px 0 4px 0; opacity: 0.5; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #222; padding-bottom: 2px; }
 	.row { display: flex; align-items: center; margin: 3px 0; gap: 8px; }
 	.row label { opacity: 0.75; min-width: 76px; font-size: 10px; }
@@ -26,7 +37,8 @@
 <body>
 <canvas id="c"></canvas>
 <div id="panel">
-	<h1>ambience dev — rain</h1>
+	<h1><span>ambience dev — rain</span><button id="toggle" title="collapse / expand (h)">–</button></h1>
+	<div class="body">
 
 	<h2>motion</h2>
 	<div class="row"><label>wind</label><input type="range" id="wind" min="-30" max="30" value="0"><span class="val" id="wind_v">0.00</span></div>
@@ -54,6 +66,7 @@
 	<div class="row"><label>bg balance</label><input type="range" id="lbal" min="0" max="100" value="40"><span class="val" id="lbal_v">0.40</span></div>
 
 	<div class="status" id="status">connecting…</div>
+	</div>
 </div>
 <script src="/ambience.js"></script>
 <script>
@@ -120,6 +133,19 @@
 	for (const c of ctrls) {
 		document.getElementById(c.id).addEventListener('input', schedule);
 	}
+
+	const panel = document.getElementById('panel');
+	const toggle = document.getElementById('toggle');
+	function setCollapsed(on) {
+		panel.classList.toggle('collapsed', on);
+		toggle.textContent = on ? '+' : '–';
+	}
+	toggle.addEventListener('click', () => setCollapsed(!panel.classList.contains('collapsed')));
+	window.addEventListener('keydown', (e) => {
+		if (e.target.tagName === 'INPUT') return;
+		if (e.key === 'h') setCollapsed(!panel.classList.contains('collapsed'));
+	});
+
 	updateReadouts();
 	reconnect();
 </script>
