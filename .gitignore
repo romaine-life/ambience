@@ -1,0 +1,5 @@
+/ambience
+/ambience.exe
+*.test
+*.prof
+.env
