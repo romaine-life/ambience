@@ -51,6 +51,11 @@ type Knob struct {
 	// Description is a short blurb (< 120 chars) explaining what the knob
 	// does. Rendered as a hover tooltip in the dev UI.
 	Description string `json:"description,omitempty"`
+	// Trigger names an event that can be fired immediately via
+	// POST /dev/trigger/<session>/<trigger>. Empty = no trigger button.
+	// Used on SlotEvent knobs so the UI can render a "fire now" button
+	// beside the probability slider.
+	Trigger string `json:"trigger,omitempty"`
 }
 
 // EffectSchema is an effect's full control surface. Served from

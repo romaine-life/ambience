@@ -6,9 +6,11 @@
 package sim
 
 import (
+	"fmt"
 	"image/color"
 	"math"
 	"math/rand"
+	"sync"
 )
 
 // Pixel is one cell in the grid. Filled=false means transparent/empty.
@@ -266,13 +268,13 @@ func RainSchema() EffectSchema {
 				Description: "Amplitude the effective wind sways around base. 0 = static; creates gentle direction changes."},
 
 			// DISCRETE EVENTS — per-tick probability of firing.
-			{Key: "downpour_p", Label: "downpour", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.01, Step: 0.0005, Default: 0,
+			{Key: "downpour_p", Label: "downpour", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.01, Step: 0.0005, Default: 0, Trigger: "downpour",
 				Description: "Per-tick probability of starting a downpour (temporary dense rain burst)."},
-			{Key: "calm_p", Label: "calm", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.01, Step: 0.0005, Default: 0,
+			{Key: "calm_p", Label: "calm", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.01, Step: 0.0005, Default: 0, Trigger: "calm",
 				Description: "Per-tick probability of a calm event — drops stop spawning for a while."},
-			{Key: "gust_p", Label: "gust", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.01, Step: 0.0005, Default: 0,
+			{Key: "gust_p", Label: "gust", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.01, Step: 0.0005, Default: 0, Trigger: "gust",
 				Description: "Per-tick probability of a wind gust — a sudden sideways push for a stretch of time."},
-			{Key: "splash_p", Label: "splash", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.05, Step: 0.002, Default: 0,
+			{Key: "splash_p", Label: "splash", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.05, Step: 0.002, Default: 0, Trigger: "splash",
 				Description: "Per-tick probability of a splash — an expanding radial ring at a random point."},
 
 			// EVENT MODIFIERS — typical per-event values (each event randomizes ±30%).
@@ -302,8 +304,22 @@ type splashInstance struct {
 	color     color.RGBA
 }
 
+// LogEntry is one event-occurrence record. Produced when discrete events
+// fire (probabilistic or triggered) so the dev UI can show a live log.
+type LogEntry struct {
+	Tick int    `json:"tick"`
+	Type string `json:"type"`
+	Desc string `json:"desc"`
+}
+
 // Rain is the rain simulation.
+// Thread-safety: Step, SetConfig, Trigger*, and DrainLog are all safe to
+// call from multiple goroutines. The mutex serializes them. Grid reads for
+// rendering happen inside Step's critical section and the resulting snapshot
+// is immutable after that.
 type Rain struct {
+	mu sync.Mutex
+
 	W, H  int
 	Grid  [][]Pixel
 	drops []drop
@@ -320,6 +336,9 @@ type Rain struct {
 	gustTicks     int
 	gustWind      float64
 	splashes      []splashInstance
+
+	// log ring — most recent events, bounded. DrainLog returns + clears.
+	log []LogEntry
 }
 
 // NewRain builds a Rain sim. Zero Config gets sensible defaults.
@@ -337,6 +356,65 @@ func NewRain(w, h int, seed int64, cfg Config) *Rain {
 	}
 }
 
+// SetConfig updates the live sim's config without resetting drop/event/tick
+// state. Used by dev sessions when the user tweaks a knob — spawn-config
+// changes take effect on subsequent drops; lever/event changes apply to the
+// running simulation immediately.
+func (r *Rain) SetConfig(cfg Config) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cfg = cfg.withDefaults()
+}
+
+// TriggerEvent fires a discrete event immediately, bypassing probability.
+// Returns true on recognized event names ("downpour", "calm", "gust", "splash").
+func (r *Rain) TriggerEvent(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	switch name {
+	case "downpour":
+		r.downpourTicks = jitterInt(r.rng, r.cfg.DownpourDur, 0.3)
+		r.downpourMult = r.cfg.DownpourMult
+		r.appendLog("downpour", fmt.Sprintf("triggered (dur=%d, ×%.1f)", r.downpourTicks, r.downpourMult))
+	case "calm":
+		r.calmTicks = jitterInt(r.rng, r.cfg.CalmDur, 0.3)
+		r.appendLog("calm", fmt.Sprintf("triggered (dur=%d)", r.calmTicks))
+	case "gust":
+		r.gustTicks = jitterInt(r.rng, r.cfg.GustDur, 0.3)
+		sign := 1.0
+		if r.rng.Float64() < 0.5 {
+			sign = -1
+		}
+		r.gustWind = sign * r.cfg.GustStrength * (0.7 + r.rng.Float64()*0.6)
+		r.appendLog("gust", fmt.Sprintf("triggered (dur=%d, wind=%+.2f)", r.gustTicks, r.gustWind))
+	case "splash":
+		r.spawnSplash()
+		r.appendLog("splash", "triggered")
+	default:
+		return false
+	}
+	return true
+}
+
+// DrainLog returns and clears any log entries accumulated since the last drain.
+func (r *Rain) DrainLog() []LogEntry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.log) == 0 {
+		return nil
+	}
+	out := r.log
+	r.log = nil
+	return out
+}
+
+func (r *Rain) appendLog(kind, desc string) {
+	r.log = append(r.log, LogEntry{Tick: r.tick, Type: kind, Desc: desc})
+	if len(r.log) > 200 {
+		r.log = r.log[len(r.log)-200:]
+	}
+}
+
 // Step advances the sim by one tick. Flow:
 //  1. Tick bookkeeping; decrement active event timers.
 //  2. Roll for new events (downpour, calm, gust, splash) if not already active.
@@ -347,6 +425,9 @@ func NewRain(w, h int, seed int64, cfg Config) *Rain {
 //  7. Cull drops whose trail has fully exited the bottom.
 //  8. Age/remove expired splashes.
 func (r *Rain) Step() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	r.tick++
 
 	// 1. Decrement active event timers.
@@ -366,9 +447,11 @@ func (r *Rain) Step() {
 	if r.downpourTicks == 0 && r.rng.Float64() < r.cfg.DownpourChance {
 		r.downpourTicks = jitterInt(r.rng, r.cfg.DownpourDur, 0.3)
 		r.downpourMult = r.cfg.DownpourMult
+		r.appendLog("downpour", fmt.Sprintf("started (dur=%d, ×%.1f)", r.downpourTicks, r.downpourMult))
 	}
 	if r.calmTicks == 0 && r.rng.Float64() < r.cfg.CalmChance {
 		r.calmTicks = jitterInt(r.rng, r.cfg.CalmDur, 0.3)
+		r.appendLog("calm", fmt.Sprintf("started (dur=%d)", r.calmTicks))
 	}
 	if r.gustTicks == 0 && r.rng.Float64() < r.cfg.GustChance {
 		r.gustTicks = jitterInt(r.rng, r.cfg.GustDur, 0.3)
@@ -377,9 +460,11 @@ func (r *Rain) Step() {
 			sign = -1
 		}
 		r.gustWind = sign * r.cfg.GustStrength * (0.7 + r.rng.Float64()*0.6)
+		r.appendLog("gust", fmt.Sprintf("started (dur=%d, wind=%+.2f)", r.gustTicks, r.gustWind))
 	}
 	if r.rng.Float64() < r.cfg.SplashChance {
 		r.spawnSplash()
+		r.appendLog("splash", "fired")
 	}
 
 	// 3. Clear.
