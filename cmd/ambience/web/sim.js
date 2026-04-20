@@ -204,9 +204,19 @@
 		}
 
 		// Paint the grid onto a canvas context, scaled to fill (canvasW, canvasH).
-		render(ctx, canvasW, canvasH) {
-			ctx.fillStyle = '#0a0a0a';
-			ctx.fillRect(0, 0, canvasW, canvasH);
+		// opts: { transparent: true } — clear canvas to transparent instead of
+		//        filling with the default dark background. Use when rendering
+		//        as an overlay layer on top of other content.
+		//       { bg: '#RRGGBB' } — use a custom background color.
+		//        Defaults to '#0a0a0a' when neither transparent nor bg is set.
+		render(ctx, canvasW, canvasH, opts) {
+			opts = opts || {};
+			if (opts.transparent) {
+				ctx.clearRect(0, 0, canvasW, canvasH);
+			} else {
+				ctx.fillStyle = opts.bg || '#0a0a0a';
+				ctx.fillRect(0, 0, canvasW, canvasH);
+			}
 			const sx = canvasW / this.w;
 			const sy = canvasH / this.h;
 			const ceilSx = Math.ceil(sx), ceilSy = Math.ceil(sy);

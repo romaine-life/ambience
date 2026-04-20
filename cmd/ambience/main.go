@@ -61,11 +61,13 @@ func main() {
 	}
 	http.Handle("/", http.FileServer(http.FS(web)))
 	http.HandleFunc("/dev", serveDevPage(web))
-	http.HandleFunc("/effects/rain/schema", serveSchema)
+	http.HandleFunc("/effects/rain/schema", cors(serveSchema))
 
-	// Shared atmosphere
-	http.HandleFunc("/snapshot", serveSharedSnapshot)
-	http.HandleFunc("/events", serveSharedEvents)
+	// Shared atmosphere — CORS-enabled so third-party pages (fzt-showcase,
+	// my-homepage, etc.) can consume the stream. Read-only endpoints; no
+	// state mutation risk.
+	http.HandleFunc("/snapshot", cors(serveSharedSnapshot))
+	http.HandleFunc("/events", cors(serveSharedEvents))
 
 	// Dev atmospheres (per-session)
 	http.HandleFunc("/dev/snapshot", serveDevSnapshot)
@@ -82,6 +84,22 @@ func main() {
 	}
 	log.Printf("ambience listening on %s (grid %dx%d, tick %s)", addr, gridW, gridH, tickRate)
 	log.Fatal(http.ListenAndServe(addr, nil))
+}
+
+// cors wraps a handler to send permissive CORS headers. Safe because the
+// wrapped endpoints are read-only broadcast streams — no state mutation
+// based on request origin, no cookies/auth consulted.
+func cors(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		h(w, r)
+	}
 }
 
 func serveDevPage(web fs.FS) http.HandlerFunc {
