@@ -305,7 +305,11 @@ func (c *Client) Render(w io.Writer, col, row int) error {
 				c.img.Set(x, y, p.C)
 				anyFilled = true
 			} else {
-				c.img.Set(x, y, color.RGBA{0, 0, 0, 255})
+				// Alpha=0 → mattn/go-sixel encoder skips this pixel (emits
+				// no bit in the sixel data). Combined with Pb=1 in the DCS
+				// header (set below), this leaves the underlying terminal
+				// content untouched wherever there's no drop.
+				c.img.Set(x, y, color.RGBA{0, 0, 0, 0})
 			}
 		}
 	}
@@ -319,13 +323,24 @@ func (c *Client) Render(w io.Writer, col, row int) error {
 	if err := enc.Encode(c.img); err != nil {
 		return err
 	}
+	// The mattn encoder hardcodes the DCS introducer as "\x1bP0;0;8q", which
+	// sets Pb=0 (unset pixels painted with background color — produces a
+	// black rectangle over the terminal's existing content). Rewrite in-place
+	// to Pb=1 so unset pixels leave the existing terminal content untouched
+	// (wallpaper / TUI bg shows through).
+	sixelBytes := c.buf.Bytes()
+	const oldHeader = "\x1bP0;0;8q"
+	const newHeader = "\x1bP0;1;8q"
+	if bytes.HasPrefix(sixelBytes, []byte(oldHeader)) {
+		copy(sixelBytes[:len(newHeader)], []byte(newHeader))
+	}
 	if _, err := fmt.Fprint(w, "\x1b[s"); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(w, "\x1b[%d;%dH", row, col); err != nil {
 		return err
 	}
-	if _, err := w.Write(c.buf.Bytes()); err != nil {
+	if _, err := w.Write(sixelBytes); err != nil {
 		return err
 	}
 	_, err := fmt.Fprint(w, "\x1b[u")
