@@ -26,6 +26,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -37,7 +38,7 @@ const (
 	gridW           = 160
 	gridH           = 80
 	tickRate        = 100 * time.Millisecond // ~10 Hz
-	addr            = ":8080"
+	defaultAddr     = ":8080"
 	devSessionIdle  = 60 * time.Second
 	devSessionSweep = 30 * time.Second
 )
@@ -72,6 +73,13 @@ func main() {
 	http.HandleFunc("/dev/config", serveDevConfig)
 	http.HandleFunc("/dev/trigger/", serveDevTrigger)
 
+	// AMBIENCE_ADDR overrides the bind address. For local dev, set it to
+	// "127.0.0.1:8080" so Windows Firewall doesn't prompt (loopback skips
+	// the firewall). Kubernetes keeps the default ":8080" for pod reachability.
+	addr := defaultAddr
+	if envAddr := os.Getenv("AMBIENCE_ADDR"); envAddr != "" {
+		addr = envAddr
+	}
 	log.Printf("ambience listening on %s (grid %dx%d, tick %s)", addr, gridW, gridH, tickRate)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }

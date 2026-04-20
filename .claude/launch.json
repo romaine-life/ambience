@@ -4,7 +4,7 @@
     {
       "name": "ambience",
       "runtimeExecutable": "go",
-      "runtimeArgs": ["run", "./cmd/server"],
+      "runtimeArgs": ["run", "./cmd/ambience"],
       "port": 8080
     }
   ]
