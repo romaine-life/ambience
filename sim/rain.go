@@ -172,48 +172,46 @@ func RainSchema() EffectSchema {
 	return EffectSchema{
 		Name: "rain",
 		Knobs: []Knob{
-			// SPAWN CONFIG — values baked into each drop at spawn. Changing
-			// one of these only affects newly spawned drops; in-flight drops
-			// keep whatever they committed to. Mostly jitter + color choices
-			// that have no meaningful "live" interpretation.
-			{Key: "wind_jit", Label: "wind jitter", Slot: SlotSpawn, Group: "motion", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
-				Description: "Per-drop random variation in wind (± this fraction of base). Baked at spawn."},
-			{Key: "speed_jit", Label: "speed jitter", Slot: SlotSpawn, Group: "motion", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
-				Description: "Per-drop random variation in speed (± this fraction of base). Baked at spawn."},
-			{Key: "hue", Label: "hue", Slot: SlotSpawn, Group: "color", Type: KnobFloat, Min: 0, Max: 359, Step: 1, Default: 210,
-				Description: "Base hue on the color wheel in degrees (0=red, 120=green, 240=blue)."},
-			{Key: "hue_sp", Label: "hue spread", Slot: SlotSpawn, Group: "color", Type: KnobFloat, Min: 0, Max: 180, Step: 1, Default: 0,
-				Description: "Per-drop hue variation (± degrees). Larger = more color variety within the rain."},
-			{Key: "sat", Label: "saturation", Slot: SlotSpawn, Group: "color", Type: KnobFloat, Min: 0, Max: 1, Step: 0.01, Default: 0.6,
-				Description: "Color saturation. 0 = grayscale, 1 = fully vivid."},
-			{Key: "lmin", Label: "light min", Slot: SlotSpawn, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.95, Step: 0.01, Default: 0.55,
-				Description: "Minimum lightness for drop colors. Lower = allows darker drops."},
-			{Key: "lmax", Label: "light max", Slot: SlotSpawn, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.95, Step: 0.01, Default: 0.85,
-				Description: "Maximum lightness for drop colors. Higher = allows brighter drops."},
-			{Key: "layers", Label: "layers", Slot: SlotSpawn, Group: "depth", Type: KnobInt, Min: 1, Max: 2, Step: 1, Default: 1,
-				Description: "1 = single layer. 2 = adds a dimmer/shorter/slower background layer for parallax depth."},
-			{Key: "lbal", Label: "bg balance", Slot: SlotSpawn, Group: "depth", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0.4,
-				Description: "Fraction of drops assigned to the background layer. Ignored unless layers=2."},
-
-			// CONTINUOUS LEVERS — apply live; sliding the control affects the
-			// running sim immediately. Speed rescales every in-flight drop's
-			// velocity; streak/fade take effect at paint time; spawn/burst
-			// affect the next tick's roll.
+			// All tuning knobs are live-applicable — sliding a control affects
+			// the running sim. Two flavors, signaled in the description:
+			// "rescales in-flight" (affects existing drops immediately, e.g.
+			// speed) vs "next drop onward" (applies at spawn time; rain turns
+			// over in a few seconds so visible propagation is quick).
+			// The old SlotSpawn bucket is empty for Rain — future effects may
+			// still use it for genuine once-at-effect-start values.
 			{Key: "wind", Label: "wind", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: -3, Max: 3, Step: 0.1, Default: 0,
-				Description: "Slope of the rain: cols sideways per row of descent. 0 = straight down, ±1 = 45°. New drops only."},
+				Description: "Slope of the rain: cols sideways per row of descent. 0 = straight down, ±1 = 45°. Next drop onward."},
+			{Key: "wind_jit", Label: "wind jitter", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
+				Description: "Per-drop random variation in wind (± this fraction of base). Adds organic scatter. Next drop onward."},
 			{Key: "speed", Label: "speed", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0.3, Max: 3, Step: 0.1, Default: 1.0,
-				Description: "Base rows descended per tick. In-flight drops rescale proportionally."},
+				Description: "Base rows descended per tick. Rescales every in-flight drop proportionally."},
+			{Key: "speed_jit", Label: "speed jitter", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
+				Description: "Per-drop random variation in speed (± this fraction of base). Next drop onward."},
 			{Key: "streak", Label: "streak len", Slot: SlotLever, Group: "shape", Type: KnobInt, Min: 1, Max: 16, Step: 1, Default: 5,
-				Description: "Pixels painted behind each drop's head, tracing a visible streak."},
+				Description: "Pixels painted behind each drop's head, tracing a visible streak. Applied at paint time."},
 			{Key: "fade", Label: "fade", Slot: SlotLever, Group: "shape", Type: KnobFloat, Min: 0.5, Max: 1, Step: 0.01, Default: 0.88,
-				Description: "Brightness multiplier per position along a streak. 1.0 = uniform, 0.5 = sharp tail fade."},
+				Description: "Brightness multiplier per position along a streak. 1.0 = uniform, 0.5 = sharp tail fade. Applied at paint time."},
 			{Key: "spawn", Label: "spawn 1/", Slot: SlotLever, Group: "density", Type: KnobInt, Min: 1, Max: 30, Step: 1, Default: 5,
 				Description: "Rolls 1 in N per tick for a new drop. Smaller = denser rain."},
 			{Key: "burst", Label: "burst max", Slot: SlotLever, Group: "density", Type: KnobInt, Min: 1, Max: 8, Step: 1, Default: 1,
 				Description: "Max drops emitted per spawn event. 1 = no clumping; higher = drops in clusters."},
-			{Key: "hue_drift", Label: "hue drift", Slot: SlotLever, Type: KnobFloat, Min: 0, Max: 60, Step: 1, Default: 0,
+			{Key: "hue", Label: "hue", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 359, Step: 1, Default: 210,
+				Description: "Base hue on the color wheel in degrees (0=red, 120=green, 240=blue). Next drop onward."},
+			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 180, Step: 1, Default: 0,
+				Description: "Per-drop hue variation (± degrees). Larger = more color variety within the rain. Next drop onward."},
+			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 1, Step: 0.01, Default: 0.6,
+				Description: "Color saturation. 0 = grayscale, 1 = fully vivid. Next drop onward."},
+			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.95, Step: 0.01, Default: 0.55,
+				Description: "Minimum lightness for drop colors. Lower = allows darker drops. Next drop onward."},
+			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.95, Step: 0.01, Default: 0.85,
+				Description: "Maximum lightness for drop colors. Higher = allows brighter drops. Next drop onward."},
+			{Key: "layers", Label: "layers", Slot: SlotLever, Group: "depth", Type: KnobInt, Min: 1, Max: 2, Step: 1, Default: 1,
+				Description: "1 = single layer. 2 = adds a dimmer/shorter/slower background layer for parallax depth. Next drop onward."},
+			{Key: "lbal", Label: "bg balance", Slot: SlotLever, Group: "depth", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0.4,
+				Description: "Fraction of drops assigned to the background layer. Ignored unless layers=2. Next drop onward."},
+			{Key: "hue_drift", Label: "hue drift", Slot: SlotLever, Group: "drift", Type: KnobFloat, Min: 0, Max: 60, Step: 1, Default: 0,
 				Description: "Amplitude (±degrees) the base hue slowly wanders over ~30s cycles. 0 = static."},
-			{Key: "wind_drift", Label: "wind drift", Slot: SlotLever, Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
+			{Key: "wind_drift", Label: "wind drift", Slot: SlotLever, Group: "drift", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
 				Description: "Amplitude the effective wind sways around base. 0 = static; creates gentle direction changes."},
 
 			// DISCRETE EVENTS — per-tick probability of firing.
