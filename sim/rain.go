@@ -172,26 +172,14 @@ func RainSchema() EffectSchema {
 	return EffectSchema{
 		Name: "rain",
 		Knobs: []Knob{
-			// motion
-			{Key: "wind", Label: "wind", Slot: SlotSpawn, Group: "motion", Type: KnobFloat, Min: -3, Max: 3, Step: 0.1, Default: 0,
-				Description: "Slope of the rain: cols sideways per row of descent. 0 = straight down, ±1 = 45°."},
+			// SPAWN CONFIG — values baked into each drop at spawn. Changing
+			// one of these only affects newly spawned drops; in-flight drops
+			// keep whatever they committed to. Mostly jitter + color choices
+			// that have no meaningful "live" interpretation.
 			{Key: "wind_jit", Label: "wind jitter", Slot: SlotSpawn, Group: "motion", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
-				Description: "Per-drop random variation in wind (± this fraction of base). Adds organic scatter."},
-			{Key: "speed", Label: "speed", Slot: SlotSpawn, Group: "motion", Type: KnobFloat, Min: 0.3, Max: 3, Step: 0.1, Default: 1.0,
-				Description: "Base rows descended per tick. Higher = faster fall."},
+				Description: "Per-drop random variation in wind (± this fraction of base). Baked at spawn."},
 			{Key: "speed_jit", Label: "speed jitter", Slot: SlotSpawn, Group: "motion", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
-				Description: "Per-drop random variation in speed (± this fraction of base)."},
-			// shape
-			{Key: "streak", Label: "streak len", Slot: SlotSpawn, Group: "shape", Type: KnobInt, Min: 1, Max: 16, Step: 1, Default: 5,
-				Description: "Pixels painted behind each drop's head, tracing a visible streak."},
-			{Key: "fade", Label: "fade", Slot: SlotSpawn, Group: "shape", Type: KnobFloat, Min: 0.5, Max: 1, Step: 0.01, Default: 0.88,
-				Description: "Brightness multiplier per position along a streak. 1.0 = uniform, 0.5 = sharp tail fade."},
-			// spawn rate
-			{Key: "spawn", Label: "spawn 1/", Slot: SlotSpawn, Group: "density", Type: KnobInt, Min: 1, Max: 30, Step: 1, Default: 5,
-				Description: "Rolls 1 in N per tick for a new drop. Smaller = denser rain."},
-			{Key: "burst", Label: "burst max", Slot: SlotSpawn, Group: "density", Type: KnobInt, Min: 1, Max: 8, Step: 1, Default: 1,
-				Description: "Max drops emitted per spawn event. 1 = no clumping; higher = drops in clusters."},
-			// color
+				Description: "Per-drop random variation in speed (± this fraction of base). Baked at spawn."},
 			{Key: "hue", Label: "hue", Slot: SlotSpawn, Group: "color", Type: KnobFloat, Min: 0, Max: 359, Step: 1, Default: 210,
 				Description: "Base hue on the color wheel in degrees (0=red, 120=green, 240=blue)."},
 			{Key: "hue_sp", Label: "hue spread", Slot: SlotSpawn, Group: "color", Type: KnobFloat, Min: 0, Max: 180, Step: 1, Default: 0,
@@ -202,13 +190,27 @@ func RainSchema() EffectSchema {
 				Description: "Minimum lightness for drop colors. Lower = allows darker drops."},
 			{Key: "lmax", Label: "light max", Slot: SlotSpawn, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.95, Step: 0.01, Default: 0.85,
 				Description: "Maximum lightness for drop colors. Higher = allows brighter drops."},
-			// depth
 			{Key: "layers", Label: "layers", Slot: SlotSpawn, Group: "depth", Type: KnobInt, Min: 1, Max: 2, Step: 1, Default: 1,
 				Description: "1 = single layer. 2 = adds a dimmer/shorter/slower background layer for parallax depth."},
 			{Key: "lbal", Label: "bg balance", Slot: SlotSpawn, Group: "depth", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0.4,
 				Description: "Fraction of drops assigned to the background layer. Ignored unless layers=2."},
 
-			// CONTINUOUS LEVERS — slow drift over time.
+			// CONTINUOUS LEVERS — apply live; sliding the control affects the
+			// running sim immediately. Speed rescales every in-flight drop's
+			// velocity; streak/fade take effect at paint time; spawn/burst
+			// affect the next tick's roll.
+			{Key: "wind", Label: "wind", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: -3, Max: 3, Step: 0.1, Default: 0,
+				Description: "Slope of the rain: cols sideways per row of descent. 0 = straight down, ±1 = 45°. New drops only."},
+			{Key: "speed", Label: "speed", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0.3, Max: 3, Step: 0.1, Default: 1.0,
+				Description: "Base rows descended per tick. In-flight drops rescale proportionally."},
+			{Key: "streak", Label: "streak len", Slot: SlotLever, Group: "shape", Type: KnobInt, Min: 1, Max: 16, Step: 1, Default: 5,
+				Description: "Pixels painted behind each drop's head, tracing a visible streak."},
+			{Key: "fade", Label: "fade", Slot: SlotLever, Group: "shape", Type: KnobFloat, Min: 0.5, Max: 1, Step: 0.01, Default: 0.88,
+				Description: "Brightness multiplier per position along a streak. 1.0 = uniform, 0.5 = sharp tail fade."},
+			{Key: "spawn", Label: "spawn 1/", Slot: SlotLever, Group: "density", Type: KnobInt, Min: 1, Max: 30, Step: 1, Default: 5,
+				Description: "Rolls 1 in N per tick for a new drop. Smaller = denser rain."},
+			{Key: "burst", Label: "burst max", Slot: SlotLever, Group: "density", Type: KnobInt, Min: 1, Max: 8, Step: 1, Default: 1,
+				Description: "Max drops emitted per spawn event. 1 = no clumping; higher = drops in clusters."},
 			{Key: "hue_drift", Label: "hue drift", Slot: SlotLever, Type: KnobFloat, Min: 0, Max: 60, Step: 1, Default: 0,
 				Description: "Amplitude (±degrees) the base hue slowly wanders over ~30s cycles. 0 = static."},
 			{Key: "wind_drift", Label: "wind drift", Slot: SlotLever, Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
@@ -307,10 +309,22 @@ func NewRain(w, h int, seed int64, cfg Config) *Rain {
 // state. Used by dev sessions when the user tweaks a knob — spawn-config
 // changes take effect on subsequent drops; lever/event changes apply to the
 // running simulation immediately.
+//
+// Speed is a lever: when it changes, rescale every in-flight drop's velocity
+// by the ratio so the slider actually tunes visible rain instead of waiting
+// for the old drops to fall off-screen.
 func (r *Rain) SetConfig(cfg Config) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.cfg = cfg.withDefaults()
+	newCfg := cfg.withDefaults()
+	if r.cfg.Speed > 0 && newCfg.Speed != r.cfg.Speed {
+		ratio := newCfg.Speed / r.cfg.Speed
+		for i := range r.drops {
+			r.drops[i].vRow *= ratio
+			r.drops[i].vCol *= ratio
+		}
+	}
+	r.cfg = newCfg
 }
 
 // PerturbRNG folds external entropy (e.g. keystroke-derived bytes from
