@@ -120,15 +120,14 @@ All broadcast endpoints set permissive CORS for cross-origin consumers.
 
 ## Deploying
 
-```sh
-az acr build --registry romainecr --image ambience:latest .
-kubectl rollout restart deployment/ambience -n ambience
-```
+Push to `main` — `.github/workflows/build-and-deploy.yml` builds the
+image with a SHA tag, pushes to `romainecr.azurecr.io/ambience:<sha>`,
+then `kustomize edit set image` bumps the tag in `k8s/kustomization.yaml`
+and commits back with `[skip ci]`.
 
-The ArgoCD Application lives in `infra-bootstrap/k8s/apps/ambience.yaml`
-and watches this repo's `k8s/` path on `main`. Manifest changes sync
-automatically; image updates need an explicit rollout because the tag
-is `:latest` with `imagePullPolicy: Always`.
+The ArgoCD Application at `infra-bootstrap/k8s/apps/ambience.yaml`
+watches this repo's `k8s/` path on `main`; the committed kustomization
+bump triggers a sync that rolls the deployment to the new image.
 
 ## Status
 
