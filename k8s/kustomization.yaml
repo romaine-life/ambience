@@ -4,12 +4,13 @@ kind: Kustomization
 # Image tag is bumped by .github/workflows/build-and-deploy.yml after each
 # image push. ArgoCD reconciles when the committed tag changes.
 images:
-  - name: romainecr.azurecr.io/ambience
-    newTag: latest
+- name: romainecr.azurecr.io/ambience
+  newName: romainecr.azurecr.io/ambience
+  newTag: f748d6f
 
 resources:
-  - certificate.yaml
-  - deployment.yaml
-  - httproute.yaml
-  - service.yaml
-  - xlistenerset.yaml
+- certificate.yaml
+- deployment.yaml
+- httproute.yaml
+- service.yaml
+- xlistenerset.yaml
