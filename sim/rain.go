@@ -313,6 +313,26 @@ func (r *Rain) SetConfig(cfg Config) {
 	r.cfg = cfg.withDefaults()
 }
 
+// Resize changes the sim's grid dimensions. Existing drops are dropped
+// (re-spawn naturally). Event-timer state is preserved. Safe to call
+// concurrently with Step.
+func (r *Rain) Resize(w, h int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if w == r.W && h == r.H {
+		return
+	}
+	grid := make([][]Pixel, h)
+	for i := range grid {
+		grid[i] = make([]Pixel, w)
+	}
+	r.W = w
+	r.H = h
+	r.Grid = grid
+	r.drops = r.drops[:0]
+	r.splashes = r.splashes[:0]
+}
+
 // State is the subset of Rain state a snapshot exposes to clients so they
 // can initialize a matching local replica.
 type State struct {

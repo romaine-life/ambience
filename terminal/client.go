@@ -78,6 +78,14 @@ type commandWire struct {
 	Data  json.RawMessage `json:"data,omitempty"`
 }
 
+// Reference grid dims for which the atmosphere's default config is tuned.
+// Clients with grids much larger than this scale Speed + SpawnBurst so a
+// full-surface overlay doesn't look like a sparse drizzle.
+const (
+	refGridW = 40
+	refGridH = 30
+)
+
 // Client is an ambience subscriber + local sim + sixel renderer.
 type Client struct {
 	cfg Config
@@ -85,6 +93,13 @@ type Client struct {
 	// The local sim replica. Owned by the tick goroutine; other goroutines
 	// only call its thread-safe methods (SetConfig, TriggerEvent, RestoreState).
 	sim *sim.Rain
+
+	// Last config received from the server (unscaled). We keep it so we can
+	// re-apply with updated scale factors when the grid resizes or a new
+	// config message arrives. Guarded by configMu.
+	configMu      sync.Mutex
+	baseConfig    sim.Config
+	baseConfigSet bool
 
 	// Most recent grid snapshot. Produced by the tick goroutine after each
 	// Step via sim.GridCopy(); read by Render.
@@ -97,6 +112,35 @@ type Client struct {
 	renderMu sync.Mutex
 	img      *image.RGBA
 	buf      bytes.Buffer
+}
+
+// applyScaledConfig applies baseConfig to the sim, scaling Speed by the
+// ratio of current grid height to refGridH (so drops fall top-to-bottom
+// in roughly the same wall-clock time regardless of canvas height), and
+// SpawnBurst by the ratio of grid width to refGridW (so horizontal drop
+// density stays roughly constant).
+//
+// Caller must hold configMu.
+func (c *Client) applyScaledConfig() {
+	if !c.baseConfigSet {
+		return
+	}
+	cfg := c.baseConfig
+	hScale := float64(c.cfg.GridH) / float64(refGridH)
+	wScale := float64(c.cfg.GridW) / float64(refGridW)
+	if hScale > 1 {
+		cfg.Speed *= hScale
+	}
+	if wScale > 1 {
+		// Scale burst instead of SpawnEvery so density grows smoothly
+		// rather than in step changes.
+		scaled := int(float64(cfg.SpawnBurst) * wScale)
+		if scaled < 1 {
+			scaled = 1
+		}
+		cfg.SpawnBurst = scaled
+	}
+	c.sim.SetConfig(cfg)
 }
 
 // New builds a Client. Apply defaults for any zero fields in cfg.
@@ -141,6 +185,37 @@ func (c *Client) Stop() {
 	if c.cancel != nil {
 		c.cancel()
 	}
+}
+
+// Resize reconfigures the sim + render buffers for a new grid size. Safe to
+// call concurrently with tickLoop / Render; the next Step will produce a
+// grid at the new dimensions. Also re-applies the scaled config so Speed /
+// SpawnBurst track the new canvas size.
+func (c *Client) Resize(w, h int) {
+	if w <= 0 || h <= 0 {
+		return
+	}
+	c.renderMu.Lock()
+	if w == c.cfg.GridW && h == c.cfg.GridH {
+		c.renderMu.Unlock()
+		return
+	}
+	c.cfg.GridW = w
+	c.cfg.GridH = h
+	c.sim.Resize(w, h)
+	c.img = image.NewRGBA(image.Rect(0, 0, w, h))
+	newGrid := make([][]sim.Pixel, h)
+	for i := range newGrid {
+		newGrid[i] = make([]sim.Pixel, w)
+	}
+	c.gridMu.Lock()
+	c.grid = newGrid
+	c.gridMu.Unlock()
+	c.renderMu.Unlock()
+
+	c.configMu.Lock()
+	c.applyScaledConfig()
+	c.configMu.Unlock()
 }
 
 // subscribeLoop maintains an SSE connection to the server, reconnecting with
@@ -207,7 +282,11 @@ func (c *Client) applyCommand(payload string) {
 			c.reportError(err)
 			return
 		}
-		c.sim.SetConfig(snap.Config)
+		c.configMu.Lock()
+		c.baseConfig = snap.Config
+		c.baseConfigSet = true
+		c.applyScaledConfig()
+		c.configMu.Unlock()
 		c.sim.RestoreState(sim.State{
 			Tick:          snap.Tick,
 			DownpourTicks: snap.DownpourLeft,
@@ -222,7 +301,11 @@ func (c *Client) applyCommand(payload string) {
 			c.reportError(err)
 			return
 		}
-		c.sim.SetConfig(cfg)
+		c.configMu.Lock()
+		c.baseConfig = cfg
+		c.baseConfigSet = true
+		c.applyScaledConfig()
+		c.configMu.Unlock()
 	case "trigger":
 		c.sim.TriggerEvent(cmd.Event)
 	}
@@ -324,10 +407,9 @@ func (c *Client) Render(w io.Writer, col, row int) error {
 		return err
 	}
 	// The mattn encoder hardcodes the DCS introducer as "\x1bP0;0;8q", which
-	// sets Pb=0 (unset pixels painted with background color — produces a
-	// black rectangle over the terminal's existing content). Rewrite in-place
-	// to Pb=1 so unset pixels leave the existing terminal content untouched
-	// (wallpaper / TUI bg shows through).
+	// sets Pb=0 (unset pixels painted with background color — the black
+	// rectangle). Rewrite in-place to Pb=1 so unset pixels leave the existing
+	// terminal content untouched (wallpaper / TUI bg shows through).
 	sixelBytes := c.buf.Bytes()
 	const oldHeader = "\x1bP0;0;8q"
 	const newHeader = "\x1bP0;1;8q"
