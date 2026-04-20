@@ -20,9 +20,12 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/png"
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -45,6 +48,14 @@ type Config struct {
 	// OnError is an optional callback for logging transient errors (e.g.
 	// disconnected SSE). If nil, errors are silent.
 	OnError func(err error)
+	// RecordDir, if non-empty, is a directory where the client will save a
+	// PNG of the grid every RecordEvery ticks. Useful for debugging without
+	// a TTY — a headless consumer can run the client and inspect what the
+	// sim is producing frame-by-frame.
+	RecordDir string
+	// RecordEvery — save one frame every N ticks. 0 disables recording
+	// even when RecordDir is set.
+	RecordEvery int
 }
 
 // snapshotWire matches the server's snapshotData struct (see atmosphere.go).
@@ -221,6 +232,10 @@ func (c *Client) applyCommand(payload string) {
 func (c *Client) tickLoop(ctx context.Context) {
 	t := time.NewTicker(c.cfg.TickRate)
 	defer t.Stop()
+	tick := 0
+	if c.cfg.RecordDir != "" {
+		_ = os.MkdirAll(c.cfg.RecordDir, 0o755)
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -231,8 +246,39 @@ func (c *Client) tickLoop(ctx context.Context) {
 			c.gridMu.Lock()
 			c.grid = snap
 			c.gridMu.Unlock()
+			tick++
+			if c.cfg.RecordDir != "" && c.cfg.RecordEvery > 0 && tick%c.cfg.RecordEvery == 0 {
+				if err := c.writeFramePNG(tick, snap); err != nil {
+					c.reportError(err)
+				}
+			}
 		}
 	}
+}
+
+// writeFramePNG saves a snapshot grid to RecordDir/frame_NNNNNN.png so headless
+// consumers (and future Claude self-debugging) can see what the sim produced
+// without a TTY. Empty cells render as black, filled cells as their color.
+func (c *Client) writeFramePNG(tick int, grid [][]sim.Pixel) error {
+	img := image.NewRGBA(image.Rect(0, 0, c.cfg.GridW, c.cfg.GridH))
+	for y := 0; y < c.cfg.GridH && y < len(grid); y++ {
+		row := grid[y]
+		for x := 0; x < c.cfg.GridW && x < len(row); x++ {
+			p := row[x]
+			if p.Filled {
+				img.Set(x, y, p.C)
+			} else {
+				img.Set(x, y, color.RGBA{0, 0, 0, 255})
+			}
+		}
+	}
+	path := filepath.Join(c.cfg.RecordDir, fmt.Sprintf("frame_%06d.png", tick))
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return png.Encode(f, img)
 }
 
 // Render emits a sixel image of the current grid at (col, row) (1-based
