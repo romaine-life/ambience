@@ -2,43 +2,272 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>ambience</title>
+<title>ambience — live</title>
 <style>
-	html, body { margin: 0; padding: 0; height: 100%; background: #0a0a0a; overflow: hidden; }
-	canvas { display: block; width: 100vw; height: 100vh; image-rendering: pixelated; }
+  html, body { margin:0; padding:0; height:100%; background:#0a0a0a; color:#eee; font-family: Consolas, "SF Mono", Menlo, monospace; overflow:hidden; }
+  #c { position:fixed; inset:0; z-index:0; image-rendering:pixelated; width:100vw; height:100vh; display:block; }
+  #panel {
+    position:fixed; top:12px; right:12px; z-index:1;
+    background:rgba(10,10,10,0.75); backdrop-filter:blur(6px);
+    border:1px solid #333; border-radius:4px;
+    padding:10px 14px;
+    min-width:280px; max-width:320px;
+    font-size:12px; line-height:1.55;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.4);
+  }
+  h2 { margin:0 0 6px; font-size:13px; font-weight:normal; color:#9cf; letter-spacing:0.05em; text-transform:uppercase; }
+  .row { display:flex; justify-content:space-between; padding:1px 0; }
+  .row .k { color:#888; }
+  .row .v { color:#eee; font-variant-numeric: tabular-nums; }
+  .section { margin-top:8px; padding-top:8px; border-top:1px solid #222; }
+  .toggle { display:flex; align-items:center; gap:8px; }
+  .toggle label { color:#aaa; cursor:pointer; flex:1; }
+  .toggle input[type="checkbox"] { accent-color:#9cf; }
+  .toggle .v { color:#9cf; font-variant-numeric: tabular-nums; }
+  #events { max-height:200px; overflow-y:auto; font-size:11px; }
+  #events::-webkit-scrollbar { width:4px; }
+  #events::-webkit-scrollbar-thumb { background:#333; }
+  .event { color:#999; padding:1px 0; font-variant-numeric: tabular-nums; }
+  .event .time { color:#555; margin-right:6px; }
+  .event.trigger { color:#fc9; }
+  .event.scene { color:#9fc; }
+  .event.entropy { color:#c9f; }
+  #devlink { margin-top:6px; font-size:10px; text-align:right; }
+  #devlink a { color:#666; text-decoration:none; }
+  #devlink a:hover { color:#9cf; }
+  .flash { animation: flash 350ms ease-out; }
+  @keyframes flash { from { background:rgba(70,90,80,0.6); } to { background:rgba(10,10,10,0.75); } }
+  .entropy-pulse { animation: pulse 200ms ease-out; }
+  @keyframes pulse { from { color:#c9f; transform:scale(1.08); } to { color:#9cf; transform:scale(1); } }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+
+<div id="panel">
+  <h2>ambience · live broadcast</h2>
+  <div class="row"><span class="k">scene</span><span class="v" id="sceneName">—</span></div>
+  <div class="row"><span class="k">remaining</span><span class="v" id="sceneRemaining">—</span></div>
+  <div class="row"><span class="k">up next</span><span class="v" id="nextName">—</span></div>
+  <div class="row"><span class="k">tick</span><span class="v" id="tick">0</span></div>
+
+  <div class="section toggle">
+    <input type="checkbox" id="entropyToggle" checked>
+    <label for="entropyToggle">entropy capture</label>
+    <span class="v" id="entropyCount">0 B</span>
+  </div>
+
+  <div class="section">
+    <div id="events"></div>
+  </div>
+
+  <div id="devlink"><a href="/dev">/dev →</a></div>
+</div>
+
 <script src="/sim.js"></script>
 <script>
-	// Canonical demo. Runs a local Rain sim, subscribes to the shared
-	// atmosphere's command stream, and renders to canvas.
-	const canvas = document.getElementById('c');
-	const ctx = canvas.getContext('2d');
+(() => {
+  'use strict';
 
-	function resize() {
-		const dpr = window.devicePixelRatio || 1;
-		canvas.width = window.innerWidth * dpr;
-		canvas.height = window.innerHeight * dpr;
-	}
-	resize();
-	window.addEventListener('resize', resize);
+  // Grid dims match the server's cmd/ambience/main.go gridW/gridH. Snapshots
+  // re-adopt server dims so this is more of an initial hint than a constraint.
+  const GRID_W = 160, GRID_H = 80;
 
-	// Grid dimensions must match the server's (cmd/ambience/main.go gridW/gridH).
-	const GRID_W = 160, GRID_H = 80;
-	const rain = new AmbienceSim.Rain(GRID_W, GRID_H, {});
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.floor(window.innerWidth * dpr);
+    canvas.height = Math.floor(window.innerHeight * dpr);
+  }
+  resize();
+  window.addEventListener('resize', resize);
 
-	let ready = false;
-	AmbienceSim.subscribe('/events', rain, () => { ready = true; });
+  const rain = new AmbienceSim.Rain(GRID_W, GRID_H, {});
 
-	// Local tick loop at 10 Hz (server tick rate).
-	setInterval(() => { if (ready) rain.step(); }, 100);
-	// Render every animation frame.
-	(function draw() {
-		rain.render(ctx, canvas.width, canvas.height);
-		requestAnimationFrame(draw);
-	})();
+  // Panel DOM refs.
+  const el = {
+    sceneName: document.getElementById('sceneName'),
+    sceneRemaining: document.getElementById('sceneRemaining'),
+    nextName: document.getElementById('nextName'),
+    tick: document.getElementById('tick'),
+    entropyToggle: document.getElementById('entropyToggle'),
+    entropyCount: document.getElementById('entropyCount'),
+    events: document.getElementById('events'),
+    panel: document.getElementById('panel'),
+  };
+
+  // ── Formatting helpers ─────────────────────────────────────
+  function fmtDuration(ticks) {
+    const secs = Math.max(0, Math.round(ticks / 10));
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    if (h > 0) return h + 'h ' + String(m).padStart(2, '0') + 'm';
+    if (m > 0) return m + 'm ' + String(s).padStart(2, '0') + 's';
+    return s + 's';
+  }
+  function fmtBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1024 / 1024).toFixed(2) + ' MB';
+  }
+  function nowTimestamp() {
+    const d = new Date();
+    return d.toTimeString().slice(0, 8);
+  }
+
+  // ── Scene state (client-side interpolation of remaining time) ─
+  let serverTick = 0;
+  let lastBeatAt = Date.now();
+  let sceneStartTick = 0;
+  let sceneDurationTicks = 0;
+
+  function updateRemainingDisplay() {
+    if (sceneDurationTicks <= 0) return;
+    const elapsedSecs = (Date.now() - lastBeatAt) / 1000;
+    const tickNow = serverTick + Math.round(elapsedSecs * 10);
+    const rem = Math.max(0, sceneStartTick + sceneDurationTicks - tickNow);
+    el.sceneRemaining.textContent = fmtDuration(rem);
+    el.tick.textContent = tickNow.toLocaleString();
+  }
+  setInterval(updateRemainingDisplay, 1000);
+
+  // ── Event log ────────────────────────────────────────────
+  function log(text, kind) {
+    const div = document.createElement('div');
+    div.className = 'event' + (kind ? ' ' + kind : '');
+    div.innerHTML = '<span class="time">' + nowTimestamp() + '</span>' + text;
+    el.events.appendChild(div);
+    // Cap at 40 lines; scroll to bottom.
+    while (el.events.children.length > 40) el.events.removeChild(el.events.firstChild);
+    el.events.scrollTop = el.events.scrollHeight;
+  }
+
+  // ── SSE subscription ─────────────────────────────────────
+  // All five command kinds handled here (snapshot/config/trigger/scene/metric).
+  // We deliberately do NOT use AmbienceSim.subscribe — that helper only knows
+  // the first three kinds and we want scene/metric plumbed into the panel.
+  function applySnapshot(snap) {
+    try { rain.restoreSnapshot(snap); } catch (e) { console.error('restoreSnapshot failed', e); }
+    if (snap.currentScene) {
+      el.sceneName.textContent = snap.currentScene.name || '—';
+      sceneDurationTicks = snap.currentScene.durationTicks || 0;
+      sceneStartTick = snap.currentScene.startedAtTick || 0;
+    }
+    if (snap.nextScene) {
+      el.nextName.textContent = snap.nextScene.name || '—';
+    }
+    if (typeof snap.entropyBytes === 'number') {
+      el.entropyCount.textContent = fmtBytes(snap.entropyBytes);
+    }
+    log('snapshot applied · tick ' + snap.tick, 'scene');
+  }
+
+  let ready = false;
+  const es = new EventSource('/events');
+  es.onmessage = (ev) => {
+    let cmd;
+    try { cmd = JSON.parse(ev.data); } catch (e) { return; }
+    serverTick = cmd.tick || serverTick;
+    lastBeatAt = Date.now();
+
+    // NOTE: cmd.data is already an object (server uses json.RawMessage which
+    // inlines into the enclosing JSON); no second JSON.parse needed.
+    switch (cmd.kind) {
+      case 'snapshot': {
+        try { applySnapshot(cmd.data); } catch (e) { console.error(e); }
+        ready = true;
+        break;
+      }
+      case 'config': {
+        try { rain.setConfig(cmd.data); } catch (e) {}
+        break;
+      }
+      case 'trigger': {
+        rain.triggerEvent(cmd.event);
+        log(cmd.event + (cmd.desc ? ' · ' + cmd.desc : ''), 'trigger');
+        break;
+      }
+      case 'scene': {
+        try {
+          const s = cmd.data;
+          el.sceneName.textContent = s.name || '—';
+          el.nextName.textContent = s.nextName || '—';
+          sceneDurationTicks = s.durationTicks || 0;
+          sceneStartTick = s.startedAtTick || 0;
+          log('scene → ' + s.name + ' · up next ' + s.nextName, 'scene');
+          el.panel.classList.remove('flash');
+          void el.panel.offsetWidth; // restart animation
+          el.panel.classList.add('flash');
+        } catch (e) { console.error(e); }
+        break;
+      }
+      case 'metric': {
+        try {
+          const m = cmd.data;
+          if (typeof m.entropyBytes === 'number') {
+            el.entropyCount.textContent = fmtBytes(m.entropyBytes);
+          }
+          // Metric doubles as a heartbeat for the tick/remaining display.
+        } catch (e) {}
+        break;
+      }
+    }
+  };
+  es.onerror = () => { log('sse disconnected · retrying', 'trigger'); };
+
+  // ── Local tick + render loop ────────────────────────────
+  setInterval(() => { if (ready) rain.step(); }, 100);
+  (function draw() {
+    rain.render(ctx, canvas.width, canvas.height);
+    requestAnimationFrame(draw);
+  })();
+
+  // ── Entropy capture (togglable) ─────────────────────────
+  // Keystrokes hashed to a single byte each (key charCode XOR low-byte of
+  // wall clock), buffered, POSTed to /entropy every 2s. Toggle off to stop
+  // contributing; the server keeps its accumulated entropy. Server's running
+  // byte count (via "metric" broadcasts) is authoritative for the counter.
+  let entropyBuf = [];
+  const ENTROPY_FLUSH_MS = 2000;
+  const ENTROPY_MAX_BUFFERED = 256;
+
+  document.addEventListener('keydown', (e) => {
+    if (!el.entropyToggle.checked) return;
+    // Skip modifier-only keypresses.
+    const k = (e.key && e.key.length === 1) ? e.key.charCodeAt(0) : 0;
+    if (k === 0) return;
+    const t = Date.now() & 0xff;
+    entropyBuf.push((k ^ t) & 0xff);
+    if (entropyBuf.length > ENTROPY_MAX_BUFFERED) {
+      entropyBuf.splice(0, entropyBuf.length - ENTROPY_MAX_BUFFERED);
+    }
+    // Pulse the counter so keystrokes are visibly captured even before the
+    // server metric catches up.
+    el.entropyCount.classList.remove('entropy-pulse');
+    void el.entropyCount.offsetWidth;
+    el.entropyCount.classList.add('entropy-pulse');
+  }, { passive: true });
+
+  setInterval(() => {
+    if (!el.entropyToggle.checked || entropyBuf.length === 0) return;
+    const bytes = entropyBuf.splice(0, entropyBuf.length);
+    const count = bytes.length;
+    try {
+      fetch('/entropy', {
+        method: 'POST',
+        body: new Uint8Array(bytes),
+        keepalive: true,
+      }).then(() => {
+        log('entropy +' + count + ' B', 'entropy');
+      }).catch(() => {});
+    } catch (_) { /* swallow */ }
+  }, ENTROPY_FLUSH_MS);
+
+  // Initial log entry so the panel isn't empty on first paint.
+  log('connecting…');
+})();
 </script>
 </body>
 </html>

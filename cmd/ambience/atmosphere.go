@@ -11,18 +11,35 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"math/rand"
 	"sync"
 	"time"
 
 	"github.com/nelsong6/ambience/sim"
 )
 
+// Transition window for config drift at scene boundaries. We don't snap the
+// sim.Config on rotation — it looks jarring. Instead, the sim runs with a
+// LERP between the previous scene's config and the new one over this many
+// ticks, broadcasting the interpolated config every transitionBroadcastEvery
+// ticks so clients stay roughly in sync.
+//
+// Capped by the scene's own DurationTicks / 2 — in test mode with short
+// scenes (AMBIENCE_SCENE_TICKS=60) we want the drift to finish before the
+// next rotation, so we scale down.
+const (
+	maxTransitionTicks         = 600 // 60 s at 10 Hz
+	transitionBroadcastEvery   = 10  // every 1 s during drift
+)
+
 // Command is a single message sent from server to clients.
 // Kinds:
 //
-//	"snapshot"  first message — full state dump (config + active events)
+//	"snapshot"  first message — full state dump (config + active events + scene)
 //	"config"    config fields changed; clients apply via SetConfig
 //	"trigger"   an event fired (downpour/calm/gust/splash)
+//	"scene"     scene rotated; carries new name + duration + next-up name
+//	"metric"    periodic status beat (entropy bytes, scene remaining)
 type Command struct {
 	Kind  string          `json:"kind"`
 	Tick  int             `json:"tick"`
@@ -55,30 +72,72 @@ type snapshotData struct {
 	GridH    int          `json:"gridH"`
 	Drops    []sim.Drop   `json:"drops"`
 	Splashes []sim.Splash `json:"splashes"`
+	// Scene + entropy status — used by the / live monitor. Panels update
+	// via periodic "metric" commands between full snapshot re-requests.
+	CurrentScene   Scene `json:"currentScene"`
+	NextScene      Scene `json:"nextScene"`
+	EntropyBytes   int64 `json:"entropyBytes"`
+	SceneRemaining int   `json:"sceneRemaining"`
 }
 
 type atmosphere struct {
-	mu        sync.Mutex
-	sim       *sim.Rain
-	cfg       sim.Config
-	seed      int64
-	listeners map[chan Command]struct{}
-	lastSeen  time.Time
-	cancel    context.CancelFunc
+	mu sync.Mutex
+	// Sim + seed-derived RNG for scene generation. Entropy POSTs flow into
+	// both (AddEntropy folds bytes into seed + perturbs sim.rng) so over
+	// time they naturally influence future scene configs.
+	sim          *sim.Rain
+	cfg          sim.Config
+	seed         int64
+	rng          *rand.Rand
+	current      Scene
+	next         Scene
+	entropyBytes int64 // cumulative entropy bytes received since boot
+	// Transition state: when a scene rotates, we don't apply the new config
+	// instantly. Instead we LERP from transitionFrom to transitionTo over
+	// transitionDur ticks starting at transitionStart. transitionDur == 0
+	// means "no transition in progress."
+	transitionFrom  sim.Config
+	transitionTo    sim.Config
+	transitionStart int
+	transitionDur   int
+	listeners       map[chan Command]struct{}
+	lastSeen        time.Time
+	cancel          context.CancelFunc
 }
 
-func newAtmosphere(cfg sim.Config) *atmosphere {
+func newAtmosphere(_ sim.Config) *atmosphere {
+	// Note: seed parameter on newAtmosphere historically accepted a config
+	// override, but with scene generation we always start from a fresh
+	// generated scene, so the argument is ignored. Kept in the signature to
+	// avoid a cascading change in callers (dev atmospheres, tests).
 	seed := time.Now().UnixNano()
+	r := rand.New(rand.NewSource(seed))
+	first := generateScene(r, 0)
+	// Pre-generate the next scene too — the "single-slot lookahead" model.
+	// StartedAtTick is set when it's promoted to current.
+	nxt := generateScene(r, 0)
 	return &atmosphere{
-		sim:       sim.NewRain(gridW, gridH, seed, cfg),
-		cfg:       cfg,
+		sim:       sim.NewRain(gridW, gridH, seed, first.Config),
+		cfg:       first.Config,
 		seed:      seed,
+		rng:       r,
+		current:   first,
+		next:      nxt,
 		listeners: make(map[chan Command]struct{}),
 		lastSeen:  time.Now(),
 	}
 }
 
-// run ticks the atmosphere forever; fired events become broadcast Commands.
+// run ticks the atmosphere forever. Per tick:
+//  1. sim.Step() — advance physics + roll event chances
+//  2. transition drift — if a config transition is in progress, apply the
+//     interpolated config to the sim + periodically broadcast it
+//  3. scene-expired check — if current scene's duration elapsed, promote
+//     next → current, generate new next, start a fresh transition
+//  4. drain sim log → broadcast trigger commands for fired events
+//
+// No periodic metric broadcast — that's event-driven now, fired from
+// AddEntropy and rotateScene.
 func (a *atmosphere) run(ctx context.Context) {
 	t := time.NewTicker(tickRate)
 	defer t.Stop()
@@ -88,6 +147,17 @@ func (a *atmosphere) run(ctx context.Context) {
 			return
 		case <-t.C:
 			a.sim.Step()
+			cur := a.sim.CurrentTick()
+
+			a.applyTransition(cur)
+
+			a.mu.Lock()
+			expired := cur >= a.current.StartedAtTick+a.current.DurationTicks
+			a.mu.Unlock()
+			if expired {
+				a.rotateScene(cur)
+			}
+
 			for _, e := range a.sim.DrainLog() {
 				a.broadcast(Command{
 					Kind:  "trigger",
@@ -98,6 +168,178 @@ func (a *atmosphere) run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// applyTransition drives the LERP during a config-drift window. Called every
+// tick; no-op when transitionDur == 0. Broadcasts the interpolated config at
+// transitionBroadcastEvery cadence so clients' local sims stay near sync.
+// On completion, broadcasts the final target config for exact sync + clears
+// the transition state.
+func (a *atmosphere) applyTransition(cur int) {
+	a.mu.Lock()
+	if a.transitionDur == 0 {
+		a.mu.Unlock()
+		return
+	}
+	elapsed := cur - a.transitionStart
+	if elapsed >= a.transitionDur {
+		final := a.transitionTo
+		a.transitionDur = 0
+		a.transitionStart = 0
+		a.cfg = final
+		a.mu.Unlock()
+		a.sim.SetConfig(final)
+		data, _ := json.Marshal(final)
+		a.broadcast(Command{Kind: "config", Tick: cur, Data: data})
+		return
+	}
+	from := a.transitionFrom
+	to := a.transitionTo
+	dur := a.transitionDur
+	a.mu.Unlock()
+
+	progress := easeInOutCubic(float64(elapsed) / float64(dur))
+	lerped := lerpConfig(from, to, progress)
+	a.sim.SetConfig(lerped)
+	if elapsed%transitionBroadcastEvery == 0 {
+		data, _ := json.Marshal(lerped)
+		a.broadcast(Command{Kind: "config", Tick: cur, Data: data})
+	}
+}
+
+// rotateScene promotes next → current, generates a new next, and sets up a
+// fresh transition from the previous scene's config to the new one. The
+// actual config application happens in applyTransition tick-by-tick — we
+// don't call sim.SetConfig here. Broadcasts the "scene" command for panel
+// updates; config drift starts broadcasting on the next tick.
+func (a *atmosphere) rotateScene(tick int) {
+	a.mu.Lock()
+	fromCfg := a.cfg
+	promoted := a.next
+	promoted.StartedAtTick = tick
+	a.current = promoted
+	a.next = generateScene(a.rng, 0)
+	currentCopy := a.current
+	nextName := a.next.Name
+	// Transition cap: keep drift bounded by the new scene's duration so we
+	// never drift across a scene boundary. Half the scene, max 60 s.
+	dur := maxTransitionTicks
+	if half := promoted.DurationTicks / 2; half < dur {
+		dur = half
+	}
+	a.transitionFrom = fromCfg
+	a.transitionTo = promoted.Config
+	a.transitionStart = tick
+	a.transitionDur = dur
+	a.mu.Unlock()
+
+	sceneData, _ := json.Marshal(map[string]interface{}{
+		"name":              currentCopy.Name,
+		"durationTicks":     currentCopy.DurationTicks,
+		"startedAtTick":     currentCopy.StartedAtTick,
+		"nextName":          nextName,
+		"transitionTicks":   dur,
+	})
+	a.broadcast(Command{Kind: "scene", Tick: tick, Data: sceneData})
+
+	// Push an immediate metric so panels see the new scene name + fresh
+	// remaining without waiting for the next entropy event.
+	a.broadcastMetric(tick)
+}
+
+// broadcastMetric pushes the current entropy total + scene progress. Called
+// whenever an event changes one of these fields (entropy POST, scene
+// rotation). No periodic timer.
+func (a *atmosphere) broadcastMetric(tick int) {
+	a.mu.Lock()
+	entropyBytes := a.entropyBytes
+	currentCopy := a.current
+	nextName := a.next.Name
+	a.mu.Unlock()
+
+	data, _ := json.Marshal(map[string]interface{}{
+		"entropyBytes":   entropyBytes,
+		"sceneRemaining": currentCopy.Remaining(tick),
+		"currentName":    currentCopy.Name,
+		"nextName":       nextName,
+	})
+	a.broadcast(Command{Kind: "metric", Tick: tick, Data: data})
+}
+
+// lerpConfig linearly interpolates every continuous field of sim.Config,
+// plus integer fields via rounded interpolation. Hue uses angular LERP so
+// transitions cross the 0°/360° seam cleanly (e.g. 340° → 20° doesn't
+// sweep backward through cyan).
+func lerpConfig(a, b sim.Config, t float64) sim.Config {
+	lf := func(x, y float64) float64 { return x + (y-x)*t }
+	li := func(x, y int) int { return x + int(float64(y-x)*t+0.5) }
+	return sim.Config{
+		Wind:           lf(a.Wind, b.Wind),
+		WindJitter:     lf(a.WindJitter, b.WindJitter),
+		Speed:          lf(a.Speed, b.Speed),
+		SpeedJitter:    lf(a.SpeedJitter, b.SpeedJitter),
+		StreakLen:      li(a.StreakLen, b.StreakLen),
+		FadeFactor:     lf(a.FadeFactor, b.FadeFactor),
+		SpawnEvery:     li(a.SpawnEvery, b.SpawnEvery),
+		SpawnBurst:     li(a.SpawnBurst, b.SpawnBurst),
+		Hue:            lerpAngle(a.Hue, b.Hue, t),
+		HueSpread:      lf(a.HueSpread, b.HueSpread),
+		Saturation:     lf(a.Saturation, b.Saturation),
+		LightnessMin:   lf(a.LightnessMin, b.LightnessMin),
+		LightnessMax:   lf(a.LightnessMax, b.LightnessMax),
+		Layers:         li(a.Layers, b.Layers),
+		LayerBalance:   lf(a.LayerBalance, b.LayerBalance),
+		HueDriftAmp:    lf(a.HueDriftAmp, b.HueDriftAmp),
+		WindDriftAmp:   lf(a.WindDriftAmp, b.WindDriftAmp),
+		DownpourChance: lf(a.DownpourChance, b.DownpourChance),
+		CalmChance:     lf(a.CalmChance, b.CalmChance),
+		GustChance:     lf(a.GustChance, b.GustChance),
+		SplashChance:   lf(a.SplashChance, b.SplashChance),
+		// Event modifier fields (durations/multipliers) are discrete per-event
+		// values applied when events fire; no need to interpolate between
+		// scenes — the fired event just picks whatever the current scene has.
+		DownpourDur:  b.DownpourDur,
+		DownpourMult: b.DownpourMult,
+		CalmDur:      b.CalmDur,
+		GustDur:      b.GustDur,
+		GustStrength: b.GustStrength,
+		SplashSize:   b.SplashSize,
+	}
+}
+
+// easeInOutCubic smooths the transition progress so drift speeds up from 0%
+// and decelerates toward 100% — no abrupt start or stop.
+func easeInOutCubic(t float64) float64 {
+	if t < 0 {
+		return 0
+	}
+	if t > 1 {
+		return 1
+	}
+	if t < 0.5 {
+		return 4 * t * t * t
+	}
+	f := 2*t - 2
+	return 1 + f*f*f/2
+}
+
+// lerpAngle interpolates around the hue circle along the shortest arc.
+// Keeps result in [0, 360).
+func lerpAngle(a, b, t float64) float64 {
+	diff := b - a
+	if diff > 180 {
+		diff -= 360
+	} else if diff < -180 {
+		diff += 360
+	}
+	r := a + diff*t
+	if r < 0 {
+		r += 360
+	}
+	if r >= 360 {
+		r -= 360
+	}
+	return r
 }
 
 func (a *atmosphere) addListener() chan Command {
@@ -131,24 +373,31 @@ func (a *atmosphere) broadcast(cmd Command) {
 func (a *atmosphere) snapshot() snapshotData {
 	a.mu.Lock()
 	seed := a.seed
+	current := a.current
+	next := a.next
+	entropyBytes := a.entropyBytes
 	a.mu.Unlock()
 	// Use the sim's effective config (defaults applied), not our raw stored cfg.
 	cfg := a.sim.EffectiveConfig()
 	s := a.sim.SnapshotState()
 	return snapshotData{
-		Type:         "rain",
-		Tick:         s.Tick,
-		Config:       cfg,
-		Seed:         seed,
-		DownpourLeft: s.DownpourTicks,
-		DownpourMult: s.DownpourMult,
-		CalmLeft:     s.CalmTicks,
-		GustLeft:     s.GustTicks,
-		GustWind:     s.GustWind,
-		GridW:        a.sim.W,
-		GridH:        a.sim.H,
-		Drops:        a.sim.DropsCopy(),
-		Splashes:     a.sim.SplashesCopy(),
+		Type:           "rain",
+		Tick:           s.Tick,
+		Config:         cfg,
+		Seed:           seed,
+		DownpourLeft:   s.DownpourTicks,
+		DownpourMult:   s.DownpourMult,
+		CalmLeft:       s.CalmTicks,
+		GustLeft:       s.GustTicks,
+		GustWind:       s.GustWind,
+		GridW:          a.sim.W,
+		GridH:          a.sim.H,
+		Drops:          a.sim.DropsCopy(),
+		Splashes:       a.sim.SplashesCopy(),
+		CurrentScene:   current,
+		NextScene:      next,
+		EntropyBytes:   entropyBytes,
+		SceneRemaining: current.Remaining(s.Tick),
 	}
 }
 
@@ -167,8 +416,13 @@ func (a *atmosphere) AddEntropy(b []byte) {
 	}
 	a.mu.Lock()
 	a.seed ^= acc
+	a.entropyBytes += int64(len(b))
 	a.mu.Unlock()
 	a.sim.PerturbRNG(acc)
+	// Push a metric broadcast on every entropy event so the / live monitor's
+	// counter updates immediately (no 30 s polling cadence needed). Sub-
+	// second latency matches the client-side entropy buffer flush (2 s).
+	a.broadcastMetric(a.sim.CurrentTick())
 }
 
 func (a *atmosphere) setConfig(cfg sim.Config) {

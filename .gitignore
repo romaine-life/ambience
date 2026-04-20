@@ -1,5 +1,7 @@
 /ambience
 /ambience.exe
+/ambience-test.exe
+/ambience-test.exe~
 *.test
 *.prof
 .env
