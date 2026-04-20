@@ -23,6 +23,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -68,6 +69,10 @@ func main() {
 	// state mutation risk.
 	http.HandleFunc("/snapshot", cors(serveSharedSnapshot))
 	http.HandleFunc("/events", cors(serveSharedEvents))
+	// Entropy intake — clients POST keystroke-derived bytes here; bytes
+	// get folded into the shared atmosphere's RNG. Also CORS-enabled so
+	// browser consumers can contribute.
+	http.HandleFunc("/entropy", cors(serveEntropy))
 
 	// Dev atmospheres (per-session)
 	http.HandleFunc("/dev/snapshot", serveDevSnapshot)
@@ -193,6 +198,26 @@ func serveSharedSnapshot(w http.ResponseWriter, req *http.Request) {
 
 func serveSharedEvents(w http.ResponseWriter, req *http.Request) {
 	streamAtmosphere(w, req, shared)
+}
+
+// serveEntropy accepts raw bytes from clients (POSTed by client.js on a
+// throttled keystroke cadence) and folds them into the shared atmosphere's
+// RNG. Cheap, lossy, intentional — this is aesthetic perturbation, not
+// secure randomness. A small request-size cap keeps the endpoint from
+// being used for anything but short entropy bursts.
+func serveEntropy(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	const maxBytes = 4096
+	req.Body = http.MaxBytesReader(w, req.Body, maxBytes)
+	buf := make([]byte, maxBytes)
+	n, _ := io.ReadFull(req.Body, buf)
+	if n > 0 {
+		shared.AddEntropy(buf[:n])
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func devAtmosphereFromRequest(req *http.Request) (*atmosphere, string, error) {

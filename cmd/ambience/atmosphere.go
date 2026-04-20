@@ -33,7 +33,13 @@ type Command struct {
 
 // snapshotData is carried in the initial "snapshot" command and in response
 // to GET /snapshot.
+//
+// Type identifies which effect this atmosphere is currently running ("rain"
+// for now; future: "sand", "fire", etc.). Clients look the type up in
+// AmbienceSim.effects[type] to pick the renderer constructor — so adding a
+// new effect doesn't require any client-side change.
 type snapshotData struct {
+	Type         string     `json:"type"`
 	Tick         int        `json:"tick"`
 	Config       sim.Config `json:"config"`
 	Seed         int64      `json:"seed"`
@@ -123,6 +129,7 @@ func (a *atmosphere) snapshot() snapshotData {
 	cfg := a.sim.EffectiveConfig()
 	s := a.sim.SnapshotState()
 	return snapshotData{
+		Type:         "rain",
 		Tick:         s.Tick,
 		Config:       cfg,
 		Seed:         seed,
@@ -132,6 +139,25 @@ func (a *atmosphere) snapshot() snapshotData {
 		GustLeft:     s.GustTicks,
 		GustWind:     s.GustWind,
 	}
+}
+
+// AddEntropy folds external entropy bytes into the atmosphere's RNG state.
+// The bytes are summed into the current seed and reshuffled via the sim's
+// rng — effectively nudging future random decisions. Cheap; not
+// cryptographically strong, which is fine — this is ambient aesthetic
+// perturbation, not security.
+func (a *atmosphere) AddEntropy(b []byte) {
+	if len(b) == 0 {
+		return
+	}
+	var acc int64
+	for _, x := range b {
+		acc = (acc*31 + int64(x)) & 0x7fffffffffffffff
+	}
+	a.mu.Lock()
+	a.seed ^= acc
+	a.mu.Unlock()
+	a.sim.PerturbRNG(acc)
 }
 
 func (a *atmosphere) setConfig(cfg sim.Config) {

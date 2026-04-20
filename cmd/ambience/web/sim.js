@@ -371,5 +371,11 @@
 		return es;
 	}
 
-	global.AmbienceSim = { Rain, subscribe, applyDefaults, hslToRGB };
+	// Effect registry. Keyed by the effect type string broadcast in the
+	// server's snapshot payload — the client looks up the constructor here
+	// by name so new effects just register themselves and work without
+	// client-side changes.
+	const effects = { rain: Rain };
+
+	global.AmbienceSim = { Rain, subscribe, applyDefaults, hslToRGB, effects };
 })(window);

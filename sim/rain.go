@@ -313,6 +313,20 @@ func (r *Rain) SetConfig(cfg Config) {
 	r.cfg = cfg.withDefaults()
 }
 
+// PerturbRNG folds external entropy (e.g. keystroke-derived bytes from
+// connected clients) into the sim's RNG without resetting it. Next random
+// draw consumes from the perturbed stream — future decisions will differ
+// from what they'd have been without the perturbation.
+func (r *Rain) PerturbRNG(delta int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// Cheap state nudge: consume a few values to advance the internal state,
+	// then re-seed based on the delta XOR'd with current draws.
+	a := r.rng.Int63()
+	b := r.rng.Int63()
+	r.rng = rand.New(rand.NewSource(a ^ b ^ delta))
+}
+
 // Resize changes the sim's grid dimensions. Existing drops are dropped
 // (re-spawn naturally). Event-timer state is preserved. Safe to call
 // concurrently with Step.
