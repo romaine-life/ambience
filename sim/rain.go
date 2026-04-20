@@ -358,6 +358,38 @@ type State struct {
 	GustWind      float64 `json:"gustWind"`
 }
 
+// RGB is the wire form of a color — lowercase keys and no alpha, shared
+// across all effect snapshots. Internal sim state uses color.RGBA; this
+// type only exists at the JSON boundary.
+type RGB struct {
+	R uint8 `json:"r"`
+	G uint8 `json:"g"`
+	B uint8 `json:"b"`
+}
+
+// Drop is the wire form of an in-flight raindrop, emitted in snapshots so
+// joining clients can replicate mid-simulation instead of starting with an
+// empty air column.
+type Drop struct {
+	Row        float64 `json:"row"`
+	Col        float64 `json:"col"`
+	Color      RGB     `json:"color"`
+	VRow       float64 `json:"vRow"`
+	VCol       float64 `json:"vCol"`
+	StreakLen  int     `json:"streakLen"`
+	Background bool    `json:"background"`
+}
+
+// Splash is the wire form of an active splash ring.
+type Splash struct {
+	Row       int `json:"row"`
+	Col       int `json:"col"`
+	Age       int `json:"age"`
+	MaxAge    int `json:"maxAge"`
+	MaxRadius int `json:"maxRadius"`
+	Color     RGB `json:"color"`
+}
+
 // SnapshotState returns a copy of the event-timer state at this instant so
 // a joining client can replicate the atmosphere.
 func (r *Rain) SnapshotState() State {
@@ -371,6 +403,44 @@ func (r *Rain) SnapshotState() State {
 		GustTicks:     r.gustTicks,
 		GustWind:      r.gustWind,
 	}
+}
+
+// DropsCopy returns the active drops as wire-form Drop values. Caller owns
+// the slice.
+func (r *Rain) DropsCopy() []Drop {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]Drop, len(r.drops))
+	for i, d := range r.drops {
+		out[i] = Drop{
+			Row:        d.Row,
+			Col:        d.Col,
+			Color:      RGB{R: d.Color.R, G: d.Color.G, B: d.Color.B},
+			VRow:       d.vRow,
+			VCol:       d.vCol,
+			StreakLen:  d.streakLen,
+			Background: d.background,
+		}
+	}
+	return out
+}
+
+// SplashesCopy returns the active splashes as wire-form Splash values.
+func (r *Rain) SplashesCopy() []Splash {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]Splash, len(r.splashes))
+	for i, s := range r.splashes {
+		out[i] = Splash{
+			Row:       s.row,
+			Col:       s.col,
+			Age:       s.age,
+			MaxAge:    s.maxAge,
+			MaxRadius: s.maxRadius,
+			Color:     RGB{R: s.color.R, G: s.color.G, B: s.color.B},
+		}
+	}
+	return out
 }
 
 // CurrentTick returns the current sim tick number.

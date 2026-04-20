@@ -48,6 +48,13 @@ type snapshotData struct {
 	CalmLeft     int        `json:"calmLeft"`
 	GustLeft     int        `json:"gustLeft"`
 	GustWind     float64    `json:"gustWind"`
+	// Game-save fields — let joining clients drop into mid-simulation.
+	// GridW/GridH are the server sim's reference dimensions; clients
+	// resize to match so drops transfer 1:1.
+	GridW    int          `json:"gridW"`
+	GridH    int          `json:"gridH"`
+	Drops    []sim.Drop   `json:"drops"`
+	Splashes []sim.Splash `json:"splashes"`
 }
 
 type atmosphere struct {
@@ -138,6 +145,10 @@ func (a *atmosphere) snapshot() snapshotData {
 		CalmLeft:     s.CalmTicks,
 		GustLeft:     s.GustTicks,
 		GustWind:     s.GustWind,
+		GridW:        a.sim.W,
+		GridH:        a.sim.H,
+		Drops:        a.sim.DropsCopy(),
+		Splashes:     a.sim.SplashesCopy(),
 	}
 }
 
