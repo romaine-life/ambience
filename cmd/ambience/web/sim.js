@@ -1250,7 +1250,8 @@
 			const width = Math.max(1, this.cfg.width * flow);
 			for (let y = 0; y < surface; y++) {
 				const progress = y / Math.max(1, surface - 1);
-				const rowCenter = center + Math.sin(progress * 5.1 + this.tick * 0.05 * this.cfg.speed) * this.cfg.wobble * 0.55;
+				// Let the sheet bend drift downward so it reads as falling water.
+				const rowCenter = center + Math.sin(progress * 5.1 - this.tick * 0.05 * this.cfg.speed) * this.cfg.wobble * 0.55;
 				const rowWidth = width * (0.86 + 0.32 * progress);
 				const half = Math.max(0.6, rowWidth * 0.5);
 				let start = Math.floor(rowCenter - half - 1);
