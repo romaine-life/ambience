@@ -212,9 +212,10 @@ should be `https://ambience.dev.romaine.life`, not a local runtime.
 Use the dev helpers like this:
 
 1. Static browser-only work in `cmd/ambience/web/`:
-   run `powershell -ExecutionPolicy Bypass -File scripts/dev-loop.ps1`
-   to sync the web files into the live dev edge pod. Leave it running
-   while editing for a hot-ish loop, or add `-Once` for a single sync.
+   run `powershell -ExecutionPolicy Bypass -File scripts/dev-loop.ps1 -Once`
+   to sync the web files into the live dev edge pod without a Docker
+   build. Do not run the background watcher form unless you explicitly
+   want it.
 2. Go/runtime changes that need a new binary or image:
    run `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component edge`
    or swap `edge` for `authority` / `all`. The script builds and pushes a
@@ -240,8 +241,8 @@ The recommended feature-iteration loop is:
    already support it cleanly.
 3. Validate it on `ambience.dev.romaine.life` first, not localhost, unless
    the task explicitly needs a local-only repro.
-4. Use `scripts/dev-loop.ps1` for browser-only static work in
-   `cmd/ambience/web/`.
+4. Use `scripts/dev-loop.ps1 -Once` for browser-only static work in
+   `cmd/ambience/web/`; do not default to the long-lived watcher form.
 5. Use `scripts/dev-deploy.ps1 -Component all` for changes that touch both
    browser assets and authority/runtime code, which is the common case for
    new effects. Use `edge` or `authority` only when the change is truly

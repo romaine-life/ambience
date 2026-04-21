@@ -6,6 +6,31 @@ that receives config + event broadcasts via SSE. Conceptually independent
 of fzt — the name only matches the domain (`ambience.romaine.life`).
 Read `D:/shell-config/setup/codex/AGENTS.md` for global Codex config.
 
+## Start Here
+
+If you only read one section in this file, read this one.
+
+1. Re-open the open GitHub issues and PRs at the start of a fresh
+   session, then pick one concrete, bounded slice from the real backlog.
+2. Treat `https://ambience.dev.romaine.life` as the default test target.
+   Do not spin up or rely on localhost unless the user explicitly asks
+   for a local repro.
+3. For browser-only static work in `cmd/ambience/web/**`, use
+   `powershell -ExecutionPolicy Bypass -File scripts/dev-loop.ps1 -Once`.
+   This is the fast path that syncs edited web files into the live dev
+   edge pod without a Docker build. Never run the background watcher
+   form unless the user explicitly asks for it.
+4. For Go/runtime/image-backed changes, use
+   `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component all`
+   by default. Use `edge` or `authority` only when the change is truly
+   one-sided.
+5. Validate the result on `ambience.dev.romaine.life`, usually on
+   `/dev/<effect>` for effect work, before treating it as ready.
+6. Only after dev validation should the change move into the manual
+   production promotion flow: build/push the real image, bump the prod
+   Helm values file, commit that desired-state change, and let ArgoCD
+   reconcile it.
+
 ## Architecture
 
 ```
@@ -99,8 +124,9 @@ For future Codex sessions, the default loop should be:
    spin up or rely on a local runtime unless the user explicitly asks for
    a localhost repro.
 4. For browser-only static work in `cmd/ambience/web`, use
-   `powershell -ExecutionPolicy Bypass -File scripts/dev-loop.ps1`
-   so the edge pod serves override files directly.
+   `powershell -ExecutionPolicy Bypass -File scripts/dev-loop.ps1 -Once`
+   so the edge pod serves override files directly. Never run the
+   long-lived watcher form unless the user explicitly asks for it.
 5. For Go or image-backed changes, patch the dev environment with
    `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component all`
    when both browser and authority change together. If the change is only
