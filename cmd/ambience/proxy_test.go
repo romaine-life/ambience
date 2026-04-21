@@ -185,8 +185,8 @@ func TestAuthorityMirrorReplayAfterLastEventID(t *testing.T) {
 	m.mu.Lock()
 	replay, ok = m.replayAfterLocked("20")
 	m.mu.Unlock()
-	if !ok || len(replay) != 0 {
-		t.Fatalf("snapshot replay fallback mismatch: ok=%v len=%d", ok, len(replay))
+	if !ok || len(replay) != 2 {
+		t.Fatalf("snapshot replay mismatch: ok=%v len=%d", ok, len(replay))
 	}
 }
 

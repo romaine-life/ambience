@@ -166,6 +166,7 @@ func (m *authorityMirror) setSnapshot(snap snapshotData, snapshotID string) {
 	m.snap = cloneSnapshot(snap)
 	if snapshotID != "" {
 		m.snapshotID = snapshotID
+		m.replay = nil
 	}
 	m.hasSnapshot = true
 	m.mu.Unlock()
@@ -282,7 +283,7 @@ func (m *authorityMirror) replayAfterLocked(lastID string) ([]Command, bool) {
 		return nil, false
 	}
 	if lastID == m.snapshotID {
-		return nil, true
+		return append([]Command(nil), m.replay...), true
 	}
 	for i := len(m.replay) - 1; i >= 0; i-- {
 		if m.replay[i].ID == lastID {
