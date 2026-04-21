@@ -15,14 +15,19 @@ cmd/ambience (Go)     HTTP server. Runs the shared atmosphere goroutine
   │                   commands. Does NOT stream pixel frames.
   │                   Embeds web/ and serves it.
   │
-  ├─► /                  Canonical demo page (runs local JS sim)
+  ├─► /                  Live broadcast monitor — canvas running the shared
+  │                      replica sim + status panel overlay (current scene,
+  │                      remaining, up next, entropy counter with togglable
+  │                      capture, rolling event log). Canonical consumer view.
   ├─► /sim.js            JS port of sim/rain.go, `AmbienceSim` global
   ├─► /client.js         Shared auto-init browser client (see "Consumer
   │                      integration" below)
   ├─► /ambience.js       Older helper (pre-client.js); still served
-  ├─► /dev               Dev-knob page for tuning Rain config live
-  ├─► /snapshot          JSON: current shared atmosphere state
-  ├─► /events            SSE: atmosphere commands (snapshot/config/trigger)
+  ├─► /dev               Dev-knob page for tuning Rain config live (per-
+  │                      session dev atmosphere, NOT connected to broadcast)
+  ├─► /snapshot          JSON: current shared atmosphere state (incl. scene)
+  ├─► /events            SSE: atmosphere commands
+  │                      (snapshot/config/trigger/scene/metric)
   ├─► /entropy           POST bytes — folded into the shared RNG
   ├─► /effects/rain/schema  JSON schema for Rain's 27 knobs (dev-panel UI)
   └─► /dev/{snapshot,events,config,trigger}  Per-session dev atmospheres
@@ -56,19 +61,52 @@ k8s/             Deployment manifests. ArgoCD Application lives in
 
 The server does NOT broadcast pixel frames. Instead, each atmosphere is a
 server-side Rain sim running at 10 Hz whose job is to DECIDE when discrete
-events fire. Clients run their own sims locally and apply three kinds of
-commands:
+events fire and when to rotate scenes. Clients run their own sims locally
+and apply five kinds of commands:
 
-- **`snapshot`** — initial state dump on connect: `{type, tick, config, seed,
-  downpourLeft, downpourMult, calmLeft, gustLeft, gustWind}`. `type` is the
-  effect name ("rain" for now; future effects carry their own type).
-- **`config`** — sim config changed; clients call `setConfig`
-- **`trigger`** — an event fired (downpour/calm/gust/splash); clients apply
+- **`snapshot`** — initial state dump on connect. Full game-save:
+  `{type, tick, config, seed, downpourLeft, downpourMult, calmLeft,
+  gustLeft, gustWind, gridW, gridH, drops, splashes, currentScene,
+  nextScene, entropyBytes, sceneRemaining}`. `type` is the effect name
+  ("rain" for now).
+- **`config`** — sim config changed; clients call `setConfig`. Broadcast on
+  entry to scene transitions (at ~1 Hz during drift) and on transition
+  completion (final target for exact sync).
+- **`trigger`** — an event fired (downpour/calm/gust/splash); clients apply.
+- **`scene`** — scene rotated. Carries `{name, durationTicks, startedAtTick,
+  nextName, transitionTicks}` so UI panels update + interpolated tick
+  interpolation works.
+- **`metric`** — entropy bytes + scene-remaining snapshot. Event-driven,
+  not periodic — fires on every `AddEntropy` call and on scene rotation.
 
 Clients do NOT roll for discrete events — only the server does. Clients
 advance timers and physics locally. Frame-level sync is not guaranteed
 (each client RNG drifts after initial snapshot), but event timing
-(downpour starts/ends, calm windows) stays in sync.
+(downpour starts/ends, calm windows, scene changes) stays in sync.
+
+## Scene rotation
+
+Rain runs with generated scenes rather than a single fixed config.
+Scenes have a 1–4 h duration, two-slot lookahead (current + next, next
+pre-generated at rotation time using the atmosphere's RNG — entropy
+perturbs the RNG, so keystrokes bias future scenes with a one-scene
+delay). Scene names are auto-derived descriptors (`warm-fast-drizzle`,
+`cool-calm-downpour`) from hue/speed/spawn buckets.
+
+Transitions between scenes are a config DRIFT — `lerpConfig` over
+`min(60 s, sceneDur/2)` ticks with `easeInOutCubic` easing. Hue uses
+angular LERP so the 0/360° seam is crossed along the shortest arc.
+Server applies interpolated configs to its sim each tick and broadcasts
+every 10 ticks during drift (~1 Hz), so client replicas stay near-sync
+without overwhelming the SSE stream. See
+[#8](https://github.com/nelsong6/ambience/issues/8) for the larger
+cross-effect transition design; the current work is the within-effect
+half. Vocabulary (Scene vs Effect) is tracked in
+[#17](https://github.com/nelsong6/ambience/issues/17).
+
+For local testing, `AMBIENCE_SCENE_TICKS=60` env var shortens scene
+duration to 6 s so rotations fire visibly without a 90-minute wait.
+Production ignores the var (falls back to 1–4 h random).
 
 ## Effect registry
 
@@ -113,9 +151,16 @@ canvas: `url`, `grid-w`, `grid-h`, `transparent`, `entropy`.
 
 Consumers:
 
-- **`/`** — repo's own demo page, `<canvas id="c">` full-screen, not using
-  the data-ambience auto-init (pre-dates it; uses sim.js directly).
-- **`/dev`** — per-session dev-atmosphere knob-tuning page.
+- **`/`** — live broadcast monitor. Full-screen canvas running the shared
+  replica sim (via inline EventSource + sim.js, not `client.js` — the page
+  consumes all five command kinds including `scene`/`metric` which
+  `client.js` doesn't know about). Status-panel overlay shows current scene
+  name, remaining time, up-next, tick, entropy counter with togglable
+  capture, and a rolling event log. Dev-ish tools here are a
+  fallback — `/dev` remains the real knob-tuning surface.
+- **`/dev`** — per-session dev-atmosphere knob-tuning page. NOT connected to
+  the shared broadcast; each session gets its own isolated atmosphere for
+  testing effects/configs without interfering with prod state.
 - **fzt-showcase** — `<canvas data-ambience>` behind the WASM DOS terminal.
 - **my-homepage** — `<canvas data-ambience>` behind the fzt bookmark terminal.
 - **fzt-automate** (terminal) — imports `github.com/nelsong6/ambience/terminal`,
@@ -138,7 +183,12 @@ Consumers:
 
 ## Status
 
-Rain MVP live at `ambience.romaine.life`. Consumers: fzt-showcase +
-my-homepage integrated via shared client. Entropy intake wired.
-Terminal integration tabled, see `docs/terminal-integration-status.md`.
-Future effects ready to plug in via the registry.
+Rain MVP live at `ambience.romaine.life` with scene rotation + smooth
+drift transitions + live monitor panel at `/`. Consumers: fzt-showcase +
+my-homepage integrated via shared client (unaffected by scene/metric
+commands — client.js ignores unknown kinds). Entropy intake wired,
+visible on the `/` panel. Terminal integration tabled, see
+`docs/terminal-integration-status.md`. Persistence of shared atmosphere
+state across pod restarts is open —
+[#16](https://github.com/nelsong6/ambience/issues/16). Future effects
+ready to plug in via the registry.
