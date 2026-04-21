@@ -11,10 +11,10 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"math/rand"
 	"sync"
 	"time"
 
+	"github.com/nelsong6/ambience/rngutil"
 	"github.com/nelsong6/ambience/sim"
 )
 
@@ -28,8 +28,8 @@ import (
 // scenes (AMBIENCE_SCENE_TICKS=60) we want the drift to finish before the
 // next rotation, so we scale down.
 const (
-	maxTransitionTicks         = 600 // 60 s at 10 Hz
-	transitionBroadcastEvery   = 10  // every 1 s during drift
+	maxTransitionTicks       = 600 // 60 s at 10 Hz
+	transitionBroadcastEvery = 10  // every 1 s during drift
 )
 
 // Command is a single message sent from server to clients.
@@ -82,13 +82,12 @@ type snapshotData struct {
 
 type atmosphere struct {
 	mu sync.Mutex
-	// Sim + seed-derived RNG for scene generation. Entropy POSTs flow into
-	// both (AddEntropy folds bytes into seed + perturbs sim.rng) so over
-	// time they naturally influence future scene configs.
+	// Sim + explicit scene RNG. Entropy POSTs flow into both so future event
+	// rolls and future generated scenes survive restarts coherently.
 	sim          *sim.Rain
 	cfg          sim.Config
 	seed         int64
-	rng          *rand.Rand
+	sceneRNG     *rngutil.RNG
 	current      Scene
 	next         Scene
 	entropyBytes int64 // cumulative entropy bytes received since boot
@@ -111,16 +110,16 @@ func newAtmosphere(_ sim.Config) *atmosphere {
 	// generated scene, so the argument is ignored. Kept in the signature to
 	// avoid a cascading change in callers (dev atmospheres, tests).
 	seed := time.Now().UnixNano()
-	r := rand.New(rand.NewSource(seed))
-	first := generateScene(r, 0)
+	sceneRNG := rngutil.New(seed ^ 0x6d0f27bd0b5a3c11)
+	first := generateScene(sceneRNG, 0)
 	// Pre-generate the next scene too — the "single-slot lookahead" model.
 	// StartedAtTick is set when it's promoted to current.
-	nxt := generateScene(r, 0)
+	nxt := generateScene(sceneRNG, 0)
 	return &atmosphere{
 		sim:       sim.NewRain(gridW, gridH, seed, first.Config),
 		cfg:       first.Config,
 		seed:      seed,
-		rng:       r,
+		sceneRNG:  sceneRNG,
 		current:   first,
 		next:      nxt,
 		listeners: make(map[chan Command]struct{}),
@@ -218,7 +217,7 @@ func (a *atmosphere) rotateScene(tick int) {
 	promoted := a.next
 	promoted.StartedAtTick = tick
 	a.current = promoted
-	a.next = generateScene(a.rng, 0)
+	a.next = generateScene(a.sceneRNG, 0)
 	currentCopy := a.current
 	nextName := a.next.Name
 	// Transition cap: keep drift bounded by the new scene's duration so we
@@ -234,11 +233,11 @@ func (a *atmosphere) rotateScene(tick int) {
 	a.mu.Unlock()
 
 	sceneData, _ := json.Marshal(map[string]interface{}{
-		"name":              currentCopy.Name,
-		"durationTicks":     currentCopy.DurationTicks,
-		"startedAtTick":     currentCopy.StartedAtTick,
-		"nextName":          nextName,
-		"transitionTicks":   dur,
+		"name":            currentCopy.Name,
+		"durationTicks":   currentCopy.DurationTicks,
+		"startedAtTick":   currentCopy.StartedAtTick,
+		"nextName":        nextName,
+		"transitionTicks": dur,
 	})
 	a.broadcast(Command{Kind: "scene", Tick: tick, Data: sceneData})
 
@@ -417,6 +416,7 @@ func (a *atmosphere) AddEntropy(b []byte) {
 	a.mu.Lock()
 	a.seed ^= acc
 	a.entropyBytes += int64(len(b))
+	a.sceneRNG.Mix(acc)
 	a.mu.Unlock()
 	a.sim.PerturbRNG(acc)
 	// Push a metric broadcast on every entropy event so the / live monitor's

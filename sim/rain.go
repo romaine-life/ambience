@@ -9,8 +9,9 @@ import (
 	"fmt"
 	"image/color"
 	"math"
-	"math/rand"
 	"sync"
+
+	"github.com/nelsong6/ambience/rngutil"
 )
 
 // Pixel is one cell in the grid. Filled=false means transparent/empty.
@@ -270,7 +271,7 @@ type Rain struct {
 	W, H  int
 	Grid  [][]Pixel
 	drops []drop
-	rng   *rand.Rand
+	rng   *rngutil.RNG
 	cfg   Config
 
 	// lever state
@@ -298,7 +299,7 @@ func NewRain(w, h int, seed int64, cfg Config) *Rain {
 		W:    w,
 		H:    h,
 		Grid: grid,
-		rng:  rand.New(rand.NewSource(seed)),
+		rng:  rngutil.New(seed),
 		cfg:  cfg.withDefaults(),
 	}
 }
@@ -332,11 +333,7 @@ func (r *Rain) SetConfig(cfg Config) {
 func (r *Rain) PerturbRNG(delta int64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	// Cheap state nudge: consume a few values to advance the internal state,
-	// then re-seed based on the delta XOR'd with current draws.
-	a := r.rng.Int63()
-	b := r.rng.Int63()
-	r.rng = rand.New(rand.NewSource(a ^ b ^ delta))
+	r.rng.Mix(delta)
 }
 
 // Resize changes the sim's grid dimensions. Existing drops are dropped
@@ -368,6 +365,15 @@ type State struct {
 	CalmTicks     int     `json:"calmTicks"`
 	GustTicks     int     `json:"gustTicks"`
 	GustWind      float64 `json:"gustWind"`
+}
+
+// PersistedState is the server-side subset of Rain state needed to resume
+// the atmosphere after a process restart.
+type PersistedState struct {
+	State
+	RNGState uint64   `json:"rngState"`
+	Drops    []Drop   `json:"drops"`
+	Splashes []Splash `json:"splashes"`
 }
 
 // RGB is the wire form of a color — lowercase keys and no alpha, shared
@@ -482,6 +488,101 @@ func (r *Rain) RestoreState(s State) {
 	r.calmTicks = s.CalmTicks
 	r.gustTicks = s.GustTicks
 	r.gustWind = s.GustWind
+}
+
+// SnapshotPersistedState returns the full server-side sim state needed to
+// resume from disk, including in-flight particles and RNG state.
+func (r *Rain) SnapshotPersistedState() PersistedState {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	out := PersistedState{
+		State: State{
+			Tick:          r.tick,
+			DownpourTicks: r.downpourTicks,
+			DownpourMult:  r.downpourMult,
+			CalmTicks:     r.calmTicks,
+			GustTicks:     r.gustTicks,
+			GustWind:      r.gustWind,
+		},
+		RNGState: r.rng.State(),
+		Drops:    make([]Drop, len(r.drops)),
+		Splashes: make([]Splash, len(r.splashes)),
+	}
+	for i, d := range r.drops {
+		out.Drops[i] = Drop{
+			Row:        d.Row,
+			Col:        d.Col,
+			Color:      RGB{R: d.Color.R, G: d.Color.G, B: d.Color.B},
+			VRow:       d.vRow,
+			VCol:       d.vCol,
+			StreakLen:  d.streakLen,
+			Background: d.background,
+		}
+	}
+	for i, s := range r.splashes {
+		out.Splashes[i] = Splash{
+			Row:       s.row,
+			Col:       s.col,
+			Age:       s.age,
+			MaxAge:    s.maxAge,
+			MaxRadius: s.maxRadius,
+			Color:     RGB{R: s.color.R, G: s.color.G, B: s.color.B},
+		}
+	}
+	return out
+}
+
+// RestorePersistedState overwrites the sim from a server-side persisted
+// snapshot. Config is handled separately via SetConfig before this call.
+func (r *Rain) RestorePersistedState(s PersistedState) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.tick = s.Tick
+	r.downpourTicks = s.DownpourTicks
+	r.downpourMult = s.DownpourMult
+	r.calmTicks = s.CalmTicks
+	r.gustTicks = s.GustTicks
+	r.gustWind = s.GustWind
+	if s.RNGState != 0 {
+		r.rng.SetState(s.RNGState)
+	}
+
+	r.drops = make([]drop, len(s.Drops))
+	for i, d := range s.Drops {
+		r.drops[i] = drop{
+			Row:        d.Row,
+			Col:        d.Col,
+			Color:      color.RGBA{R: d.Color.R, G: d.Color.G, B: d.Color.B, A: 255},
+			vRow:       d.VRow,
+			vCol:       d.VCol,
+			streakLen:  d.StreakLen,
+			background: d.Background,
+		}
+	}
+
+	r.splashes = make([]splashInstance, len(s.Splashes))
+	for i, sp := range s.Splashes {
+		r.splashes[i] = splashInstance{
+			row:       sp.Row,
+			col:       sp.Col,
+			age:       sp.Age,
+			maxAge:    sp.MaxAge,
+			maxRadius: sp.MaxRadius,
+			color:     color.RGBA{R: sp.Color.R, G: sp.Color.G, B: sp.Color.B, A: 255},
+		}
+	}
+
+	for y := range r.Grid {
+		for x := range r.Grid[y] {
+			r.Grid[y][x] = Pixel{}
+		}
+	}
+	r.paintSplashes()
+	for _, d := range r.drops {
+		r.paintDrop(d)
+	}
 }
 
 // GridCopy returns a snapshot of the current grid. The caller owns the
@@ -651,7 +752,7 @@ func (r *Rain) Step() {
 }
 
 // jitterInt returns an int in [base*(1-spread), base*(1+spread)], uniform.
-func jitterInt(rng *rand.Rand, base int, spread float64) int {
+func jitterInt(rng *rngutil.RNG, base int, spread float64) int {
 	f := float64(base) * (1 + spread*(rng.Float64()*2-1))
 	n := int(math.Round(f))
 	if n < 1 {

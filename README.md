@@ -129,6 +129,11 @@ The ArgoCD Application at `infra-bootstrap/k8s/apps/ambience.yaml`
 watches this repo's `k8s/` path on `main`; the committed kustomization
 bump triggers a sync that rolls the deployment to the new image.
 
+The shared atmosphere now snapshots itself every 30s to
+`AMBIENCE_PERSIST_PATH`. The shipped Kubernetes manifests mount a PVC at
+`/data` and persist to `/data/shared-atmosphere.json`, so pod restarts
+resume the live world instead of resetting it.
+
 ## Status
 
 Rain effect live. Consumers: ambience's own demo, fzt-showcase (DOS

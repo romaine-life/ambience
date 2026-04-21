@@ -12,5 +12,6 @@ resources:
 - certificate.yaml
 - deployment.yaml
 - httproute.yaml
+- pvc.yaml
 - service.yaml
 - xlistenerset.yaml

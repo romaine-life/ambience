@@ -7,10 +7,10 @@ package main
 
 import (
 	"fmt"
-	"math/rand"
 	"os"
 	"strconv"
 
+	"github.com/nelsong6/ambience/rngutil"
 	"github.com/nelsong6/ambience/sim"
 )
 
@@ -33,7 +33,7 @@ func (s Scene) Remaining(currentTick int) int {
 // generateScene produces a Scene using rng. Duration is randomized across
 // 1–4 hours (36k–144k ticks at 10 Hz). The config ranges are kept within
 // sim-safe bounds so any generated scene is guaranteed to look reasonable.
-func generateScene(rng *rand.Rand, startedAt int) Scene {
+func generateScene(rng *rngutil.RNG, startedAt int) Scene {
 	hue := rng.Float64() * 360
 	hueSpread := 10 + rng.Float64()*50     // 10–60°
 	sat := 0.4 + rng.Float64()*0.5         // 0.4–0.9

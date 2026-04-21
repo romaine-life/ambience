@@ -50,10 +50,17 @@ var webFS embed.FS
 var shared *atmosphere
 
 func main() {
-	shared = newAtmosphere(sim.Config{})
+	store, persistInterval, err := newPersistenceStoreFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+	shared = restoreSharedAtmosphere(context.Background(), store)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go shared.run(ctx)
+	if store != nil {
+		go persistLoop(ctx, persistInterval, store, shared)
+	}
 	go sweepDevAtmospheres()
 
 	web, err := fs.Sub(webFS, "web")

@@ -85,3 +85,39 @@ func TestHslToRGBBasicAnchors(t *testing.T) {
 		}
 	}
 }
+
+func TestPersistedStateRestoreRoundTrip(t *testing.T) {
+	r := NewRain(20, 20, 42, Config{
+		Speed:      1.2,
+		StreakLen:  4,
+		FadeFactor: 0.9,
+		SpawnEvery: 2,
+		SpawnBurst: 2,
+	})
+	for i := 0; i < 10; i++ {
+		r.Step()
+	}
+
+	state := r.SnapshotPersistedState()
+
+	restored := NewRain(20, 20, 1, Config{})
+	restored.SetConfig(r.EffectiveConfig())
+	restored.RestorePersistedState(state)
+
+	got := restored.SnapshotPersistedState()
+	if got.Tick != state.Tick {
+		t.Fatalf("tick = %d, want %d", got.Tick, state.Tick)
+	}
+	if got.DownpourTicks != state.DownpourTicks || got.CalmTicks != state.CalmTicks || got.GustTicks != state.GustTicks {
+		t.Fatalf("event timers changed: got %+v want %+v", got.State, state.State)
+	}
+	if got.RNGState != state.RNGState {
+		t.Fatalf("rng state = %d, want %d", got.RNGState, state.RNGState)
+	}
+	if len(got.Drops) != len(state.Drops) {
+		t.Fatalf("drops = %d, want %d", len(got.Drops), len(state.Drops))
+	}
+	if len(got.Splashes) != len(state.Splashes) {
+		t.Fatalf("splashes = %d, want %d", len(got.Splashes), len(state.Splashes))
+	}
+}
