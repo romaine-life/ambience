@@ -118,6 +118,19 @@ All broadcast endpoints set permissive CORS for cross-origin consumers.
 - `POST /entropy` — raw bytes folded into the RNG (max 4KB/req)
 - `GET  /effects/rain/schema` — knob schema for the dev UI
 
+## Roles
+
+The binary supports three runtime roles via `AMBIENCE_ROLE`:
+
+- `all` — backward-compatible single-process mode; serves static pages and
+  runs the shared authority locally
+- `authority` — runs the shared sim + dev atmospheres and owns persistence
+- `edge` — serves the web UI and proxies `/snapshot`, `/events`, `/entropy`,
+  and `/dev/*` to the authority given by `AMBIENCE_AUTHORITY_URL`
+
+Edge mode also buffers entropy best-effort in memory if the authority is
+briefly unavailable, then retries forwarding on a short cadence.
+
 ## Deploying
 
 Push to `main` — `.github/workflows/build-and-deploy.yml` builds the
@@ -129,10 +142,12 @@ The ArgoCD Application at `infra-bootstrap/k8s/apps/ambience.yaml`
 watches this repo's `k8s/` path on `main`; the committed kustomization
 bump triggers a sync that rolls the deployment to the new image.
 
-The shared atmosphere now snapshots itself every 30s to
-`AMBIENCE_PERSIST_PATH`. The shipped Kubernetes manifests mount a PVC at
-`/data` and persist to `/data/shared-atmosphere.json`, so pod restarts
-resume the live world instead of resetting it.
+The shipped Kubernetes manifests now split the app into one internal
+`authority` Deployment and a public two-replica `edge` Deployment. The
+authority snapshots the shared atmosphere every 30s to
+`AMBIENCE_PERSIST_PATH`; the manifests mount a PVC at `/data` and persist
+to `/data/shared-atmosphere.json`, so authority restarts resume the live
+world instead of resetting it.
 
 ## Status
 

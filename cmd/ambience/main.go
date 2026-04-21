@@ -44,58 +44,143 @@ const (
 	devSessionSweep = 30 * time.Second
 )
 
+type appRole string
+
+const (
+	roleAll       appRole = "all"
+	roleAuthority appRole = "authority"
+	roleEdge      appRole = "edge"
+)
+
+type appConfig struct {
+	role         appRole
+	addr         string
+	authorityURL string
+}
+
 //go:embed web
 var webFS embed.FS
 
 var shared *atmosphere
 
 func main() {
-	store, persistInterval, err := newPersistenceStoreFromEnv()
+	cfg, err := loadAppConfigFromEnv()
 	if err != nil {
 		log.Fatal(err)
 	}
-	shared = restoreSharedAtmosphere(context.Background(), store)
+	web, err := fs.Sub(webFS, "web")
+	if err != nil {
+		log.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	mux := http.NewServeMux()
+	registerCommonRoutes(mux)
+
+	switch cfg.role {
+	case roleAll, roleAuthority:
+		if err := bootAuthority(ctx); err != nil {
+			log.Fatal(err)
+		}
+		registerStaticRoutes(mux, web)
+		registerSchemaRoute(mux)
+		registerAuthorityRoutes(mux)
+		registerDevRoutes(mux)
+	case roleEdge:
+		proxy, err := newAuthorityProxy(ctx, cfg.authorityURL)
+		if err != nil {
+			log.Fatal(err)
+		}
+		registerStaticRoutes(mux, web)
+		registerSchemaRoute(mux)
+		registerEdgeRoutes(mux, proxy)
+	default:
+		log.Fatalf("unsupported ambience role %q", cfg.role)
+	}
+
+	// AMBIENCE_ADDR overrides the bind address. For local dev, set it to
+	// "127.0.0.1:8080" so Windows Firewall doesn't prompt (loopback skips
+	// the firewall). Kubernetes keeps the default ":8080" for pod reachability.
+	log.Printf("ambience listening on %s (role=%s, grid %dx%d, tick %s)", cfg.addr, cfg.role, gridW, gridH, tickRate)
+	log.Fatal(http.ListenAndServe(cfg.addr, mux))
+}
+
+func loadAppConfigFromEnv() (appConfig, error) {
+	cfg := appConfig{
+		role: roleAll,
+		addr: defaultAddr,
+	}
+	if envRole := strings.TrimSpace(strings.ToLower(os.Getenv("AMBIENCE_ROLE"))); envRole != "" {
+		cfg.role = appRole(envRole)
+	}
+	switch cfg.role {
+	case roleAll, roleAuthority, roleEdge:
+	default:
+		return appConfig{}, fmt.Errorf("AMBIENCE_ROLE must be one of %q, %q, %q", roleAll, roleAuthority, roleEdge)
+	}
+	if envAddr := os.Getenv("AMBIENCE_ADDR"); envAddr != "" {
+		cfg.addr = envAddr
+	}
+	cfg.authorityURL = strings.TrimRight(strings.TrimSpace(os.Getenv("AMBIENCE_AUTHORITY_URL")), "/")
+	if cfg.role == roleEdge && cfg.authorityURL == "" {
+		return appConfig{}, fmt.Errorf("AMBIENCE_AUTHORITY_URL is required when AMBIENCE_ROLE=%q", roleEdge)
+	}
+	return cfg, nil
+}
+
+func bootAuthority(ctx context.Context) error {
+	store, persistInterval, err := newPersistenceStoreFromEnv()
+	if err != nil {
+		return err
+	}
+	shared = restoreSharedAtmosphere(ctx, store)
 	go shared.run(ctx)
 	if store != nil {
 		go persistLoop(ctx, persistInterval, store, shared)
 	}
 	go sweepDevAtmospheres()
+	return nil
+}
 
-	web, err := fs.Sub(webFS, "web")
-	if err != nil {
-		log.Fatal(err)
-	}
-	http.Handle("/", http.FileServer(http.FS(web)))
-	http.HandleFunc("/dev", serveDevPage(web))
-	http.HandleFunc("/effects/rain/schema", cors(serveSchema))
+func registerCommonRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/healthz", serveHealthz)
+	mux.HandleFunc("/readyz", serveReadyz)
+}
 
+func registerStaticRoutes(mux *http.ServeMux, web fs.FS) {
+	mux.HandleFunc("/dev", serveDevPage(web))
+	mux.Handle("/", http.FileServer(http.FS(web)))
+}
+
+func registerSchemaRoute(mux *http.ServeMux) {
+	mux.HandleFunc("/effects/rain/schema", cors(serveSchema))
+}
+
+func registerAuthorityRoutes(mux *http.ServeMux) {
 	// Shared atmosphere — CORS-enabled so third-party pages (fzt-showcase,
-	// my-homepage, etc.) can consume the stream. Read-only endpoints; no
-	// state mutation risk.
-	http.HandleFunc("/snapshot", cors(serveSharedSnapshot))
-	http.HandleFunc("/events", cors(serveSharedEvents))
+	// my-homepage, etc.) can consume the stream.
+	mux.HandleFunc("/snapshot", cors(serveSharedSnapshot))
+	mux.HandleFunc("/events", cors(serveSharedEvents))
 	// Entropy intake — clients POST keystroke-derived bytes here; bytes
-	// get folded into the shared atmosphere's RNG. Also CORS-enabled so
-	// browser consumers can contribute.
-	http.HandleFunc("/entropy", cors(serveEntropy))
+	// get folded into the shared atmosphere's RNG.
+	mux.HandleFunc("/entropy", cors(serveEntropy))
+}
 
+func registerDevRoutes(mux *http.ServeMux) {
 	// Dev atmospheres (per-session)
-	http.HandleFunc("/dev/snapshot", serveDevSnapshot)
-	http.HandleFunc("/dev/events", serveDevEvents)
-	http.HandleFunc("/dev/config", serveDevConfig)
-	http.HandleFunc("/dev/trigger/", serveDevTrigger)
+	mux.HandleFunc("/dev/snapshot", serveDevSnapshot)
+	mux.HandleFunc("/dev/events", serveDevEvents)
+	mux.HandleFunc("/dev/config", serveDevConfig)
+	mux.HandleFunc("/dev/trigger/", serveDevTrigger)
+}
 
-	// AMBIENCE_ADDR overrides the bind address. For local dev, set it to
-	// "127.0.0.1:8080" so Windows Firewall doesn't prompt (loopback skips
-	// the firewall). Kubernetes keeps the default ":8080" for pod reachability.
-	addr := defaultAddr
-	if envAddr := os.Getenv("AMBIENCE_ADDR"); envAddr != "" {
-		addr = envAddr
-	}
-	log.Printf("ambience listening on %s (grid %dx%d, tick %s)", addr, gridW, gridH, tickRate)
-	log.Fatal(http.ListenAndServe(addr, nil))
+func serveHealthz(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func serveReadyz(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // cors wraps a handler to send permissive CORS headers. Safe because the
@@ -104,7 +189,7 @@ func main() {
 func cors(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

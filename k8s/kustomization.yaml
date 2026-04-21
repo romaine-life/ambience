@@ -10,7 +10,9 @@ images:
 
 resources:
 - certificate.yaml
+- authority-service.yaml
 - deployment.yaml
+- edge-deployment.yaml
 - httproute.yaml
 - pvc.yaml
 - service.yaml

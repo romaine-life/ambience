@@ -1,21 +1,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ambience-authority
+  name: ambience-edge
   namespace: ambience
 spec:
-  replicas: 1
+  replicas: 2
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: ambience
-      component: authority
+      component: edge
   template:
     metadata:
       labels:
         app: ambience
-        component: authority
+        component: edge
     spec:
       containers:
         - name: ambience
@@ -23,11 +26,9 @@ spec:
           imagePullPolicy: Always
           env:
             - name: AMBIENCE_ROLE
-              value: authority
-            - name: AMBIENCE_PERSIST_PATH
-              value: /data/shared-atmosphere.json
-            - name: AMBIENCE_PERSIST_INTERVAL
-              value: 30s
+              value: edge
+            - name: AMBIENCE_AUTHORITY_URL
+              value: http://ambience-authority
           ports:
             - containerPort: 8080
               name: http
@@ -39,9 +40,6 @@ spec:
             httpGet:
               path: /healthz
               port: http
-          volumeMounts:
-            - name: ambience-state
-              mountPath: /data
           resources:
             requests:
               cpu: 10m
@@ -49,7 +47,3 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
-      volumes:
-        - name: ambience-state
-          persistentVolumeClaim:
-            claimName: ambience-state

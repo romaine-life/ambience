@@ -1,12 +1,12 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: ambience
+  name: ambience-authority
   namespace: ambience
 spec:
   selector:
     app: ambience
-    component: edge
+    component: authority
   ports:
     - name: http
       port: 80
