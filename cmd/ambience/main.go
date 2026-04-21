@@ -17,6 +17,7 @@
 //	GET  /dev/snapshot?session=&effect=
 //	GET  /dev/events?session=&effect=
 //	POST /dev/config?session=&effect=
+//	POST /dev/randomize?session=&effect=
 //	POST /dev/trigger/:session/:event?effect=
 //	                            — fire a discrete event on the dev atmosphere
 //	GET  /effects/<effect>/schema — JSON schema for the dev knob panel
@@ -59,10 +60,11 @@ const (
 )
 
 type appConfig struct {
-	role          appRole
-	addr          string
-	authorityURL  string
-	shutdownDrain time.Duration
+	role           appRole
+	addr           string
+	authorityURL   string
+	shutdownDrain  time.Duration
+	webOverrideDir string
 }
 
 type lifecycleState struct {
@@ -83,6 +85,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	static := newStaticAssets(web, cfg.webOverrideDir)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	lifecycle := &lifecycleState{}
@@ -95,7 +98,7 @@ func main() {
 		if err := bootAuthority(ctx); err != nil {
 			log.Fatal(err)
 		}
-		registerStaticRoutes(mux, web)
+		registerStaticRoutes(mux, static)
 		registerSchemaRoute(mux)
 		registerAuthorityRoutes(mux)
 		registerDevRoutes(mux)
@@ -105,7 +108,7 @@ func main() {
 			log.Fatal(err)
 		}
 		baseReady = proxy.ready
-		registerStaticRoutes(mux, web)
+		registerStaticRoutes(mux, static)
 		registerSchemaRoute(mux)
 		registerEdgeRoutes(mux, proxy)
 	default:
@@ -185,6 +188,7 @@ func loadAppConfigFromEnv() (appConfig, error) {
 		}
 		cfg.shutdownDrain = d
 	}
+	cfg.webOverrideDir = strings.TrimSpace(os.Getenv("AMBIENCE_WEB_OVERRIDE_DIR"))
 	return cfg, nil
 }
 
@@ -207,10 +211,14 @@ func registerCommonRoutes(mux *http.ServeMux, ready func() bool) {
 	mux.HandleFunc("/readyz", serveReadyz(ready))
 }
 
-func registerStaticRoutes(mux *http.ServeMux, web fs.FS) {
-	mux.HandleFunc("/dev", serveDevPage(web))
-	mux.HandleFunc("/dev/", serveDevPage(web))
-	mux.Handle("/", http.FileServer(http.FS(web)))
+func registerStaticRoutes(mux *http.ServeMux, static staticAssets) {
+	mux.HandleFunc("/dev", serveDevPage(static))
+	mux.HandleFunc("/dev/", serveDevPage(static))
+	mux.HandleFunc("/sim.js", serveStaticFile(static, "sim.js"))
+	mux.HandleFunc("/controls.js", serveStaticFile(static, "controls.js"))
+	mux.HandleFunc("/client.js", serveStaticFile(static, "client.js"))
+	mux.HandleFunc("/ambience.js", serveStaticFile(static, "ambience.js"))
+	mux.HandleFunc("/", serveExactStaticFile(static, "/", "index.html"))
 }
 
 func registerSchemaRoute(mux *http.ServeMux) {
@@ -236,6 +244,7 @@ func registerDevRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/dev/snapshot", serveDevSessionSnapshot)
 	mux.HandleFunc("/dev/events", serveDevSessionEvents)
 	mux.HandleFunc("/dev/config", serveDevSessionConfig)
+	mux.HandleFunc("/dev/randomize", serveDevSessionRandomize)
 	mux.HandleFunc("/dev/trigger/", serveDevSessionTrigger)
 }
 
@@ -269,13 +278,13 @@ func cors(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func serveDevPage(web fs.FS) http.HandlerFunc {
+func serveDevPage(static staticAssets) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		if _, ok := devPageEffectFromPath(req.URL.Path); !ok {
 			http.NotFound(w, req)
 			return
 		}
-		data, err := fs.ReadFile(web, "dev.html")
+		data, err := static.readFile("dev.html")
 		if err != nil {
 			http.Error(w, "dev page not found", http.StatusNotFound)
 			return

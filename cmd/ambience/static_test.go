@@ -1,0 +1,112 @@
+package main
+
+import (
+	"io/fs"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+	"testing/fstest"
+)
+
+func TestStaticAssetsReadFileFallsBackToEmbedded(t *testing.T) {
+	static := newStaticAssets(fstest.MapFS{
+		"dev.html": &fstest.MapFile{Data: []byte("embedded-dev")},
+	}, "")
+
+	got, err := static.readFile("dev.html")
+	if err != nil {
+		t.Fatalf("readFile returned error: %v", err)
+	}
+	if string(got) != "embedded-dev" {
+		t.Fatalf("readFile = %q, want embedded content", string(got))
+	}
+}
+
+func TestStaticAssetsReadFileUsesOverride(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "dev.html"), []byte("override-dev"), 0o644); err != nil {
+		t.Fatalf("write override file: %v", err)
+	}
+
+	static := newStaticAssets(fstest.MapFS{
+		"dev.html": &fstest.MapFile{Data: []byte("embedded-dev")},
+	}, dir)
+
+	got, err := static.readFile("dev.html")
+	if err != nil {
+		t.Fatalf("readFile returned error: %v", err)
+	}
+	if string(got) != "override-dev" {
+		t.Fatalf("readFile = %q, want override content", string(got))
+	}
+}
+
+func TestServeDevPageUsesOverride(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "dev.html"), []byte("override-dev"), 0o644); err != nil {
+		t.Fatalf("write override file: %v", err)
+	}
+
+	static := newStaticAssets(fstest.MapFS{
+		"dev.html": &fstest.MapFile{Data: []byte("embedded-dev")},
+	}, dir)
+
+	req := httptest.NewRequest(http.MethodGet, "/dev/dust", nil)
+	rec := httptest.NewRecorder()
+	serveDevPage(static).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if body := rec.Body.String(); body != "override-dev" {
+		t.Fatalf("body = %q, want override content", body)
+	}
+}
+
+func TestServeExactStaticFileServesOnlyConfiguredRoute(t *testing.T) {
+	static := newStaticAssets(fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte("home")},
+	}, "")
+
+	handler := serveExactStaticFile(static, "/", "index.html")
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("root status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if body := rec.Body.String(); body != "home" {
+		t.Fatalf("root body = %q, want %q", body, "home")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/index.html", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("/index.html status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/not-a-page", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown path status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestLoadAppConfigFromEnvWebOverrideDir(t *testing.T) {
+	t.Setenv("AMBIENCE_WEB_OVERRIDE_DIR", "C:\\override")
+
+	cfg, err := loadAppConfigFromEnv()
+	if err != nil {
+		t.Fatalf("loadAppConfigFromEnv returned error: %v", err)
+	}
+	if cfg.webOverrideDir != "C:\\override" {
+		t.Fatalf("webOverrideDir = %q, want %q", cfg.webOverrideDir, "C:\\override")
+	}
+}
+
+var _ fs.FS = fstest.MapFS{}

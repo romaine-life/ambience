@@ -20,6 +20,7 @@ cmd/ambience (Go)     HTTP server. Runs the shared atmosphere goroutine
   │                      remaining, up next, entropy counter with togglable
   │                      capture, rolling event log). Canonical consumer view.
   ├─► /sim.js            JS port of sim/rain.go, `AmbienceSim` global
+  ├─► /controls.js       Shared schema-driven control panel helper
   ├─► /client.js         Shared auto-init browser client (see "Consumer
   │                      integration" below)
   ├─► /ambience.js       Older helper (pre-client.js); still served
@@ -31,13 +32,14 @@ cmd/ambience (Go)     HTTP server. Runs the shared atmosphere goroutine
   │                      (snapshot/config/trigger/scene/metric)
   ├─► /entropy           POST bytes — folded into the shared RNG
   ├─► /effects/<effect>/schema  JSON schema for an effect's knobs
-  └─► /dev/{snapshot,events,config,trigger}  Per-session dev atmospheres
+  └─► /dev/{snapshot,events,config,randomize,trigger}
+                         Per-session dev atmospheres
 
 sim/             Pure Go simulation logic. Rain is the live shared-world
-                 effect today; Fireflies and Waterfall also exist as
-                 isolated dev effects. No I/O; consumed by cmd/ambience
-                 (server-side) and by terminal/ (client-side sixel
-                 renderer).
+                 effect today; Fireflies, Waterfall, and Dust also exist
+                 as isolated dev effects. No I/O; consumed by
+                 cmd/ambience (server-side) and by terminal/
+                 (client-side sixel renderer).
 
 terminal/        Go package — SSE subscriber + local sim replica + sixel
                  renderer. Consumed by fzt-automate via its
@@ -70,7 +72,14 @@ chart/ambience/  Helm chart used by ArgoCD for both environments.
                  `scripts/dev-deploy.ps1`, which patches live
                  `edge`, `authority`, or `all` workload images for a
                  fast inner loop without treating dev as a manual Helm
-                 release.
+                 release. The script prefers local Docker when it is
+                 available, but can fall back to `az acr build` and
+                 verifies the image tag exists before patching, so local
+                 Docker is optional for the dev path. For static browser
+                 work, `scripts/dev-loop.ps1` syncs `cmd/ambience/web`
+                 straight into the dev edge pod's override directory so
+                 testing stays on `ambience.dev.romaine.life` instead of
+                 falling back to localhost.
 ```
 
 ## Preferred iteration loop
@@ -86,15 +95,21 @@ For future Codex sessions, the default loop should be:
 2. Pick one concrete, bounded feature. Bias toward effect work or
    effect-adjacent enhancements when the existing registry, `/dev`
    switcher, presets, and schema-driven controls already make that cheap.
-3. Build the slice end to end against the dev flow first. For browser
-   and server effect work together, patch the dev environment with
-   `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component all`.
-   If the change is only static/browser-side or only authority-side, use
-   `edge` or `authority` respectively.
-4. Validate on `ambience.dev.romaine.life`, usually via
+3. Treat `ambience.dev.romaine.life` as the default test target. Do not
+   spin up or rely on a local runtime unless the user explicitly asks for
+   a localhost repro.
+4. For browser-only static work in `cmd/ambience/web`, use
+   `powershell -ExecutionPolicy Bypass -File scripts/dev-loop.ps1`
+   so the edge pod serves override files directly.
+5. For Go or image-backed changes, patch the dev environment with
+   `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component all`
+   when both browser and authority change together. If the change is only
+   static/browser-side or only authority-side, use `edge` or `authority`
+   respectively.
+6. Validate on `ambience.dev.romaine.life`, usually via
    `/dev/<effect>` for new or changed dev effects, before treating the
    slice as ready for promotion.
-5. Only after the dev environment looks right should the change move into
+7. Only after the dev environment looks right should the change move into
    the manual production promotion flow: build/push the real image, bump
    the Helm values file, commit that desired-state change, and let ArgoCD
    reconcile it.
@@ -156,7 +171,7 @@ Production ignores the var (falls back to 1–4 h random).
 
 ## Effect registry
 
-`sim.js` exports `AmbienceSim.effects = { rain, fireflies, waterfall }`.
+`sim.js` exports `AmbienceSim.effects = { rain, fireflies, waterfall, dust }`.
 The shared
 `client.js` reads `snapshotData.Type` and looks up the constructor there
 — adding a new effect means registering one entry in `effects`, no
@@ -228,7 +243,9 @@ Consumers:
 - **`/dev`** — per-session dev-atmosphere knob-tuning page. NOT connected to
   the shared broadcast; each session gets its own isolated atmosphere for
   testing effects/configs without interfering with prod state. The page
-  supports effect switching via `/dev/<effect>` and effect-defined presets.
+  supports effect switching via `/dev/<effect>`, effect-defined presets,
+  randomized per-session starting configs, and a `randomize` button for
+  another quick stat roll on the active effect.
 - **fzt-showcase** — `<canvas data-ambience>` behind the WASM DOS terminal.
 - **my-homepage** — `<canvas data-ambience>` behind the fzt bookmark terminal.
 - **fzt-automate** (terminal) — imports `github.com/nelsong6/ambience/terminal`,
@@ -255,12 +272,16 @@ Rain MVP live at `ambience.romaine.life` with scene rotation + smooth
 drift transitions + live monitor panel at `/`. The dev environment at
 `ambience.dev.romaine.life` is also live, Argo-owned, and intentionally
 manual-sync so sessions can hot-swap images without immediate
-reconciliation. Rain lifecycle intro/outro controls exist in `/dev` for
-tuning and preview, and the dev page now supports effect switching plus
-Waterfall presets. Consumers: fzt-showcase + my-homepage integrated via
-shared client (unaffected by scene/metric commands — client.js ignores
-unknown kinds). Entropy intake wired, visible on the `/` panel. Shared
-atmosphere state now persists across authority restarts via the mounted PVC
-and persisted snapshot file. Terminal integration tabled, see
+reconciliation. `/dev` now supports effect switching across Rain,
+Fireflies, Waterfall, and Dust, including randomized per-session starting
+stats, a `randomize` button, and a bottom-anchored event log that behaves
+like a live tail instead of pinning the newest entry off-screen. The web
+surface is tightened around clean routes: use `/` and `/dev/<effect>`,
+not `.html` paths, and unknown static routes now 404. Consumers:
+fzt-showcase + my-homepage integrated via shared client (unaffected by
+scene/metric commands — client.js ignores unknown kinds). Entropy intake
+wired, visible on the `/` panel. Shared atmosphere state now persists
+across authority restarts via the mounted PVC and persisted snapshot
+file. Terminal integration tabled, see
 `docs/terminal-integration-status.md`. Future effects ready to plug in via
 the registry.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -100,12 +101,31 @@ func newDevSession(effectType string) (*devSession, error) {
 	if err != nil {
 		return nil, err
 	}
+	cfg, err := randomizedDevConfig(effect.Schema(), seed)
+	if err != nil {
+		return nil, err
+	}
+	if err := effect.ApplyConfig(cfg); err != nil {
+		return nil, err
+	}
 	return &devSession{
 		seed:      seed,
 		effect:    effect,
 		listeners: make(map[chan Command]struct{}),
 		lastSeen:  time.Now(),
 	}, nil
+}
+
+func configsEqualJSON(left, right json.RawMessage) bool {
+	var a any
+	if err := json.Unmarshal(left, &a); err != nil {
+		return false
+	}
+	var b any
+	if err := json.Unmarshal(right, &b); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(a, b)
 }
 
 func devSessionKey(effectType, sessionID string) string {
@@ -249,6 +269,10 @@ func (s *devSession) setConfigQuery(values url.Values) error {
 	if err != nil {
 		return err
 	}
+	return s.applyConfig(data)
+}
+
+func (s *devSession) applyConfig(data json.RawMessage) error {
 	if err := s.effect.ApplyConfig(data); err != nil {
 		return err
 	}
@@ -258,6 +282,26 @@ func (s *devSession) setConfigQuery(values url.Values) error {
 		Data: cloneRaw(data),
 	})
 	return nil
+}
+
+func (s *devSession) randomizeConfig(seed int64) (json.RawMessage, error) {
+	current, err := s.effect.Snapshot()
+	if err != nil {
+		return nil, err
+	}
+	for attempt := range 6 {
+		cfg, err := randomizedDevConfig(s.effect.Schema(), seed+int64(attempt)*7919)
+		if err != nil {
+			return nil, err
+		}
+		if attempt == 5 || !configsEqualJSON(cfg, current.Config) {
+			if err := s.applyConfig(cfg); err != nil {
+				return nil, err
+			}
+			return cfg, nil
+		}
+	}
+	return nil, fmt.Errorf("randomize config: exhausted attempts")
 }
 
 func (s *devSession) triggerEvent(event string) bool {
@@ -355,6 +399,25 @@ func serveDevSessionConfig(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func serveDevSessionRandomize(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	s, _, _, err := devSessionFromRequest(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	cfg, err := s.randomizeConfig(time.Now().UnixNano())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(cfg)
 }
 
 func serveDevSessionTrigger(w http.ResponseWriter, req *http.Request) {

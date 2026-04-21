@@ -100,9 +100,9 @@
 	.fire:active { background: #555; }
 
 	#logEntries {
-		font-size: 9px; max-height: 180px; overflow-y: auto;
+		font-size: 9px; height: 180px; overflow-y: auto;
 		background: #060606; border: 1px solid #1a1a1a; padding: 4px 6px;
-		opacity: 0.9;
+		opacity: 0.9; display: flex; flex-direction: column; justify-content: flex-end;
 	}
 	#logEntries .entry { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; }
 	#logEntries .entry .t { opacity: 0.5; margin-right: 4px; }
@@ -132,6 +132,7 @@
 		<div class="switcher-row">
 			<label for="presetSelect">preset</label>
 			<select id="presetSelect" title="apply effect preset"></select>
+			<button class="iconbtn" id="randomizeBtn" title="randomize current effect config">randomize</button>
 		</div>
 	</div>
 	<div class="body" id="body"></div>
@@ -163,6 +164,7 @@
 	const title = document.getElementById('title');
 	const effectSelect = document.getElementById('effectSelect');
 	const presetSelect = document.getElementById('presetSelect');
+	const randomizeBtn = document.getElementById('randomizeBtn');
 	const CUSTOM_PRESET = '__custom__';
 	let knobs = [];
 	let currentSchema = null;
@@ -303,6 +305,12 @@
 		updateReadouts();
 	}
 
+	function applyServerConfig(values) {
+		if (!values || !knobs.length) return;
+		applyValues(values);
+		syncPresetSwitcher();
+	}
+
 	function applyPresetSelection(value) {
 		const preset = findPreset(effect, value);
 		if (!preset || !currentSchema) return;
@@ -366,6 +374,22 @@
 			await fetch('/dev/trigger/' + encodeURIComponent(SESSION_ID) + '/' + encodeURIComponent(eventName) +
 				'?effect=' + encodeURIComponent(effect), { method: 'POST' });
 		} catch (e) { console.error('trigger', e); }
+	}
+
+	async function randomizeCurrentEffect() {
+		randomizeBtn.disabled = true;
+		try {
+			const resp = await fetch('/dev/randomize?session=' + encodeURIComponent(SESSION_ID) +
+				'&effect=' + encodeURIComponent(effect), { method: 'POST' });
+			if (!resp.ok) throw new Error('randomize failed: ' + resp.status);
+			const cfg = await resp.json();
+			sim.setConfig(cfg);
+			applyServerConfig(cfg);
+		} catch (e) {
+			console.error('randomize', e);
+		} finally {
+			randomizeBtn.disabled = false;
+		}
 	}
 
 	function buildRow(knob) {
@@ -486,12 +510,13 @@
 	function appendLog(entry) {
 		const box = document.getElementById('logEntries');
 		if (!box) return;
+		const shouldStick = box.scrollHeight-box.clientHeight-box.scrollTop <= 12;
 		const row = document.createElement('div');
 		row.className = 'entry ' + entry.type;
 		row.innerHTML = '<span class="t">t=' + entry.tick + '</span><span class="k">' + entry.type + '</span><span class="d">' + (entry.desc || '') + '</span>';
 		box.appendChild(row);
 		while (box.children.length > 200) box.removeChild(box.firstChild);
-		box.scrollTop = box.scrollHeight;
+		if (shouldStick) box.scrollTop = box.scrollHeight;
 	}
 
 	// Panel collapse (global) + per-section collapse.
@@ -515,6 +540,7 @@
 		if (presetSelect.value === CUSTOM_PRESET) return;
 		applyPresetSelection(presetSelect.value);
 	});
+	randomizeBtn.addEventListener('click', randomizeCurrentEffect);
 	document.getElementById('toggleAll').addEventListener('click', () => {
 		const sections = document.querySelectorAll('.section');
 		const anyOpen = [...sections].some(s => !s.classList.contains('closed'));
@@ -551,21 +577,14 @@
 					sim.restoreSnapshot(snap);
 					ready = true;
 					// Initialize sliders to the server's current config.
-					if (snap.config && knobs.length) {
-						for (const k of knobs) {
-							if (snap.config[k.key] != null) {
-								document.getElementById(k.key).value = snap.config[k.key];
-							}
-						}
-						updateReadouts();
-						syncPresetSwitcher();
-					}
+					applyServerConfig(snap.config);
 				} catch (err) { console.error('bad snapshot', err); }
 				break;
 			case 'config':
 				try {
 					const cfg = typeof cmd.data === 'string' ? JSON.parse(cmd.data) : cmd.data;
 					sim.setConfig(cfg);
+					applyServerConfig(cfg);
 				} catch (err) { console.error('bad config', err); }
 				break;
 			case 'trigger':

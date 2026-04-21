@@ -83,6 +83,12 @@ type Config struct {
 	SplashSize   int     `json:"splash_size"`
 }
 
+// NormalizeConfig applies Rain's defaulting rules so callers outside the sim
+// package can reason about the effective config without constructing a Rain.
+func NormalizeConfig(c Config) Config {
+	return c.withDefaults()
+}
+
 func (c Config) withDefaults() Config {
 	if c.Speed <= 0 {
 		c.Speed = 1.0

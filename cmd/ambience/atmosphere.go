@@ -444,7 +444,7 @@ func (a *atmosphere) setConfigRaw(data json.RawMessage) error {
 	var cfg sim.Config
 	hasRainConfig := effectType == "rain" && json.Unmarshal(data, &cfg) == nil
 	if hasRainConfig {
-		cfg = cfg.withDefaults()
+		cfg = sim.NormalizeConfig(cfg)
 	}
 	a.mu.Lock()
 	// A manual live edit should take over immediately instead of getting

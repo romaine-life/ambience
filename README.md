@@ -4,8 +4,8 @@ Shared-world ambient pixel-art effects. A 10 Hz server decides when
 discrete events fire (downpour, calm, gust, splash) and broadcasts those
 as commands via SSE; every consumer (browser canvas, terminal sixel)
 runs its own sim replica and applies the commands in sync. Rain is the
-only effect in the shared live world today; Fireflies and Waterfall are
-available in isolated dev sessions.
+only effect in the shared live world today; Fireflies, Waterfall, and
+Dust are available in isolated dev sessions.
 
 Canonical live view: <https://ambience.romaine.life>.
 
@@ -18,7 +18,8 @@ go run ./cmd/ambience
 
 `/` renders the current effect full-screen. `/dev` opens a per-session
 effect-tuning page with an effect switcher, presets when the active
-effect defines them, and live adjustable knobs.
+effect defines them, randomized starting stats, a `randomize` button,
+and live adjustable knobs.
 
 ## Consumer integration
 
@@ -48,8 +49,9 @@ cmd/ambience/    HTTP server + atmosphere goroutine. Decides event
                  timing (downpour/calm/gust/splash) and broadcasts
                  state commands. Does NOT stream pixel frames.
   web/           Embedded static: index.html (demo), sim.js (JS port
-                 of the sim), client.js (auto-init shim for consumers),
-                 dev.html (knob-tuning page).
+                 of the sim), controls.js (shared control helper),
+                 client.js (auto-init shim for consumers), dev.html
+                 (knob-tuning page).
 
 sim/             Pure Go simulation logic. No I/O. Consumed by the
                  server and by the terminal client.
@@ -72,7 +74,15 @@ chart/ambience/  Helm chart used by ArgoCD for both prod and dev.
 scripts/dev-deploy.ps1
                  Local k8s-first dev helper that builds, pushes, and
                  patches just `edge`, just `authority`, or `all` in the
-                 live dev namespace.
+                 live dev namespace. Prefers local Docker when available,
+                 but can fall back to `az acr build` so a local Docker
+                 daemon is not required for the dev loop.
+scripts/dev-loop.ps1
+                 Fast static-web dev helper for the dev environment.
+                 Syncs `cmd/ambience/web` straight into the live edge
+                 pod's override directory so `/dev` changes can be
+                 tested on `ambience.dev.romaine.life` without a local
+                 runtime or a full image rebuild.
 ```
 
 ## Atmosphere model
@@ -147,12 +157,20 @@ All broadcast endpoints set permissive CORS for cross-origin consumers.
 
 - `GET  /` — demo page
 - `GET  /dev`, `/dev/<effect>` — dev page with effect switcher, presets,
-  and per-effect knobs
-- `GET  /sim.js`, `/client.js` — consumer scripts
+  randomized per-session configs, and per-effect knobs
+- `GET  /sim.js`, `/controls.js`, `/client.js` — consumer scripts
 - `GET  /snapshot` — current atmosphere state (JSON)
 - `GET  /events` — atmosphere command stream (SSE)
+- `POST /config?effect=&...` — mutate the shared atmosphere config
+- `POST /trigger/:event` — fire a discrete event on the shared atmosphere
 - `POST /entropy` — raw bytes folded into the RNG (max 4KB/req)
+- `POST /dev/randomize?session=&effect=` — roll a new config for the
+  active dev session
 - `GET  /effects/:effect/schema` — knob schema for the dev UI
+
+The user-facing static routes are intentionally exact: use `/` and
+`/dev/<effect>`, not `.html` URLs. `/index.html` and unknown static paths
+return 404.
 
 ## Roles
 
@@ -188,12 +206,30 @@ leaves automated sync off. That keeps Argo as the owner of the base dev
 environment without immediately reverting fast live image swaps during a
 session.
 
-For local dev against `ambience.dev.romaine.life`, use
-`powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component edge`
-or swap `edge` for `authority` / `all`. The script builds and pushes a
-temporary image tag, then patches the live `ambience-edge` and/or
-`ambience-authority` image fields with `kubectl set image`. That keeps the
-inner loop fast while still treating dev as an Argo-owned environment.
+Unless a task explicitly calls for localhost, the default test target
+should be `https://ambience.dev.romaine.life`, not a local runtime.
+
+Use the dev helpers like this:
+
+1. Static browser-only work in `cmd/ambience/web/`:
+   run `powershell -ExecutionPolicy Bypass -File scripts/dev-loop.ps1`
+   to sync the web files into the live dev edge pod. Leave it running
+   while editing for a hot-ish loop, or add `-Once` for a single sync.
+2. Go/runtime changes that need a new binary or image:
+   run `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component edge`
+   or swap `edge` for `authority` / `all`. The script builds and pushes a
+   temporary image tag, then patches the live `ambience-edge` and/or
+   `ambience-authority` image fields with `kubectl set image`.
+3. If local Docker is unavailable, `scripts/dev-deploy.ps1` automatically
+   falls back to `az acr build` and verifies the tag exists in ACR before
+   patching, so the session can stay k8s-first without relying on a local
+   Docker daemon.
+
+The web sync path is backed by `AMBIENCE_WEB_OVERRIDE_DIR` on the dev
+edge deployment: the main container reads static files from the shared
+override directory first, then falls back to embedded assets from the
+image. That keeps static `/dev` iteration fast without changing the
+authority workload.
 
 The recommended feature-iteration loop is:
 
@@ -202,12 +238,15 @@ The recommended feature-iteration loop is:
 2. Choose one bounded feature, preferably effect work or an
    effect-adjacent enhancement when the registry and `/dev` tooling
    already support it cleanly.
-3. Build and validate it on `ambience.dev.romaine.life` first.
-4. Use `scripts/dev-deploy.ps1 -Component all` for changes that touch both
+3. Validate it on `ambience.dev.romaine.life` first, not localhost, unless
+   the task explicitly needs a local-only repro.
+4. Use `scripts/dev-loop.ps1` for browser-only static work in
+   `cmd/ambience/web/`.
+5. Use `scripts/dev-deploy.ps1 -Component all` for changes that touch both
    browser assets and authority/runtime code, which is the common case for
    new effects. Use `edge` or `authority` only when the change is truly
    one-sided.
-5. Verify the result on `/dev/<effect>` or the relevant dev route before
+6. Verify the result on `/dev/<effect>` or the relevant dev route before
    promoting it.
 
 When a dev image should become declared state again, update
@@ -221,15 +260,17 @@ changes feed the desired state, with prod autosyncing and dev syncing on
 demand.
 
 The shipped Kubernetes manifests now split the app into one internal
-`authority` Deployment and a public two-replica `edge` Deployment. The
-authority snapshots the shared atmosphere every 30s to
+`authority` StatefulSet and a public `edge` Deployment. The authority
+snapshots the shared atmosphere every 30s to
 `AMBIENCE_PERSIST_PATH`; the manifests mount a PVC at `/data` and persist
 to `/data/shared-atmosphere.json`, so authority restarts resume the live
 world instead of resetting it.
 
 ## Status
 
-Rain effect live. Consumers: ambience's own demo, fzt-showcase (DOS
+Rain effect live. Dev sessions now support Rain, Fireflies, Waterfall,
+and Dust with randomized starting stats plus a `randomize` button on
+`/dev/<effect>`. Consumers: ambience's own demo, fzt-showcase (DOS
 terminal), my-homepage (bookmark terminal). Entropy flow wired.
 
 Terminal integration via fzt-automate is tabled pending platform

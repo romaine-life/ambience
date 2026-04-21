@@ -9,6 +9,8 @@ edge:
   replicas: 1
   terminationGracePeriodSeconds: 3
   shutdownDrain: 1s
+  webOverride:
+    enabled: true
 
 pdb:
   enabled: false
