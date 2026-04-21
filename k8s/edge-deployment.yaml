@@ -29,7 +29,7 @@ spec:
             - name: AMBIENCE_ROLE
               value: edge
             - name: AMBIENCE_AUTHORITY_URL
-              value: http://ambience-authority
+              value: http://ambience-authority:8080
             - name: AMBIENCE_SHUTDOWN_DRAIN
               value: 12s
           ports:
