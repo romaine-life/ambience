@@ -14,6 +14,7 @@ func TestDevPageEffectFromPath(t *testing.T) {
 		{path: "/dev", want: "rain", wantOK: true},
 		{path: "/dev/", want: "rain", wantOK: true},
 		{path: "/dev/dust", want: "dust", wantOK: true},
+		{path: "/dev/autumn-leaves", want: "autumn-leaves", wantOK: true},
 		{path: "/dev/fireflies", want: "fireflies", wantOK: true},
 		{path: "/dev/snow", want: "snow", wantOK: true},
 		{path: "/dev/waterfall", want: "waterfall", wantOK: true},
@@ -38,6 +39,7 @@ func TestEffectFromSchemaPath(t *testing.T) {
 		wantOK bool
 	}{
 		{path: "/effects/rain/schema", want: "rain", wantOK: true},
+		{path: "/effects/autumn-leaves/schema", want: "autumn-leaves", wantOK: true},
 		{path: "/effects/dust/schema", want: "dust", wantOK: true},
 		{path: "/effects/fireflies/schema", want: "fireflies", wantOK: true},
 		{path: "/effects/snow/schema", want: "snow", wantOK: true},
@@ -97,6 +99,17 @@ func TestNewDevSessionSnowSnapshotType(t *testing.T) {
 	snap := session.snapshot()
 	if snap.Type != "snow" {
 		t.Fatalf("snapshot type = %q, want snow", snap.Type)
+	}
+}
+
+func TestNewDevSessionAutumnLeavesSnapshotType(t *testing.T) {
+	session, err := newDevSession("autumn-leaves")
+	if err != nil {
+		t.Fatalf("newDevSession: %v", err)
+	}
+	snap := session.snapshot()
+	if snap.Type != "autumn-leaves" {
+		t.Fatalf("snapshot type = %q, want autumn-leaves", snap.Type)
 	}
 }
 

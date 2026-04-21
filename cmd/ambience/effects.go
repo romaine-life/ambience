@@ -76,6 +76,11 @@ var effectRegistry = map[string]effectDefinition{
 		Schema:     sim.SnowSchema,
 		NewRuntime: newSnowRuntime,
 	},
+	"autumn-leaves": {
+		Type:       "autumn-leaves",
+		Schema:     sim.AutumnLeavesSchema,
+		NewRuntime: newAutumnLeavesRuntime,
+	},
 }
 
 func lookupEffectDefinition(effectType string) (effectDefinition, bool) {
@@ -218,6 +223,10 @@ func newProceduralRuntime(kind string, w, h int, seed int64, cfg json.RawMessage
 
 func newSnowRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
 	return newProceduralRuntime("snow", w, h, seed, cfg)
+}
+
+func newAutumnLeavesRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
+	return newProceduralRuntime("autumn-leaves", w, h, seed, cfg)
 }
 
 func (r *rainRuntime) Type() string { return "rain" }
@@ -630,6 +639,8 @@ func (p *proceduralRuntime) Schema() sim.EffectSchema {
 	switch p.kind {
 	case "snow":
 		return sim.SnowSchema()
+	case "autumn-leaves":
+		return sim.AutumnLeavesSchema()
 	default:
 		return sim.EffectSchema{}
 	}
