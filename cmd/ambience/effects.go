@@ -71,6 +71,11 @@ var effectRegistry = map[string]effectDefinition{
 		Schema:     sim.WaterfallSchema,
 		NewRuntime: newWaterfallRuntime,
 	},
+	"snow": {
+		Type:       "snow",
+		Schema:     sim.SnowSchema,
+		NewRuntime: newSnowRuntime,
+	},
 }
 
 func lookupEffectDefinition(effectType string) (effectDefinition, bool) {
@@ -153,6 +158,11 @@ type waterfallRuntime struct {
 	sim *sim.Waterfall
 }
 
+type proceduralRuntime struct {
+	kind string
+	sim  *sim.Procedural
+}
+
 func newRainRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
 	var parsed sim.Config
 	if len(cfg) > 0 {
@@ -191,6 +201,23 @@ func newWaterfallRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRunti
 		}
 	}
 	return &waterfallRuntime{sim: sim.NewWaterfall(w, h, seed, parsed)}, nil
+}
+
+func newProceduralRuntime(kind string, w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
+	var parsed sim.ProceduralConfig
+	if len(cfg) > 0 {
+		if err := json.Unmarshal(cfg, &parsed); err != nil {
+			return nil, fmt.Errorf("decode %s config: %w", kind, err)
+		}
+	}
+	return &proceduralRuntime{
+		kind: kind,
+		sim:  sim.NewProcedural(kind, w, h, seed, parsed),
+	}, nil
+}
+
+func newSnowRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
+	return newProceduralRuntime("snow", w, h, seed, cfg)
 }
 
 func (r *rainRuntime) Type() string { return "rain" }
@@ -596,3 +623,111 @@ func (w *waterfallRuntime) ApplyConfig(data json.RawMessage) error {
 }
 
 func (w *waterfallRuntime) AddEntropy(delta int64) { w.sim.PerturbRNG(delta) }
+
+func (p *proceduralRuntime) Type() string { return p.kind }
+
+func (p *proceduralRuntime) Schema() sim.EffectSchema {
+	switch p.kind {
+	case "snow":
+		return sim.SnowSchema()
+	default:
+		return sim.EffectSchema{}
+	}
+}
+
+func (p *proceduralRuntime) Snapshot() (effectEnvelope, error) {
+	configData, err := json.Marshal(p.sim.EffectiveConfig())
+	if err != nil {
+		return effectEnvelope{}, err
+	}
+	snap := p.sim.Snapshot()
+	stateData, err := json.Marshal(snap)
+	if err != nil {
+		return effectEnvelope{}, err
+	}
+	return effectEnvelope{
+		Tick:   snap.Tick,
+		Config: configData,
+		State:  stateData,
+		GridW:  p.sim.W,
+		GridH:  p.sim.H,
+	}, nil
+}
+
+func (p *proceduralRuntime) Restore(s effectEnvelope) error {
+	if len(s.Config) > 0 {
+		if err := p.ApplyConfig(s.Config); err != nil {
+			return err
+		}
+	}
+	if len(s.State) == 0 {
+		return nil
+	}
+	var state sim.ProceduralSnapshot
+	if err := json.Unmarshal(s.State, &state); err != nil {
+		return fmt.Errorf("decode %s snapshot: %w", p.kind, err)
+	}
+	if s.GridW > 0 && s.GridH > 0 && (p.sim.W != s.GridW || p.sim.H != s.GridH) {
+		p.sim.Resize(s.GridW, s.GridH)
+	}
+	p.sim.RestoreSnapshot(state)
+	return nil
+}
+
+func (p *proceduralRuntime) Persisted() (persistedEffectState, error) {
+	configData, err := json.Marshal(p.sim.EffectiveConfig())
+	if err != nil {
+		return persistedEffectState{}, err
+	}
+	stateData, err := json.Marshal(p.sim.SnapshotPersistedState())
+	if err != nil {
+		return persistedEffectState{}, err
+	}
+	return persistedEffectState{
+		Config: configData,
+		State:  stateData,
+		GridW:  p.sim.W,
+		GridH:  p.sim.H,
+	}, nil
+}
+
+func (p *proceduralRuntime) RestorePersisted(s persistedEffectState) error {
+	if len(s.Config) > 0 {
+		if err := p.ApplyConfig(s.Config); err != nil {
+			return err
+		}
+	}
+	if len(s.State) == 0 {
+		return nil
+	}
+	var state sim.ProceduralPersistedState
+	if err := json.Unmarshal(s.State, &state); err != nil {
+		return fmt.Errorf("decode %s persisted state: %w", p.kind, err)
+	}
+	if s.GridW > 0 && s.GridH > 0 && (p.sim.W != s.GridW || p.sim.H != s.GridH) {
+		p.sim.Resize(s.GridW, s.GridH)
+	}
+	p.sim.RestorePersistedState(state)
+	return nil
+}
+
+func (p *proceduralRuntime) Trigger(name string) bool { return p.sim.TriggerEvent(name) }
+
+func (p *proceduralRuntime) Step() { p.sim.Step() }
+
+func (p *proceduralRuntime) CurrentTick() int { return p.sim.CurrentTick() }
+
+func (p *proceduralRuntime) DrainLog() []sim.LogEntry { return p.sim.DrainLog() }
+
+func (p *proceduralRuntime) ApplyConfig(data json.RawMessage) error {
+	var cfg sim.ProceduralConfig
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return fmt.Errorf("decode %s config: %w", p.kind, err)
+		}
+	}
+	p.sim.SetConfig(cfg)
+	return nil
+}
+
+func (p *proceduralRuntime) AddEntropy(delta int64) { p.sim.PerturbRNG(delta) }
