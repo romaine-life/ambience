@@ -101,6 +101,11 @@ var effectRegistry = map[string]effectDefinition{
 		Schema:     sim.BeachSchema,
 		NewRuntime: newBeachRuntime,
 	},
+	"campfire": {
+		Type:       "campfire",
+		Schema:     sim.CampfireSchema,
+		NewRuntime: newCampfireRuntime,
+	},
 }
 
 func lookupEffectDefinition(effectType string) (effectDefinition, bool) {
@@ -263,6 +268,10 @@ func newWheatFieldRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRunt
 
 func newBeachRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
 	return newProceduralRuntime("beach", w, h, seed, cfg)
+}
+
+func newCampfireRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
+	return newProceduralRuntime("campfire", w, h, seed, cfg)
 }
 
 func (r *rainRuntime) Type() string { return "rain" }
@@ -685,6 +694,8 @@ func (p *proceduralRuntime) Schema() sim.EffectSchema {
 		return sim.WheatFieldSchema()
 	case "beach":
 		return sim.BeachSchema()
+	case "campfire":
+		return sim.CampfireSchema()
 	default:
 		return sim.EffectSchema{}
 	}

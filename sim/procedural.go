@@ -210,6 +210,32 @@ var beachDefaults = ProceduralConfig{
 	"foam_burst_mult": 1.90,
 }
 
+var campfireDefaults = ProceduralConfig{
+	"intro_dur":     45,
+	"intro_glow":    0.14,
+	"ending_dur":    60,
+	"ending_linger": 24,
+	"ending_glow":   0.08,
+	"flame_height":  14.0,
+	"flame_width":   10.0,
+	"flame_speed":   0.12,
+	"flicker":       0.72,
+	"ember_rate":    0.26,
+	"ember_speed":   0.62,
+	"glow":          0.54,
+	"hue":           24,
+	"hue_sp":        18,
+	"sat":           0.82,
+	"lmin":          0.32,
+	"lmax":          0.94,
+	"crackle_p":     0.0,
+	"lull_p":        0.0,
+	"crackle_dur":   36,
+	"crackle_mult":  1.85,
+	"lull_dur":      68,
+	"lull_mult":     0.55,
+}
+
 func SnowSchema() EffectSchema {
 	return EffectSchema{
 		Name: "snow",
@@ -550,6 +576,60 @@ func BeachSchema() EffectSchema {
 	}
 }
 
+func CampfireSchema() EffectSchema {
+	return EffectSchema{
+		Name: "campfire",
+		Knobs: []Knob{
+			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 10, Max: 180, Step: 5, Default: 45, Trigger: "intro",
+				Description: "Ticks spent catching from a small glow into a stable flame."},
+			{Key: "intro_glow", Label: "intro glow", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0.05, Max: 0.5, Step: 0.01, Default: 0.14,
+				Description: "Starting fraction of the final campfire intensity before the flame catches fully."},
+			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 60, Trigger: "ending",
+				Description: "Ticks spent collapsing the flame down toward ember glow."},
+			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 160, Step: 5, Default: 24,
+				Description: "Extra ember time after the flame has mostly died back."},
+			{Key: "ending_glow", Label: "ending glow", Slot: SlotEnd, Group: "ending", Type: KnobFloat, Min: 0.02, Max: 0.35, Step: 0.01, Default: 0.08,
+				Description: "Residual flame and ember intensity near the end of the outro."},
+			{Key: "flame_height", Label: "flame height", Slot: SlotLever, Group: "flame", Type: KnobFloat, Min: 6, Max: 24, Step: 0.5, Default: 14,
+				Description: "Overall flame height above the logs."},
+			{Key: "flame_width", Label: "flame width", Slot: SlotLever, Group: "flame", Type: KnobFloat, Min: 4, Max: 18, Step: 0.5, Default: 10,
+				Description: "Width of the flame body and ember bed."},
+			{Key: "flame_speed", Label: "flame speed", Slot: SlotLever, Group: "flame", Type: KnobFloat, Min: 0.04, Max: 0.3, Step: 0.01, Default: 0.12,
+				Description: "How quickly the flame shape flickers and rolls."},
+			{Key: "flicker", Label: "flicker", Slot: SlotLever, Group: "flame", Type: KnobFloat, Min: 0.1, Max: 1.4, Step: 0.02, Default: 0.72,
+				Description: "Side-to-side and height variation inside the flame body."},
+			{Key: "ember_rate", Label: "ember rate", Slot: SlotLever, Group: "embers", Type: KnobFloat, Min: 0.05, Max: 0.7, Step: 0.01, Default: 0.26,
+				Description: "How many embers rise from the fire during the steady state."},
+			{Key: "ember_speed", Label: "ember speed", Slot: SlotLever, Group: "embers", Type: KnobFloat, Min: 0.1, Max: 1.4, Step: 0.02, Default: 0.62,
+				Description: "How quickly embers travel upward and fade."},
+			{Key: "glow", Label: "glow", Slot: SlotLever, Group: "embers", Type: KnobFloat, Min: 0.05, Max: 0.9, Step: 0.01, Default: 0.54,
+				Description: "Strength of the warm localized light cast around the campfire."},
+			{Key: "hue", Label: "hue", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 8, Max: 50, Step: 1, Default: 24,
+				Description: "Base flame hue. Lower values lean redder; higher values lean more yellow-orange."},
+			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 28, Step: 1, Default: 18,
+				Description: "Variation between coal reds, orange mids, and bright flame tips."},
+			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.2, Max: 1, Step: 0.01, Default: 0.82,
+				Description: "Overall color saturation of the fire and ember tones."},
+			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.1, Max: 0.7, Step: 0.01, Default: 0.32,
+				Description: "Minimum lightness used for darker coals, logs, and outer flame edges."},
+			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.4, Max: 1, Step: 0.01, Default: 0.94,
+				Description: "Maximum lightness used for the hottest flame cores and bright embers."},
+			{Key: "crackle_p", Label: "crackle", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "crackle",
+				Description: "Per-tick chance of a brighter crackle that throws extra embers."},
+			{Key: "lull_p", Label: "lull", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "lull",
+				Description: "Per-tick chance of the flame briefly settling into a lower, calmer burn."},
+			{Key: "crackle_dur", Label: "crackle dur", Slot: SlotEventMod, Group: "crackle", Type: KnobInt, Min: 8, Max: 160, Step: 4, Default: 36,
+				Description: "Duration of the brighter crackling burst."},
+			{Key: "crackle_mult", Label: "crackle x", Slot: SlotEventMod, Group: "crackle", Type: KnobFloat, Min: 1.05, Max: 3, Step: 0.05, Default: 1.85,
+				Description: "Intensity multiplier applied while a crackle burst is active."},
+			{Key: "lull_dur", Label: "lull dur", Slot: SlotEventMod, Group: "lull", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 68,
+				Description: "Duration of the quieter lower-flame window."},
+			{Key: "lull_mult", Label: "lull x", Slot: SlotEventMod, Group: "lull", Type: KnobFloat, Min: 0.1, Max: 1, Step: 0.05, Default: 0.55,
+				Description: "Flame intensity multiplier applied while lull is active."},
+		},
+	}
+}
+
 func cloneProceduralConfig(src ProceduralConfig) ProceduralConfig {
 	if src == nil {
 		return ProceduralConfig{}
@@ -602,6 +682,8 @@ func proceduralDefaults(kind string) ProceduralConfig {
 		return cloneProceduralConfig(wheatFieldDefaults)
 	case "beach":
 		return cloneProceduralConfig(beachDefaults)
+	case "campfire":
+		return cloneProceduralConfig(campfireDefaults)
 	default:
 		return ProceduralConfig{}
 	}
@@ -982,6 +1064,69 @@ func mergeProceduralDefaults(kind string, cfg ProceduralConfig) ProceduralConfig
 		if out["foam_burst_mult"] <= 0 {
 			out["foam_burst_mult"] = beachDefaults["foam_burst_mult"]
 		}
+	case "campfire":
+		if out["intro_dur"] <= 0 {
+			out["intro_dur"] = campfireDefaults["intro_dur"]
+		}
+		out["intro_glow"] = clamp01(out["intro_glow"])
+		if out["ending_dur"] <= 0 {
+			out["ending_dur"] = campfireDefaults["ending_dur"]
+		}
+		if out["ending_linger"] < 0 {
+			out["ending_linger"] = 0
+		}
+		out["ending_glow"] = clamp01(out["ending_glow"])
+		if out["flame_height"] <= 0 {
+			out["flame_height"] = campfireDefaults["flame_height"]
+		}
+		if out["flame_width"] <= 0 {
+			out["flame_width"] = campfireDefaults["flame_width"]
+		}
+		if out["flame_speed"] <= 0 {
+			out["flame_speed"] = campfireDefaults["flame_speed"]
+		}
+		if out["flicker"] <= 0 {
+			out["flicker"] = campfireDefaults["flicker"]
+		}
+		if out["ember_rate"] <= 0 {
+			out["ember_rate"] = campfireDefaults["ember_rate"]
+		}
+		if out["ember_speed"] <= 0 {
+			out["ember_speed"] = campfireDefaults["ember_speed"]
+		}
+		if out["glow"] <= 0 {
+			out["glow"] = campfireDefaults["glow"]
+		}
+		if out["hue"] == 0 {
+			out["hue"] = campfireDefaults["hue"]
+		}
+		if out["hue_sp"] < 0 {
+			out["hue_sp"] = 0
+		}
+		if out["sat"] <= 0 {
+			out["sat"] = campfireDefaults["sat"]
+		}
+		if out["lmin"] <= 0 {
+			out["lmin"] = campfireDefaults["lmin"]
+		}
+		if out["lmax"] <= 0 {
+			out["lmax"] = campfireDefaults["lmax"]
+		}
+		if out["lmax"] < out["lmin"] {
+			out["lmin"], out["lmax"] = out["lmax"], out["lmin"]
+		}
+		if out["crackle_dur"] <= 0 {
+			out["crackle_dur"] = campfireDefaults["crackle_dur"]
+		}
+		if out["crackle_mult"] <= 0 {
+			out["crackle_mult"] = campfireDefaults["crackle_mult"]
+		}
+		if out["lull_dur"] <= 0 {
+			out["lull_dur"] = campfireDefaults["lull_dur"]
+		}
+		if out["lull_mult"] <= 0 {
+			out["lull_mult"] = campfireDefaults["lull_mult"]
+		}
 	}
 	return out
 }
@@ -1214,6 +1359,22 @@ func (p *Procedural) TriggerEvent(name string) bool {
 			return false
 		}
 		return true
+	case "campfire":
+		switch name {
+		case "crackle":
+			p.startCampfireCrackleLocked("triggered")
+		case "lull":
+			p.startCampfireLullLocked("triggered")
+		case "intro":
+			p.startCampfireIntroLocked()
+			p.appendLog("intro", fmt.Sprintf("started (dur=%d, glow=%.2f)", p.timers["intro"], p.cfg["intro_glow"]))
+		case "ending":
+			p.startCampfireEndingLocked()
+			p.appendLog("ending", fmt.Sprintf("started (fade=%d, linger=%d)", p.intCfg("ending_dur"), p.intCfg("ending_linger")))
+		default:
+			return false
+		}
+		return true
 	default:
 		return false
 	}
@@ -1261,6 +1422,8 @@ func (p *Procedural) Step() {
 		p.stepWheatFieldLocked()
 	case "beach":
 		p.stepBeachLocked()
+	case "campfire":
+		p.stepCampfireLocked()
 	}
 }
 
@@ -1667,5 +1830,59 @@ func (p *Procedural) stepBeachLocked() {
 	}
 	if p.timers["foam-burst"] <= 0 && p.cfg["foam_burst_p"] > 0 && p.rng.Float64() < p.cfg["foam_burst_p"] {
 		p.startBeachFoamBurstLocked("started")
+	}
+}
+
+func (p *Procedural) startCampfireCrackleLocked(verb string) {
+	p.timers["crackle"] = jitterInt(p.rng, p.intCfg("crackle_dur"), 0.3)
+	p.values["crackle_gain"] = p.cfg["crackle_mult"] * (0.75 + p.rng.Float64()*0.50)
+	p.appendLog("crackle", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["crackle"], p.values["crackle_gain"]))
+}
+
+func (p *Procedural) startCampfireLullLocked(verb string) {
+	p.timers["lull"] = jitterInt(p.rng, p.intCfg("lull_dur"), 0.3)
+	p.appendLog("lull", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["lull"], p.cfg["lull_mult"]))
+}
+
+func (p *Procedural) startCampfireIntroLocked() {
+	p.timers["crackle"] = 0
+	p.timers["lull"] = 0
+	p.timers["ending"] = 0
+	p.values["crackle_gain"] = 1
+	p.timers["intro"] = p.intCfg("intro_dur")
+	p.values["intro_total"] = float64(p.timers["intro"])
+}
+
+func (p *Procedural) startCampfireEndingLocked() {
+	p.timers["intro"] = 0
+	p.timers["crackle"] = 0
+	p.timers["lull"] = 0
+	p.values["crackle_gain"] = 1
+	endingTotal := p.intCfg("ending_dur") + max(0, p.intCfg("ending_linger"))
+	if endingTotal < 1 {
+		endingTotal = max(1, p.intCfg("ending_dur"))
+	}
+	p.timers["ending"] = endingTotal
+	p.values["ending_total"] = float64(endingTotal)
+}
+
+func (p *Procedural) stepCampfireLocked() {
+	if p.timers["crackle"] <= 0 {
+		p.values["crackle_gain"] = 1
+	}
+	if p.timers["intro"] <= 0 {
+		delete(p.values, "intro_total")
+	}
+	if p.timers["ending"] <= 0 {
+		delete(p.values, "ending_total")
+	}
+	if p.timers["intro"] > 0 || p.timers["ending"] > 0 {
+		return
+	}
+	if p.timers["crackle"] <= 0 && p.cfg["crackle_p"] > 0 && p.rng.Float64() < p.cfg["crackle_p"] {
+		p.startCampfireCrackleLocked("started")
+	}
+	if p.timers["lull"] <= 0 && p.cfg["lull_p"] > 0 && p.rng.Float64() < p.cfg["lull_p"] {
+		p.startCampfireLullLocked("started")
 	}
 }
