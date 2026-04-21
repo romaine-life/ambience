@@ -20,6 +20,7 @@ spec:
         app: ambience
         component: edge
     spec:
+      terminationGracePeriodSeconds: 20
       containers:
         - name: ambience
           image: romainecr.azurecr.io/ambience:latest
@@ -29,6 +30,8 @@ spec:
               value: edge
             - name: AMBIENCE_AUTHORITY_URL
               value: http://ambience-authority
+            - name: AMBIENCE_SHUTDOWN_DRAIN
+              value: 12s
           ports:
             - containerPort: 8080
               name: http

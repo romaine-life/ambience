@@ -22,14 +22,18 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/nelsong6/ambience/sim"
@@ -54,9 +58,14 @@ const (
 )
 
 type appConfig struct {
-	role         appRole
-	addr         string
-	authorityURL string
+	role          appRole
+	addr          string
+	authorityURL  string
+	shutdownDrain time.Duration
+}
+
+type lifecycleState struct {
+	draining atomic.Bool
 }
 
 //go:embed web
@@ -75,9 +84,10 @@ func main() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	lifecycle := &lifecycleState{}
 
 	mux := http.NewServeMux()
-	readyCheck := func() bool { return true }
+	baseReady := func() bool { return true }
 
 	switch cfg.role {
 	case roleAll, roleAuthority:
@@ -93,20 +103,55 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		readyCheck = proxy.ready
+		baseReady = proxy.ready
 		registerStaticRoutes(mux, web)
 		registerSchemaRoute(mux)
 		registerEdgeRoutes(mux, proxy)
 	default:
 		log.Fatalf("unsupported ambience role %q", cfg.role)
 	}
-	registerCommonRoutes(mux, readyCheck)
+	registerCommonRoutes(mux, func() bool {
+		return !lifecycle.draining.Load() && baseReady()
+	})
 
 	// AMBIENCE_ADDR overrides the bind address. For local dev, set it to
 	// "127.0.0.1:8080" so Windows Firewall doesn't prompt (loopback skips
 	// the firewall). Kubernetes keeps the default ":8080" for pod reachability.
 	log.Printf("ambience listening on %s (role=%s, grid %dx%d, tick %s)", cfg.addr, cfg.role, gridW, gridH, tickRate)
-	log.Fatal(http.ListenAndServe(cfg.addr, mux))
+	srv := &http.Server{Addr: cfg.addr, Handler: mux}
+	serverErr := make(chan error, 1)
+	go func() {
+		err := srv.ListenAndServe()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+		}
+		close(serverErr)
+	}()
+
+	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	select {
+	case err := <-serverErr:
+		if err != nil {
+			log.Fatal(err)
+		}
+	case <-sigCtx.Done():
+		lifecycle.draining.Store(true)
+		if cfg.shutdownDrain > 0 {
+			log.Printf("ambience draining for %s before shutdown", cfg.shutdownDrain)
+			time.Sleep(cfg.shutdownDrain)
+		}
+		cancel()
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+		if err := <-serverErr; err != nil {
+			log.Fatal(err)
+		}
+	}
 }
 
 func loadAppConfigFromEnv() (appConfig, error) {
@@ -128,6 +173,16 @@ func loadAppConfigFromEnv() (appConfig, error) {
 	cfg.authorityURL = strings.TrimRight(strings.TrimSpace(os.Getenv("AMBIENCE_AUTHORITY_URL")), "/")
 	if cfg.role == roleEdge && cfg.authorityURL == "" {
 		return appConfig{}, fmt.Errorf("AMBIENCE_AUTHORITY_URL is required when AMBIENCE_ROLE=%q", roleEdge)
+	}
+	if rawDrain := strings.TrimSpace(os.Getenv("AMBIENCE_SHUTDOWN_DRAIN")); rawDrain != "" {
+		d, err := time.ParseDuration(rawDrain)
+		if err != nil {
+			return appConfig{}, fmt.Errorf("parse AMBIENCE_SHUTDOWN_DRAIN: %w", err)
+		}
+		if d < 0 {
+			return appConfig{}, fmt.Errorf("AMBIENCE_SHUTDOWN_DRAIN must be >= 0")
+		}
+		cfg.shutdownDrain = d
 	}
 	return cfg, nil
 }

@@ -31,6 +31,7 @@ import (
 const (
 	maxTransitionTicks       = 600 // 60 s at 10 Hz
 	transitionBroadcastEvery = 10  // every 1 s during drift
+	metricBroadcastEvery     = 50  // every 5 s as a low-rate heartbeat
 )
 
 // Command is a single message sent from server to clients.
@@ -158,6 +159,9 @@ func (a *atmosphere) run(ctx context.Context) {
 			a.mu.Unlock()
 			if expired {
 				a.rotateScene(cur)
+			}
+			if cur%metricBroadcastEvery == 0 {
+				a.broadcastMetric(cur)
 			}
 
 			for _, e := range a.sim.DrainLog() {
