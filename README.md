@@ -133,10 +133,18 @@ briefly unavailable, then retries forwarding on a short cadence.
 
 ## Deploying
 
-Push to `main` — `.github/workflows/build-and-deploy.yml` builds the
-image with a SHA tag, pushes to `romainecr.azurecr.io/ambience:<sha>`,
-then `kustomize edit set image` bumps the tag in `k8s/kustomization.yaml`
-and commits back with `[skip ci]`.
+This repo now uses manual, session-driven CI. `.github/workflows/build-and-deploy.yml`
+has no automatic triggers; it only runs when manually dispatched.
+
+The intended deploy loop is:
+
+1. Push the code change you want built.
+2. Manually dispatch the workflow to build and push
+   `romainecr.azurecr.io/ambience:<sha>`.
+3. Update `k8s/kustomization.yaml` to that image tag from the session.
+4. Commit and push the tag bump from the session.
+5. Let ArgoCD reconcile the committed `k8s/` change, or manually refresh/sync
+   it if you want a faster rollout.
 
 The ArgoCD Application at `infra-bootstrap/k8s/apps/ambience.yaml`
 watches this repo's `k8s/` path on `main`; the committed kustomization
