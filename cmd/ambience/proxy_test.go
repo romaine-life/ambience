@@ -86,16 +86,19 @@ func TestAuthorityMirrorSnapshotFramesRefreshCacheWithoutBroadcast(t *testing.T)
 	if err != nil {
 		t.Fatalf("marshal command: %v", err)
 	}
-	if err := m.handleEventPayload(cmdPayload); err != nil {
+	if err := m.handleEventPayload("42", cmdPayload); err != nil {
 		t.Fatalf("handleEventPayload: %v", err)
 	}
 
-	got, ok := m.snapshot()
+	got, snapshotID, ok := m.snapshot()
 	if !ok {
 		t.Fatal("mirror did not become ready")
 	}
 	if got.Tick != snap.Tick || got.EntropyBytes != snap.EntropyBytes {
 		t.Fatalf("cached snapshot = %+v, want %+v", got, snap)
+	}
+	if snapshotID != "42" {
+		t.Fatalf("snapshotID = %q, want %q", snapshotID, "42")
 	}
 
 	select {
@@ -119,13 +122,13 @@ func TestAuthorityMirrorAppliesMetricAndConfigCommands(t *testing.T) {
 		NextScene:      Scene{Name: "later"},
 		EntropyBytes:   1,
 		SceneRemaining: 100,
-	})
+	}, "10")
 
 	cfgData, err := json.Marshal(sim.Config{Wind: 3})
 	if err != nil {
 		t.Fatalf("marshal config: %v", err)
 	}
-	m.applyCommand(Command{Kind: "config", Tick: 11, Data: cfgData})
+	m.applyCommand(Command{ID: "11", Kind: "config", Tick: 11, Data: cfgData})
 
 	metricData, err := json.Marshal(map[string]any{
 		"entropyBytes":   int64(9),
@@ -136,9 +139,9 @@ func TestAuthorityMirrorAppliesMetricAndConfigCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal metric: %v", err)
 	}
-	m.applyCommand(Command{Kind: "metric", Tick: 12, Data: metricData})
+	m.applyCommand(Command{ID: "12", Kind: "metric", Tick: 12, Data: metricData})
 
-	got, ok := m.snapshot()
+	got, _, ok := m.snapshot()
 	if !ok {
 		t.Fatal("mirror did not retain snapshot")
 	}
@@ -156,6 +159,34 @@ func TestAuthorityMirrorAppliesMetricAndConfigCommands(t *testing.T) {
 	}
 	if got.CurrentScene.Name != "after" || got.NextScene.Name != "next-up" {
 		t.Fatalf("scene names = %q/%q", got.CurrentScene.Name, got.NextScene.Name)
+	}
+}
+
+func TestAuthorityMirrorReplayAfterLastEventID(t *testing.T) {
+	m := &authorityMirror{
+		ctx:       context.Background(),
+		client:    &http.Client{},
+		listeners: make(map[chan Command]struct{}),
+	}
+	m.setSnapshot(snapshotData{Type: "rain", Tick: 20}, "20")
+	m.appendReplayLocked(Command{ID: "21", Kind: "metric", Tick: 21})
+	m.appendReplayLocked(Command{ID: "22", Kind: "trigger", Tick: 22, Event: "gust"})
+
+	m.mu.Lock()
+	replay, ok := m.replayAfterLocked("21")
+	m.mu.Unlock()
+	if !ok {
+		t.Fatal("expected replay to be available")
+	}
+	if len(replay) != 1 || replay[0].ID != "22" {
+		t.Fatalf("replay = %+v", replay)
+	}
+
+	m.mu.Lock()
+	replay, ok = m.replayAfterLocked("20")
+	m.mu.Unlock()
+	if !ok || len(replay) != 0 {
+		t.Fatalf("snapshot replay fallback mismatch: ok=%v len=%d", ok, len(replay))
 	}
 }
 

@@ -42,6 +42,7 @@ type persistedAtmosphere struct {
 	GridW         int                 `json:"gridW"`
 	GridH         int                 `json:"gridH"`
 	Sim           sim.PersistedState  `json:"sim"`
+	CommandSeq    int64               `json:"commandSeq"`
 	CurrentScene  Scene               `json:"currentScene"`
 	NextScene     Scene               `json:"nextScene"`
 	EntropyBytes  int64               `json:"entropyBytes"`
@@ -156,14 +157,15 @@ func restoreSharedAtmosphere(ctx context.Context, store persistenceStore) *atmos
 	}
 
 	a := &atmosphere{
-		sim:       sim.NewRain(state.GridW, state.GridH, state.Seed, state.Config),
-		cfg:       state.Config,
-		seed:      state.Seed,
-		sceneRNG:  rngutil.NewFromState(sceneRNGState),
-		current:   state.CurrentScene,
-		next:      state.NextScene,
-		listeners: make(map[chan Command]struct{}),
-		lastSeen:  time.Now(),
+		sim:        sim.NewRain(state.GridW, state.GridH, state.Seed, state.Config),
+		cfg:        state.Config,
+		seed:       state.Seed,
+		sceneRNG:   rngutil.NewFromState(sceneRNGState),
+		commandSeq: state.CommandSeq,
+		current:    state.CurrentScene,
+		next:       state.NextScene,
+		listeners:  make(map[chan Command]struct{}),
+		lastSeen:   time.Now(),
 	}
 	a.sim.SetConfig(state.Config)
 	a.sim.RestorePersistedState(state.Sim)
@@ -187,6 +189,7 @@ func (a *atmosphere) persistedState() persistedAtmosphere {
 	current := a.current
 	next := a.next
 	entropyBytes := a.entropyBytes
+	commandSeq := a.commandSeq
 	transition := persistedTransition{
 		From:  a.transitionFrom,
 		To:    a.transitionTo,
@@ -205,6 +208,7 @@ func (a *atmosphere) persistedState() persistedAtmosphere {
 		GridW:         a.sim.W,
 		GridH:         a.sim.H,
 		Sim:           a.sim.SnapshotPersistedState(),
+		CommandSeq:    commandSeq,
 		CurrentScene:  current,
 		NextScene:     next,
 		EntropyBytes:  entropyBytes,

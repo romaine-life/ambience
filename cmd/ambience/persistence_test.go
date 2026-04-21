@@ -17,6 +17,7 @@ func TestFileStoreRoundTrip(t *testing.T) {
 		SceneRNGState: 456,
 		GridW:         160,
 		GridH:         80,
+		CommandSeq:    11,
 		EntropyBytes:  7,
 	}
 	if err := store.Save(context.Background(), want); err != nil {
@@ -33,13 +34,14 @@ func TestFileStoreRoundTrip(t *testing.T) {
 	if got == nil {
 		t.Fatal("load returned nil state")
 	}
-	if got.Version != want.Version || got.Seed != want.Seed || got.SceneRNGState != want.SceneRNGState {
+	if got.Version != want.Version || got.Seed != want.Seed || got.SceneRNGState != want.SceneRNGState || got.CommandSeq != want.CommandSeq {
 		t.Fatalf("round trip mismatch: got %+v want %+v", *got, want)
 	}
 }
 
 func TestSharedAtmospherePersistenceRoundTrip(t *testing.T) {
 	a := newAtmosphere(sim.Config{})
+	a.broadcast(Command{Kind: "metric", Tick: 1})
 	a.AddEntropy([]byte("hello"))
 	for i := 0; i < 5; i++ {
 		a.sim.Step()
@@ -61,6 +63,9 @@ func TestSharedAtmospherePersistenceRoundTrip(t *testing.T) {
 	}
 	if got.EntropyBytes != want.EntropyBytes {
 		t.Fatalf("entropy = %d, want %d", got.EntropyBytes, want.EntropyBytes)
+	}
+	if restored.currentCommandID() != a.currentCommandID() {
+		t.Fatalf("command id = %q, want %q", restored.currentCommandID(), a.currentCommandID())
 	}
 	if got.CurrentScene.Name != want.CurrentScene.Name {
 		t.Fatalf("current scene = %q, want %q", got.CurrentScene.Name, want.CurrentScene.Name)

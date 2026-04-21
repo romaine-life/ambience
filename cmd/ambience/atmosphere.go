@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"sync"
 	"time"
 
@@ -41,6 +42,7 @@ const (
 //	"scene"     scene rotated; carries new name + duration + next-up name
 //	"metric"    periodic status beat (entropy bytes, scene remaining)
 type Command struct {
+	ID    string          `json:"-"`
 	Kind  string          `json:"kind"`
 	Tick  int             `json:"tick"`
 	Data  json.RawMessage `json:"data,omitempty"`
@@ -99,6 +101,7 @@ type atmosphere struct {
 	transitionTo    sim.Config
 	transitionStart int
 	transitionDur   int
+	commandSeq      int64
 	listeners       map[chan Command]struct{}
 	lastSeen        time.Time
 	cancel          context.CancelFunc
@@ -360,6 +363,10 @@ func (a *atmosphere) removeListener(ch chan Command) {
 
 func (a *atmosphere) broadcast(cmd Command) {
 	a.mu.Lock()
+	if cmd.ID == "" {
+		a.commandSeq++
+		cmd.ID = strconv.FormatInt(a.commandSeq, 10)
+	}
 	defer a.mu.Unlock()
 	for ch := range a.listeners {
 		select {
@@ -367,6 +374,12 @@ func (a *atmosphere) broadcast(cmd Command) {
 		default:
 		}
 	}
+}
+
+func (a *atmosphere) currentCommandID() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return strconv.FormatInt(a.commandSeq, 10)
 }
 
 func (a *atmosphere) snapshot() snapshotData {

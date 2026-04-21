@@ -26,6 +26,7 @@ const (
 	edgeSnapshotTimeout    = 3 * time.Second
 	edgeReconnectDelay     = 1 * time.Second
 	edgeMaxSSEFrame        = 4 * 1024 * 1024
+	edgeReplayBufferSize   = 512
 )
 
 type authorityProxy struct {
@@ -79,7 +80,7 @@ func (p *authorityProxy) serveHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *authorityProxy) serveSnapshot(w http.ResponseWriter, _ *http.Request) {
-	snap, ok := p.mirror.snapshot()
+	snap, _, ok := p.mirror.snapshot()
 	if !ok {
 		http.Error(w, "authority snapshot unavailable", http.StatusServiceUnavailable)
 		return
@@ -118,9 +119,11 @@ type authorityMirror struct {
 	eventsURL   string
 	snapshotURL string
 
-	mu          sync.RWMutex
+	mu          sync.Mutex
 	snap        snapshotData
+	snapshotID  string
 	hasSnapshot bool
+	replay      []Command
 	listeners   map[chan Command]struct{}
 }
 
@@ -135,7 +138,7 @@ func newAuthorityMirror(ctx context.Context, baseURL *url.URL) *authorityMirror 
 	go func() {
 		snap, err := m.fetchSnapshot()
 		if err == nil {
-			m.setSnapshot(snap)
+			m.setSnapshot(snap, "")
 		}
 	}()
 	go m.runEventsLoop()
@@ -144,23 +147,26 @@ func newAuthorityMirror(ctx context.Context, baseURL *url.URL) *authorityMirror 
 }
 
 func (m *authorityMirror) ready() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.hasSnapshot
 }
 
-func (m *authorityMirror) snapshot() (snapshotData, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+func (m *authorityMirror) snapshot() (snapshotData, string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if !m.hasSnapshot {
-		return snapshotData{}, false
+		return snapshotData{}, "", false
 	}
-	return cloneSnapshot(m.snap), true
+	return cloneSnapshot(m.snap), m.snapshotID, true
 }
 
-func (m *authorityMirror) setSnapshot(snap snapshotData) {
+func (m *authorityMirror) setSnapshot(snap snapshotData, snapshotID string) {
 	m.mu.Lock()
 	m.snap = cloneSnapshot(snap)
+	if snapshotID != "" {
+		m.snapshotID = snapshotID
+	}
 	m.hasSnapshot = true
 	m.mu.Unlock()
 }
@@ -168,31 +174,20 @@ func (m *authorityMirror) setSnapshot(snap snapshotData) {
 func (m *authorityMirror) addListener() chan Command {
 	ch := make(chan Command, 64)
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.listeners[ch] = struct{}{}
-	m.mu.Unlock()
 	return ch
 }
 
-func (m *authorityMirror) removeListener(ch chan Command) {
-	m.mu.Lock()
-	delete(m.listeners, ch)
-	m.mu.Unlock()
-	close(ch)
-}
-
-func (m *authorityMirror) broadcast(cmd Command) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for ch := range m.listeners {
-		select {
-		case ch <- cmd:
-		default:
-		}
-	}
+func (m *authorityMirror) addListenerLocked() chan Command {
+	ch := make(chan Command, 64)
+	m.listeners[ch] = struct{}{}
+	return ch
 }
 
 func (m *authorityMirror) stream(w http.ResponseWriter, req *http.Request) {
-	snap, ok := m.snapshot()
+	lastID := req.Header.Get("Last-Event-ID")
+	snap, snapshotID, replay, replayable, ch, ok := m.beginStream(lastID)
 	if !ok {
 		http.Error(w, "authority snapshot unavailable", http.StatusServiceUnavailable)
 		return
@@ -202,14 +197,21 @@ func (m *authorityMirror) stream(w http.ResponseWriter, req *http.Request) {
 	if !ok {
 		return
 	}
-	ch := m.addListener()
 	defer m.removeListener(ch)
 
 	heartbeat := time.NewTicker(sseHeartbeat)
 	defer heartbeat.Stop()
 
-	if err := writeSnapshotDataFrame(w, flusher, snap); err != nil {
-		return
+	if replayable {
+		for _, cmd := range replay {
+			if err := writeCommand(w, flusher, cmd); err != nil {
+				return
+			}
+		}
+	} else {
+		if err := writeSnapshotDataFrame(w, flusher, snap, snapshotID); err != nil {
+			return
+		}
 	}
 
 	ctx := req.Context()
@@ -245,7 +247,67 @@ func (m *authorityMirror) runSnapshotPollLoop() {
 			if err != nil {
 				continue
 			}
-			m.setSnapshot(snap)
+			m.setSnapshot(snap, "")
+		}
+	}
+}
+
+func (m *authorityMirror) beginStream(lastID string) (snapshotData, string, []Command, bool, chan Command, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.hasSnapshot {
+		return snapshotData{}, "", nil, false, nil, false
+	}
+
+	ch := m.addListenerLocked()
+	snap := cloneSnapshot(m.snap)
+	snapshotID := m.snapshotID
+	replay, replayable := m.replayAfterLocked(lastID)
+	return snap, snapshotID, replay, replayable, ch, true
+}
+
+func (m *authorityMirror) removeListener(ch chan Command) {
+	if ch == nil {
+		return
+	}
+	m.mu.Lock()
+	delete(m.listeners, ch)
+	m.mu.Unlock()
+	close(ch)
+}
+
+func (m *authorityMirror) replayAfterLocked(lastID string) ([]Command, bool) {
+	if lastID == "" {
+		return nil, false
+	}
+	if lastID == m.snapshotID {
+		return nil, true
+	}
+	for i := len(m.replay) - 1; i >= 0; i-- {
+		if m.replay[i].ID == lastID {
+			replay := append([]Command(nil), m.replay[i+1:]...)
+			return replay, true
+		}
+	}
+	return nil, false
+}
+
+func (m *authorityMirror) appendReplayLocked(cmd Command) {
+	if cmd.ID == "" {
+		return
+	}
+	m.replay = append(m.replay, cmd)
+	if len(m.replay) > edgeReplayBufferSize {
+		m.replay = append([]Command(nil), m.replay[len(m.replay)-edgeReplayBufferSize:]...)
+	}
+}
+
+func (m *authorityMirror) broadcastLocked(cmd Command) {
+	for ch := range m.listeners {
+		select {
+		case ch <- cmd:
+		default:
 		}
 	}
 }
@@ -308,14 +370,20 @@ func (m *authorityMirror) consumeEvents() error {
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), edgeMaxSSEFrame)
 
-	var dataLines []string
+	var (
+		currentID string
+		dataLines []string
+	)
 	flush := func() error {
 		if len(dataLines) == 0 {
+			currentID = ""
 			return nil
 		}
 		payload := strings.Join(dataLines, "\n")
 		dataLines = dataLines[:0]
-		return m.handleEventPayload([]byte(payload))
+		id := currentID
+		currentID = ""
+		return m.handleEventPayload(id, []byte(payload))
 	}
 
 	for scanner.Scan() {
@@ -327,6 +395,8 @@ func (m *authorityMirror) consumeEvents() error {
 			}
 		case strings.HasPrefix(line, ":"):
 			continue
+		case strings.HasPrefix(line, "id:"):
+			currentID = strings.TrimSpace(strings.TrimPrefix(line, "id:"))
 		case strings.HasPrefix(line, "data:"):
 			part := strings.TrimPrefix(line, "data:")
 			part = strings.TrimPrefix(part, " ")
@@ -342,21 +412,21 @@ func (m *authorityMirror) consumeEvents() error {
 	return io.EOF
 }
 
-func (m *authorityMirror) handleEventPayload(payload []byte) error {
+func (m *authorityMirror) handleEventPayload(id string, payload []byte) error {
 	var cmd Command
 	if err := json.Unmarshal(payload, &cmd); err != nil {
 		return err
 	}
+	cmd.ID = id
 	if cmd.Kind == "snapshot" {
 		var snap snapshotData
 		if err := json.Unmarshal(cmd.Data, &snap); err != nil {
 			return err
 		}
-		m.setSnapshot(snap)
+		m.setSnapshot(snap, cmd.ID)
 		return nil
 	}
 	m.applyCommand(cmd)
-	m.broadcast(cmd)
 	return nil
 }
 
@@ -409,6 +479,8 @@ func (m *authorityMirror) applyCommand(cmd Command) {
 			}
 		}
 	}
+	m.appendReplayLocked(cmd)
+	m.broadcastLocked(cmd)
 }
 
 func cloneSnapshot(snap snapshotData) snapshotData {

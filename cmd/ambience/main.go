@@ -248,6 +248,11 @@ func writeCommand(w http.ResponseWriter, flusher http.Flusher, cmd Command) erro
 	if err != nil {
 		return err
 	}
+	if cmd.ID != "" {
+		if _, err := fmt.Fprintf(w, "id: %s\n", cmd.ID); err != nil {
+			return err
+		}
+	}
 	_, err = fmt.Fprintf(w, "data: %s\n\n", data)
 	if err != nil {
 		return err
@@ -256,9 +261,9 @@ func writeCommand(w http.ResponseWriter, flusher http.Flusher, cmd Command) erro
 	return nil
 }
 
-func writeSnapshotDataFrame(w http.ResponseWriter, flusher http.Flusher, snap snapshotData) error {
+func writeSnapshotDataFrame(w http.ResponseWriter, flusher http.Flusher, snap snapshotData, id string) error {
 	data, _ := json.Marshal(snap)
-	return writeCommand(w, flusher, Command{Kind: "snapshot", Tick: snap.Tick, Data: data})
+	return writeCommand(w, flusher, Command{ID: id, Kind: "snapshot", Tick: snap.Tick, Data: data})
 }
 
 func writeSSEComment(w http.ResponseWriter, flusher http.Flusher, comment string) error {
@@ -272,7 +277,7 @@ func writeSSEComment(w http.ResponseWriter, flusher http.Flusher, comment string
 // writeSnapshotFrame encodes an initial snapshot and sends it as the first
 // SSE frame for a new subscriber.
 func writeSnapshotFrame(w http.ResponseWriter, flusher http.Flusher, a *atmosphere) error {
-	return writeSnapshotDataFrame(w, flusher, a.snapshot())
+	return writeSnapshotDataFrame(w, flusher, a.snapshot(), a.currentCommandID())
 }
 
 func streamAtmosphere(w http.ResponseWriter, req *http.Request, a *atmosphere) {
