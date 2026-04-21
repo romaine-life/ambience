@@ -58,17 +58,14 @@ type Config struct {
 	RecordEvery int
 }
 
-// snapshotWire matches the server's snapshotData struct (see atmosphere.go).
-// Only the subset the client needs is declared.
+// snapshotWire matches the server's generic snapshot envelope. The terminal
+// client still only knows how to render Rain, but it now consumes the
+// effect-generic outer shape and decodes Rain's nested state blob.
 type snapshotWire struct {
-	Tick         int        `json:"tick"`
-	Config       sim.Config `json:"config"`
-	Seed         int64      `json:"seed"`
-	DownpourLeft int        `json:"downpourLeft"`
-	DownpourMult float64    `json:"downpourMult"`
-	CalmLeft     int        `json:"calmLeft"`
-	GustLeft     int        `json:"gustLeft"`
-	GustWind     float64    `json:"gustWind"`
+	Type   string          `json:"type"`
+	Tick   int             `json:"tick"`
+	Config json.RawMessage `json:"config"`
+	State  json.RawMessage `json:"state"`
 }
 
 type commandWire struct {
@@ -282,19 +279,30 @@ func (c *Client) applyCommand(payload string) {
 			c.reportError(err)
 			return
 		}
+		if snap.Type != "" && snap.Type != "rain" {
+			c.reportError(fmt.Errorf("terminal ambience client does not support effect type %q", snap.Type))
+			return
+		}
+		var cfg sim.Config
+		if len(snap.Config) > 0 {
+			if err := json.Unmarshal(snap.Config, &cfg); err != nil {
+				c.reportError(err)
+				return
+			}
+		}
+		var state sim.RainSnapshot
+		if len(snap.State) > 0 {
+			if err := json.Unmarshal(snap.State, &state); err != nil {
+				c.reportError(err)
+				return
+			}
+		}
 		c.configMu.Lock()
-		c.baseConfig = snap.Config
+		c.baseConfig = cfg
 		c.baseConfigSet = true
 		c.applyScaledConfig()
 		c.configMu.Unlock()
-		c.sim.RestoreState(sim.State{
-			Tick:          snap.Tick,
-			DownpourTicks: snap.DownpourLeft,
-			DownpourMult:  snap.DownpourMult,
-			CalmTicks:     snap.CalmLeft,
-			GustTicks:     snap.GustLeft,
-			GustWind:      snap.GustWind,
-		})
+		c.sim.RestoreState(state.State)
 	case "config":
 		var cfg sim.Config
 		if err := json.Unmarshal(cmd.Data, &cfg); err != nil {

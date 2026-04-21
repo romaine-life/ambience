@@ -83,7 +83,8 @@
   resize();
   window.addEventListener('resize', resize);
 
-  const rain = new AmbienceSim.Rain(GRID_W, GRID_H, {});
+  let effectType = 'rain';
+  let effect = new AmbienceSim.effects[effectType](GRID_W, GRID_H, {});
 
   // Panel DOM refs.
   const el = {
@@ -149,7 +150,17 @@
   // We deliberately do NOT use AmbienceSim.subscribe — that helper only knows
   // the first three kinds and we want scene/metric plumbed into the panel.
   function applySnapshot(snap) {
-    try { rain.restoreSnapshot(snap); } catch (e) { console.error('restoreSnapshot failed', e); }
+    const newType = (snap && snap.type) || 'rain';
+    if (newType !== effectType) {
+      const ctor = AmbienceSim.effects[newType];
+      if (!ctor) {
+        console.warn('live monitor: unknown effect type', newType);
+        return;
+      }
+      effectType = newType;
+      effect = new ctor(GRID_W, GRID_H, {});
+    }
+    try { effect.restoreSnapshot(snap); } catch (e) { console.error('restoreSnapshot failed', e); }
     if (snap.currentScene) {
       el.sceneName.textContent = snap.currentScene.name || '—';
       sceneDurationTicks = snap.currentScene.durationTicks || 0;
@@ -181,11 +192,11 @@
         break;
       }
       case 'config': {
-        try { rain.setConfig(cmd.data); } catch (e) {}
+        try { effect.setConfig(cmd.data); } catch (e) {}
         break;
       }
       case 'trigger': {
-        rain.triggerEvent(cmd.event);
+        effect.triggerEvent(cmd.event);
         log(cmd.event + (cmd.desc ? ' · ' + cmd.desc : ''), 'trigger');
         break;
       }
@@ -218,9 +229,9 @@
   es.onerror = () => { log('sse disconnected · retrying', 'trigger'); };
 
   // ── Local tick + render loop ────────────────────────────
-  setInterval(() => { if (ready) rain.step(); }, 100);
+  setInterval(() => { if (ready) effect.step(); }, 100);
   (function draw() {
-    rain.render(ctx, canvas.width, canvas.height);
+    effect.render(ctx, canvas.width, canvas.height);
     requestAnimationFrame(draw);
   })();
 

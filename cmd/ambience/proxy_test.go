@@ -117,7 +117,7 @@ func TestAuthorityMirrorAppliesMetricAndConfigCommands(t *testing.T) {
 	m.setSnapshot(snapshotData{
 		Type:           "rain",
 		Tick:           10,
-		Config:         sim.Config{Wind: 1},
+		Config:         mustJSON(t, sim.Config{Wind: 1}),
 		CurrentScene:   Scene{Name: "before"},
 		NextScene:      Scene{Name: "later"},
 		EntropyBytes:   1,
@@ -148,8 +148,12 @@ func TestAuthorityMirrorAppliesMetricAndConfigCommands(t *testing.T) {
 	if got.Tick != 12 {
 		t.Fatalf("tick = %d, want 12", got.Tick)
 	}
-	if got.Config.Wind != 3 {
-		t.Fatalf("wind = %v, want 3", got.Config.Wind)
+	var gotCfg sim.Config
+	if err := json.Unmarshal(got.Config, &gotCfg); err != nil {
+		t.Fatalf("decode config: %v", err)
+	}
+	if gotCfg.Wind != 3 {
+		t.Fatalf("wind = %v, want 3", gotCfg.Wind)
 	}
 	if got.EntropyBytes != 9 {
 		t.Fatalf("entropy = %d, want 9", got.EntropyBytes)
@@ -160,6 +164,15 @@ func TestAuthorityMirrorAppliesMetricAndConfigCommands(t *testing.T) {
 	if got.CurrentScene.Name != "after" || got.NextScene.Name != "next-up" {
 		t.Fatalf("scene names = %q/%q", got.CurrentScene.Name, got.NextScene.Name)
 	}
+}
+
+func mustJSON(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal json: %v", err)
+	}
+	return data
 }
 
 func TestAuthorityMirrorReplayAfterLastEventID(t *testing.T) {

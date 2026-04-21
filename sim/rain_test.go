@@ -29,6 +29,23 @@ func TestNewRainAppliesDefaults(t *testing.T) {
 	}
 }
 
+func TestEndingDefaultsStillAllowExplicitZeroKnobs(t *testing.T) {
+	r := NewRain(10, 10, 1, Config{
+		EndingDur:      25,
+		EndingLinger:   0,
+		EndingSplashes: 0,
+	})
+	if r.cfg.EndingDur != 25 {
+		t.Fatalf("ending dur = %d, want 25", r.cfg.EndingDur)
+	}
+	if r.cfg.EndingLinger != 0 {
+		t.Fatalf("ending linger = %d, want 0", r.cfg.EndingLinger)
+	}
+	if r.cfg.EndingSplashes != 0 {
+		t.Fatalf("ending splashes = %d, want 0", r.cfg.EndingSplashes)
+	}
+}
+
 // TestStepClearsGridEachTick verifies the clear-before-repaint invariant:
 // a cell manually set outside the drop system is gone after one Step.
 func TestStepClearsGridEachTick(t *testing.T) {
@@ -119,5 +136,164 @@ func TestPersistedStateRestoreRoundTrip(t *testing.T) {
 	}
 	if len(got.Splashes) != len(state.Splashes) {
 		t.Fatalf("splashes = %d, want %d", len(got.Splashes), len(state.Splashes))
+	}
+}
+
+func TestTriggerIntroResetsAtmosphereAndSeedsLeadingDrops(t *testing.T) {
+	r := NewRain(40, 20, 7, Config{
+		SpawnEvery:  1000,
+		IntroStyle:  1,
+		IntroDur:    40,
+		IntroOpen:   0.1,
+		IntroSparse: 6,
+		IntroSeed:   5,
+	})
+	r.drops = append(r.drops, drop{
+		Row: 2, Col: 20,
+		Color: staticRed, vRow: 1, vCol: 0,
+		streakLen: 3,
+	})
+	r.splashes = append(r.splashes, splashInstance{row: 3, col: 3, maxAge: 4, maxRadius: 2})
+	r.downpourTicks = 9
+	r.calmTicks = 7
+	r.gustTicks = 5
+	r.gustWind = 1.5
+	r.endingTicks = 11
+	r.endingTotal = 20
+	r.endingFade = 12
+	r.endingSplashLeft = 2
+	r.endingSplashTotal = 3
+
+	if !r.TriggerEvent("intro") {
+		t.Fatal("expected intro trigger to be recognized")
+	}
+
+	state := r.SnapshotState()
+	if state.IntroTicks != 40 || state.IntroTotal != 40 {
+		t.Fatalf("intro state = %+v, want intro ticks/total 40", state)
+	}
+	if state.DownpourTicks != 0 || state.CalmTicks != 0 || state.GustTicks != 0 || state.GustWind != 0 {
+		t.Fatalf("weather timers not cleared by intro: %+v", state)
+	}
+	if state.EndingTicks != 0 || state.EndingTotal != 0 || state.EndingFade != 0 || state.EndingSplashLeft != 0 || state.EndingSplashTotal != 0 {
+		t.Fatalf("ending state not cleared by intro: %+v", state)
+	}
+	if len(r.splashes) != 0 {
+		t.Fatalf("splashes = %d, want 0", len(r.splashes))
+	}
+	if len(r.drops) != 5 {
+		t.Fatalf("seeded drops = %d, want 5", len(r.drops))
+	}
+	for _, d := range r.drops {
+		if d.Col < 0 || d.Col > 4 {
+			t.Fatalf("seeded intro drop col = %.2f, want within leading curtain", d.Col)
+		}
+	}
+}
+
+func TestPersistedStatePreservesIntroProgress(t *testing.T) {
+	r := NewRain(20, 20, 9, Config{
+		SpawnEvery: 1000,
+		IntroDur:   30,
+		IntroSeed:  2,
+	})
+	if !r.TriggerEvent("intro") {
+		t.Fatal("expected intro trigger to be recognized")
+	}
+	r.Step()
+
+	state := r.SnapshotPersistedState()
+	restored := NewRain(20, 20, 1, Config{})
+	restored.SetConfig(r.EffectiveConfig())
+	restored.RestorePersistedState(state)
+
+	got := restored.SnapshotState()
+	if got.IntroTicks != state.IntroTicks || got.IntroTotal != state.IntroTotal {
+		t.Fatalf("intro state = %+v, want ticks=%d total=%d", got, state.IntroTicks, state.IntroTotal)
+	}
+}
+
+func TestTriggerEndingStartsOutroWithoutHardReset(t *testing.T) {
+	r := NewRain(40, 20, 11, Config{
+		SpawnEvery:     1000,
+		EndingStyle:    3,
+		EndingDur:      30,
+		EndingLinger:   15,
+		EndingSplashes: 4,
+	})
+	r.drops = append(r.drops, drop{
+		Row: 2, Col: 20,
+		Color: staticRed, vRow: 1, vCol: 0,
+		streakLen: 3,
+	})
+	r.splashes = append(r.splashes, splashInstance{row: 3, col: 3, maxAge: 4, maxRadius: 2})
+	r.downpourTicks = 9
+	r.calmTicks = 7
+	r.gustTicks = 5
+	r.gustWind = 1.5
+	r.introTicks = 13
+	r.introTotal = 20
+
+	if !r.TriggerEvent("ending") {
+		t.Fatal("expected ending trigger to be recognized")
+	}
+
+	state := r.SnapshotState()
+	if state.EndingTicks != 45 || state.EndingTotal != 45 || state.EndingFade != 30 {
+		t.Fatalf("ending state = %+v, want ending ticks/total 45 fade 30", state)
+	}
+	if state.EndingSplashLeft != 4 || state.EndingSplashTotal != 4 {
+		t.Fatalf("ending splash budget = %+v, want 4", state)
+	}
+	if state.DownpourTicks != 0 || state.CalmTicks != 0 || state.GustTicks != 0 || state.GustWind != 0 {
+		t.Fatalf("weather timers not cleared by ending: %+v", state)
+	}
+	if state.IntroTicks != 0 || state.IntroTotal != 0 {
+		t.Fatalf("intro state not cleared by ending: %+v", state)
+	}
+	if len(r.drops) != 1 {
+		t.Fatalf("ending should keep live drops, got %d", len(r.drops))
+	}
+	if len(r.splashes) != 1 {
+		t.Fatalf("ending should keep live splashes, got %d", len(r.splashes))
+	}
+}
+
+func TestEndingDirectionalSpawnNarrowsToLane(t *testing.T) {
+	r := NewRain(40, 20, 5, Config{EndingStyle: 1})
+	r.spawnEndingDrop(0.8)
+	if len(r.drops) != 1 {
+		t.Fatalf("drops = %d, want 1", len(r.drops))
+	}
+	if r.drops[0].Col < 0 || r.drops[0].Col > 8 {
+		t.Fatalf("ending drop col = %.2f, want near left lane", r.drops[0].Col)
+	}
+}
+
+func TestPersistedStatePreservesEndingProgress(t *testing.T) {
+	r := NewRain(20, 20, 15, Config{
+		SpawnEvery:     1000,
+		EndingDur:      24,
+		EndingLinger:   10,
+		EndingSplashes: 5,
+	})
+	if !r.TriggerEvent("ending") {
+		t.Fatal("expected ending trigger to be recognized")
+	}
+	for i := 0; i < 12; i++ {
+		r.Step()
+	}
+
+	state := r.SnapshotPersistedState()
+	restored := NewRain(20, 20, 1, Config{})
+	restored.SetConfig(r.EffectiveConfig())
+	restored.RestorePersistedState(state)
+
+	got := restored.SnapshotState()
+	if got.EndingTicks != state.EndingTicks || got.EndingTotal != state.EndingTotal || got.EndingFade != state.EndingFade {
+		t.Fatalf("ending state = %+v, want ticks=%d total=%d fade=%d", got, state.EndingTicks, state.EndingTotal, state.EndingFade)
+	}
+	if got.EndingSplashLeft != state.EndingSplashLeft || got.EndingSplashTotal != state.EndingSplashTotal {
+		t.Fatalf("ending splash state = %+v, want left=%d total=%d", got, state.EndingSplashLeft, state.EndingSplashTotal)
 	}
 }

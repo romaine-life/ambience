@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -15,10 +16,12 @@ func TestFileStoreRoundTrip(t *testing.T) {
 		Type:          "rain",
 		Seed:          123,
 		SceneRNGState: 456,
-		GridW:         160,
-		GridH:         80,
-		CommandSeq:    11,
-		EntropyBytes:  7,
+		Effect: persistedEffectState{
+			GridW: 160,
+			GridH: 80,
+		},
+		CommandSeq:   11,
+		EntropyBytes: 7,
 	}
 	if err := store.Save(context.Background(), want); err != nil {
 		t.Fatalf("save: %v", err)
@@ -44,10 +47,10 @@ func TestSharedAtmospherePersistenceRoundTrip(t *testing.T) {
 	a.broadcast(Command{Kind: "metric", Tick: 1})
 	a.AddEntropy([]byte("hello"))
 	for i := 0; i < 5; i++ {
-		a.sim.Step()
+		a.effect.Step()
 	}
-	a.rotateScene(a.sim.CurrentTick())
-	a.applyTransition(a.sim.CurrentTick())
+	a.rotateScene(a.effect.CurrentTick())
+	a.applyTransition(a.effect.CurrentTick())
 
 	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
 	if err := store.Save(context.Background(), a.persistedState()); err != nil {
@@ -73,10 +76,19 @@ func TestSharedAtmospherePersistenceRoundTrip(t *testing.T) {
 	if got.NextScene.Name != want.NextScene.Name {
 		t.Fatalf("next scene = %q, want %q", got.NextScene.Name, want.NextScene.Name)
 	}
-	if len(got.Drops) != len(want.Drops) {
-		t.Fatalf("drops = %d, want %d", len(got.Drops), len(want.Drops))
+
+	var gotState sim.RainSnapshot
+	if err := json.Unmarshal(got.State, &gotState); err != nil {
+		t.Fatalf("decode restored state: %v", err)
 	}
-	if len(got.Splashes) != len(want.Splashes) {
-		t.Fatalf("splashes = %d, want %d", len(got.Splashes), len(want.Splashes))
+	var wantState sim.RainSnapshot
+	if err := json.Unmarshal(want.State, &wantState); err != nil {
+		t.Fatalf("decode original state: %v", err)
+	}
+	if len(gotState.Drops) != len(wantState.Drops) {
+		t.Fatalf("drops = %d, want %d", len(gotState.Drops), len(wantState.Drops))
+	}
+	if len(gotState.Splashes) != len(wantState.Splashes) {
+		t.Fatalf("splashes = %d, want %d", len(gotState.Splashes), len(wantState.Splashes))
 	}
 }

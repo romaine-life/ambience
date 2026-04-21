@@ -15,7 +15,7 @@
 //	POST /dev/config?session=   — update the dev atmosphere's config
 //	POST /dev/trigger/:session/:event
 //	                            — fire a discrete event on the dev atmosphere
-//	GET  /effects/rain/schema   — JSON schema for Rain's knob panel
+//	GET  /effects/:effect/schema — JSON schema for an effect's dev panel
 package main
 
 import (
@@ -30,13 +30,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
-
-	"github.com/nelsong6/ambience/sim"
 )
 
 const (
@@ -212,7 +209,7 @@ func registerStaticRoutes(mux *http.ServeMux, web fs.FS) {
 }
 
 func registerSchemaRoute(mux *http.ServeMux) {
-	mux.HandleFunc("/effects/rain/schema", cors(serveSchema))
+	mux.HandleFunc("/effects/", cors(serveEffectSchema))
 }
 
 func registerAuthorityRoutes(mux *http.ServeMux) {
@@ -279,9 +276,21 @@ func serveDevPage(web fs.FS) http.HandlerFunc {
 	}
 }
 
-func serveSchema(w http.ResponseWriter, req *http.Request) {
+func serveEffectSchema(w http.ResponseWriter, req *http.Request) {
+	const prefix = "/effects/"
+	rest := strings.TrimPrefix(req.URL.Path, prefix)
+	parts := strings.Split(rest, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] != "schema" {
+		http.NotFound(w, req)
+		return
+	}
+	schema, ok := schemaForEffect(parts[0])
+	if !ok {
+		http.Error(w, "unknown effect: "+parts[0], http.StatusNotFound)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(sim.RainSchema())
+	_ = json.NewEncoder(w).Encode(schema)
 }
 
 // sseHeaders sets the three standard SSE headers and returns a Flusher.
@@ -435,8 +444,15 @@ func serveDevConfig(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	cfg := parseDevConfig(req)
-	a.setConfig(cfg)
+	data, err := parseEffectConfig(req.URL.Query(), a.effect.Schema())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := a.setConfigRaw(data); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -463,53 +479,4 @@ func serveDevTrigger(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func parseDevConfig(req *http.Request) sim.Config {
-	q := req.URL.Query()
-	cfg := sim.Config{}
-	getFloat(q, "wind", &cfg.Wind)
-	getFloat(q, "wind_jit", &cfg.WindJitter)
-	getFloat(q, "speed", &cfg.Speed)
-	getFloat(q, "speed_jit", &cfg.SpeedJitter)
-	getInt(q, "streak", &cfg.StreakLen)
-	getFloat(q, "fade", &cfg.FadeFactor)
-	getInt(q, "spawn", &cfg.SpawnEvery)
-	getInt(q, "burst", &cfg.SpawnBurst)
-	getFloat(q, "hue", &cfg.Hue)
-	getFloat(q, "hue_sp", &cfg.HueSpread)
-	getFloat(q, "sat", &cfg.Saturation)
-	getFloat(q, "lmin", &cfg.LightnessMin)
-	getFloat(q, "lmax", &cfg.LightnessMax)
-	getInt(q, "layers", &cfg.Layers)
-	getFloat(q, "lbal", &cfg.LayerBalance)
-	getFloat(q, "hue_drift", &cfg.HueDriftAmp)
-	getFloat(q, "wind_drift", &cfg.WindDriftAmp)
-	getFloat(q, "downpour_p", &cfg.DownpourChance)
-	getFloat(q, "calm_p", &cfg.CalmChance)
-	getFloat(q, "gust_p", &cfg.GustChance)
-	getFloat(q, "splash_p", &cfg.SplashChance)
-	getInt(q, "downpour_dur", &cfg.DownpourDur)
-	getFloat(q, "downpour_mult", &cfg.DownpourMult)
-	getInt(q, "calm_dur", &cfg.CalmDur)
-	getInt(q, "gust_dur", &cfg.GustDur)
-	getFloat(q, "gust_str", &cfg.GustStrength)
-	getInt(q, "splash_size", &cfg.SplashSize)
-	return cfg
-}
-
-func getFloat(q map[string][]string, key string, dst *float64) {
-	if v, ok := q[key]; ok && len(v) > 0 && v[0] != "" {
-		if f, err := strconv.ParseFloat(v[0], 64); err == nil {
-			*dst = f
-		}
-	}
-}
-
-func getInt(q map[string][]string, key string, dst *int) {
-	if v, ok := q[key]; ok && len(v) > 0 && v[0] != "" {
-		if n, err := strconv.Atoi(v[0]); err == nil {
-			*dst = n
-		}
-	}
 }

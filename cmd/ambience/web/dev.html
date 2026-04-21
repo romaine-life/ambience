@@ -82,6 +82,8 @@
 	#logEntries .entry { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; }
 	#logEntries .entry .t { opacity: 0.5; margin-right: 4px; }
 	#logEntries .entry .k { opacity: 0.9; margin-right: 4px; font-weight: bold; }
+	#logEntries .entry.intro .k { color: #4ec9b0; }
+	#logEntries .entry.ending .k { color: #c586c0; }
 	#logEntries .entry.downpour .k { color: #9cdcfe; }
 	#logEntries .entry.calm .k { color: #ce9178; }
 	#logEntries .entry.gust .k { color: #dcdcaa; }
@@ -103,9 +105,9 @@
 </div>
 <script src="/sim.js"></script>
 <script>
-	// Dev panel runs a local Rain sim (same code as the canonical demo) and
-	// drives a per-session atmosphere on the server via POST /dev/config and
-	// /dev/trigger. State commands return over SSE.
+	// Dev panel runs a local effect sim (same code path as the canonical demo)
+	// and drives a per-session atmosphere on the server via POST /dev/config
+	// and /dev/trigger. State commands return over SSE.
 
 	const SLOT_LABELS = {
 		'spawn':     'spawn config',
@@ -118,6 +120,7 @@
 	const LS_PREFIX = 'ambience.dev.section.';
 	const CHEV = '▾';
 	const GRID_W = 160, GRID_H = 80;
+	const INITIAL_EFFECT = new URLSearchParams(location.search).get('effect') || 'rain';
 
 	const SESSION_ID = (crypto.randomUUID ? crypto.randomUUID() :
 		Math.random().toString(36).slice(2) + Date.now().toString(36));
@@ -127,7 +130,14 @@
 	const body = document.getElementById('body');
 	const title = document.getElementById('title');
 	let knobs = [];
-	const rain = new AmbienceSim.Rain(GRID_W, GRID_H, {});
+	let effectType = INITIAL_EFFECT;
+	let EffectCtor = AmbienceSim.effects[effectType];
+	if (!EffectCtor) {
+		console.warn('ambience dev: unknown initial effect type', effectType, 'falling back to rain');
+		effectType = 'rain';
+		EffectCtor = AmbienceSim.effects[effectType];
+	}
+	let effect = new EffectCtor(GRID_W, GRID_H, {});
 	let ready = false;
 
 	function resize() {
@@ -155,6 +165,7 @@
 	function currentQuery() {
 		const q = new URLSearchParams();
 		q.set('session', SESSION_ID);
+		q.set('effect', effectType);
 		for (const k of knobs) {
 			const v = valOf(k.key);
 			q.set(k.key, k.type === 'int' ? String(Math.round(v)) : v.toString());
@@ -302,6 +313,26 @@
 		box.scrollTop = box.scrollHeight;
 	}
 
+	function instantiateEffect(newType) {
+		if (newType === effectType && effect) return;
+		const ctor = AmbienceSim.effects[newType];
+		if (!ctor) {
+			console.warn('ambience dev: unknown effect type', newType);
+			return;
+		}
+		effectType = newType;
+		effect = new ctor(GRID_W, GRID_H, {});
+	}
+
+	function loadSchema(type) {
+		return fetch('/effects/' + encodeURIComponent(type) + '/schema')
+			.then(r => {
+				if (!r.ok) throw new Error('schema ' + r.status);
+				return r.json();
+			})
+			.then(schema => { renderPanel(schema); updateReadouts(); });
+	}
+
 	// Panel collapse (global) + per-section collapse.
 	const panel = document.getElementById('panel');
 	const toggle = document.getElementById('toggle');
@@ -324,15 +355,15 @@
 	});
 
 	// Local tick + render loops
-	setInterval(() => { if (ready) rain.step(); }, 100);
+	setInterval(() => { if (ready) effect.step(); }, 100);
 	(function draw() {
-		rain.render(ctx, canvas.width, canvas.height);
+		effect.render(ctx, canvas.width, canvas.height);
 		requestAnimationFrame(draw);
 	})();
 
 	// Subscribe to dev events — also funnels triggers into the log panel.
 	// We wrap AmbienceSim.subscribe to catch trigger messages for log display.
-	const es = new EventSource('/dev/events?session=' + encodeURIComponent(SESSION_ID));
+	const es = new EventSource('/dev/events?session=' + encodeURIComponent(SESSION_ID) + '&effect=' + encodeURIComponent(effectType));
 	es.addEventListener('message', (e) => {
 		let cmd;
 		try { cmd = JSON.parse(e.data); } catch (_) { return; }
@@ -340,7 +371,12 @@
 			case 'snapshot':
 				try {
 					const snap = typeof cmd.data === 'string' ? JSON.parse(cmd.data) : cmd.data;
-					rain.restoreSnapshot(snap);
+					const newType = (snap && snap.type) || effectType;
+					if (newType !== effectType) {
+						instantiateEffect(newType);
+						loadSchema(newType).catch(err => console.error('schema', err));
+					}
+					effect.restoreSnapshot(snap);
 					ready = true;
 					// Initialize sliders to the server's current config.
 					if (snap.config && knobs.length) {
@@ -356,11 +392,11 @@
 			case 'config':
 				try {
 					const cfg = typeof cmd.data === 'string' ? JSON.parse(cmd.data) : cmd.data;
-					rain.setConfig(cfg);
+					effect.setConfig(cfg);
 				} catch (err) { console.error('bad config', err); }
 				break;
 			case 'trigger':
-				rain.triggerEvent(cmd.event);
+				effect.triggerEvent(cmd.event);
 				appendLog({ tick: cmd.tick, type: cmd.event, desc: cmd.desc });
 				break;
 		}
@@ -368,10 +404,7 @@
 
 	// Boot: fetch schema, render panel; SSE will deliver the initial snapshot
 	// which sets the sliders.
-	fetch('/effects/rain/schema')
-		.then(r => r.json())
-		.then(schema => { renderPanel(schema); updateReadouts(); })
-		.catch(err => console.error('schema', err));
+	loadSchema(effectType).catch(err => console.error('schema', err));
 </script>
 </body>
 </html>

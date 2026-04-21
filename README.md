@@ -69,14 +69,18 @@ k8s/             Kubernetes manifests. Deployed via ArgoCD watching
 
 The server does not broadcast pixel frames. Each atmosphere is a
 server-side sim running at 10 Hz whose job is to decide when discrete
-events fire. Clients run their own sims locally and apply three kinds
-of commands:
+events fire. Clients run their own sims locally and apply five kinds of
+commands:
 
-- **`snapshot`** — state dump on connect: `{type, tick, config, seed,
-  downpourLeft, ...}`. `type` is the effect name — clients use it to
-  pick which sim constructor to instantiate.
+- **`snapshot`** — state dump on connect. The outer envelope is
+  effect-generic: `{type, tick, config, state, seed, gridW, gridH,
+  currentScene, nextScene, entropyBytes, sceneRemaining}`. `config` and
+  `state` are effect-owned blobs; `type` tells clients which constructor
+  to instantiate.
 - **`config`** — sim config changed; clients apply via `setConfig`.
 - **`trigger`** — a discrete event fired; clients apply its effects.
+- **`scene`** — scene rotation metadata for the live monitor.
+- **`metric`** — entropy and scene-progress heartbeat data.
 
 Clients do not roll for discrete events — only the server does. Each
 client's RNG drifts from the server's after the initial snapshot, but
@@ -98,6 +102,26 @@ Browser clients look up the constructor by the `type` the server
 broadcasts — so adding Sand / Fire / Tetris is a sim-side change with
 no consumer-side update.
 
+## Guiding principle
+
+One of ambience's guiding principles is to copy the *boundaries* that
+make simulation-heavy systems like Noita compelling, without trying to
+clone their exact engine.
+
+- Keep authoritative world truth compact and semantic. The server should
+  decide important events, phases, and state transitions; clients should
+  do the expensive local replay/render work.
+- Keep the transport generic at the envelope level and effect-owned on
+  the inside. Snapshot/config/trigger/schema are shared seams; each
+  effect owns its own inner state and tuning knobs.
+- Aggregate secondary systems instead of mirroring every particle.
+  Persistence, logs, metrics, entropy, and future audio should describe
+  meaningful simulation state, not become a raw firehose of per-pixel
+  updates.
+- Prefer stable control seams over effect-specific special cases. New
+  effects should plug into the registry, schema, snapshot/restore, and
+  trigger paths instead of requiring consumer-specific wiring.
+
 ## Entropy
 
 Client-side keystroke capture feeds bytes into `POST /entropy`. The
@@ -116,7 +140,7 @@ All broadcast endpoints set permissive CORS for cross-origin consumers.
 - `GET  /snapshot` — current atmosphere state (JSON)
 - `GET  /events` — atmosphere command stream (SSE)
 - `POST /entropy` — raw bytes folded into the RNG (max 4KB/req)
-- `GET  /effects/rain/schema` — knob schema for the dev UI
+- `GET  /effects/:effect/schema` — knob schema for the dev UI
 
 ## Roles
 

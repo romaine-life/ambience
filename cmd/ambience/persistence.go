@@ -33,20 +33,18 @@ type persistedTransition struct {
 }
 
 type persistedAtmosphere struct {
-	Version       int                 `json:"version"`
-	SavedAt       time.Time           `json:"savedAt"`
-	Type          string              `json:"type"`
-	Seed          int64               `json:"seed"`
-	SceneRNGState uint64              `json:"sceneRngState"`
-	Config        sim.Config          `json:"config"`
-	GridW         int                 `json:"gridW"`
-	GridH         int                 `json:"gridH"`
-	Sim           sim.PersistedState  `json:"sim"`
-	CommandSeq    int64               `json:"commandSeq"`
-	CurrentScene  Scene               `json:"currentScene"`
-	NextScene     Scene               `json:"nextScene"`
-	EntropyBytes  int64               `json:"entropyBytes"`
-	Transition    persistedTransition `json:"transition"`
+	Version       int                  `json:"version"`
+	SavedAt       time.Time            `json:"savedAt"`
+	Type          string               `json:"type"`
+	Seed          int64                `json:"seed"`
+	SceneRNGState uint64               `json:"sceneRngState"`
+	Config        sim.Config           `json:"config"`
+	Effect        persistedEffectState `json:"effect"`
+	CommandSeq    int64                `json:"commandSeq"`
+	CurrentScene  Scene                `json:"currentScene"`
+	NextScene     Scene                `json:"nextScene"`
+	EntropyBytes  int64                `json:"entropyBytes"`
+	Transition    persistedTransition  `json:"transition"`
 }
 
 func newPersistenceStoreFromEnv() (persistenceStore, time.Duration, error) {
@@ -144,11 +142,11 @@ func restoreSharedAtmosphere(ctx context.Context, store persistenceStore) *atmos
 		return fresh
 	}
 
-	if state.GridW <= 0 {
-		state.GridW = gridW
+	if state.Effect.GridW <= 0 {
+		state.Effect.GridW = gridW
 	}
-	if state.GridH <= 0 {
-		state.GridH = gridH
+	if state.Effect.GridH <= 0 {
+		state.Effect.GridH = gridH
 	}
 
 	sceneRNGState := state.SceneRNGState
@@ -156,8 +154,14 @@ func restoreSharedAtmosphere(ctx context.Context, store persistenceStore) *atmos
 		sceneRNGState = uint64(state.Seed ^ 0x6d0f27bd0b5a3c11)
 	}
 
+	rt, err := newEffectRuntime(state.Type, state.Effect.GridW, state.Effect.GridH, state.Seed, state.Effect.Config)
+	if err != nil {
+		log.Printf("restore shared atmosphere: %v; starting fresh", err)
+		return fresh
+	}
+
 	a := &atmosphere{
-		sim:        sim.NewRain(state.GridW, state.GridH, state.Seed, state.Config),
+		effect:     rt,
 		cfg:        state.Config,
 		seed:       state.Seed,
 		sceneRNG:   rngutil.NewFromState(sceneRNGState),
@@ -167,8 +171,10 @@ func restoreSharedAtmosphere(ctx context.Context, store persistenceStore) *atmos
 		listeners:  make(map[chan Command]struct{}),
 		lastSeen:   time.Now(),
 	}
-	a.sim.SetConfig(state.Config)
-	a.sim.RestorePersistedState(state.Sim)
+	if err := a.effect.RestorePersisted(state.Effect); err != nil {
+		log.Printf("restore %s state: %v; starting fresh", state.Type, err)
+		return fresh
+	}
 	a.entropyBytes = state.EntropyBytes
 	a.transitionFrom = state.Transition.From
 	a.transitionTo = state.Transition.To
@@ -178,7 +184,7 @@ func restoreSharedAtmosphere(ctx context.Context, store persistenceStore) *atmos
 		a.cfg = state.Transition.From
 	}
 
-	log.Printf("restored shared atmosphere from %s at tick %d", state.SavedAt.Format(time.RFC3339), state.Sim.Tick)
+	log.Printf("restored shared atmosphere from %s at tick %d", state.SavedAt.Format(time.RFC3339), a.effect.CurrentTick())
 	return a
 }
 
@@ -198,16 +204,27 @@ func (a *atmosphere) persistedState() persistedAtmosphere {
 	}
 	a.mu.Unlock()
 
+	effectState, err := a.effect.Persisted()
+	if err != nil {
+		log.Printf("snapshot %s persisted state: %v", a.effect.Type(), err)
+		effectState = persistedEffectState{}
+	}
+	effectConfig := a.cfg
+	if len(effectState.Config) > 0 {
+		if err := json.Unmarshal(effectState.Config, &effectConfig); err != nil {
+			log.Printf("decode %s persisted config: %v", a.effect.Type(), err)
+			effectConfig = a.cfg
+		}
+	}
+
 	return persistedAtmosphere{
 		Version:       1,
 		SavedAt:       time.Now().UTC(),
-		Type:          "rain",
+		Type:          a.effect.Type(),
 		Seed:          seed,
 		SceneRNGState: sceneRNGState,
-		Config:        a.sim.EffectiveConfig(),
-		GridW:         a.sim.W,
-		GridH:         a.sim.H,
-		Sim:           a.sim.SnapshotPersistedState(),
+		Config:        effectConfig,
+		Effect:        effectState,
 		CommandSeq:    commandSeq,
 		CurrentScene:  current,
 		NextScene:     next,

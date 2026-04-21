@@ -53,8 +53,8 @@ type Knob struct {
 	Description string `json:"description,omitempty"`
 	// Trigger names an event that can be fired immediately via
 	// POST /dev/trigger/<session>/<trigger>. Empty = no trigger button.
-	// Used on SlotEvent knobs so the UI can render a "fire now" button
-	// beside the probability slider.
+	// Most commonly used on SlotEvent knobs, but lifecycle slots such as
+	// spawn/end may also use it for manual preview buttons in the dev UI.
 	Trigger string `json:"trigger,omitempty"`
 }
 

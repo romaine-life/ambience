@@ -29,7 +29,7 @@ cmd/ambience (Go)     HTTP server. Runs the shared atmosphere goroutine
   ├─► /events            SSE: atmosphere commands
   │                      (snapshot/config/trigger/scene/metric)
   ├─► /entropy           POST bytes — folded into the shared RNG
-  ├─► /effects/rain/schema  JSON schema for Rain's 27 knobs (dev-panel UI)
+  ├─► /effects/:effect/schema  JSON schema for an effect's dev-panel knobs
   └─► /dev/{snapshot,events,config,trigger}  Per-session dev atmospheres
 
 sim/             Pure Go simulation logic. Rain is the only effect today.
@@ -65,10 +65,9 @@ events fire and when to rotate scenes. Clients run their own sims locally
 and apply five kinds of commands:
 
 - **`snapshot`** — initial state dump on connect. Full game-save:
-  `{type, tick, config, seed, downpourLeft, downpourMult, calmLeft,
-  gustLeft, gustWind, gridW, gridH, drops, splashes, currentScene,
+  `{type, tick, config, state, seed, gridW, gridH, currentScene,
   nextScene, entropyBytes, sceneRemaining}`. `type` is the effect name
-  ("rain" for now).
+  ("rain" for now); `config` and `state` are the effect-specific payloads.
 - **`config`** — sim config changed; clients call `setConfig`. Broadcast on
   entry to scene transitions (at ~1 Hz during drift) and on transition
   completion (final target for exact sync).
@@ -116,6 +115,26 @@ Production ignores the var (falls back to 1–4 h random).
 client-side change, no per-consumer change. The 5-slot effect template
 (spawn / lever / event / event-mod / end) is in the ambience repo
 issues: [#1](https://github.com/nelsong6/ambience/issues/1).
+
+## Guiding principle
+
+One of ambience's guiding principles is to copy the *boundaries* that
+make simulation-heavy systems like Noita compelling, without trying to
+clone their exact engine.
+
+- Keep authoritative world truth compact and semantic. The server should
+  decide important events, phases, and state transitions; clients should
+  do the expensive local replay/render work.
+- Keep the transport generic at the envelope level and effect-owned on
+  the inside. Snapshot/config/trigger/schema are shared seams; each
+  effect owns its own inner state and tuning knobs.
+- Aggregate secondary systems instead of mirroring every particle.
+  Persistence, logs, metrics, entropy, and future audio should describe
+  meaningful simulation state, not become a raw firehose of per-pixel
+  updates.
+- Prefer stable control seams over effect-specific special cases. New
+  effects should plug into the registry, schema, snapshot/restore, and
+  trigger paths instead of requiring consumer-specific wiring.
 
 ## Entropy flow
 

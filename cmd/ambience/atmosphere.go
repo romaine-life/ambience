@@ -59,22 +59,13 @@ type Command struct {
 // AmbienceSim.effects[type] to pick the renderer constructor — so adding a
 // new effect doesn't require any client-side change.
 type snapshotData struct {
-	Type         string     `json:"type"`
-	Tick         int        `json:"tick"`
-	Config       sim.Config `json:"config"`
-	Seed         int64      `json:"seed"`
-	DownpourLeft int        `json:"downpourLeft"`
-	DownpourMult float64    `json:"downpourMult"`
-	CalmLeft     int        `json:"calmLeft"`
-	GustLeft     int        `json:"gustLeft"`
-	GustWind     float64    `json:"gustWind"`
-	// Game-save fields — let joining clients drop into mid-simulation.
-	// GridW/GridH are the server sim's reference dimensions; clients
-	// resize to match so drops transfer 1:1.
-	GridW    int          `json:"gridW"`
-	GridH    int          `json:"gridH"`
-	Drops    []sim.Drop   `json:"drops"`
-	Splashes []sim.Splash `json:"splashes"`
+	Type   string          `json:"type"`
+	Tick   int             `json:"tick"`
+	Config json.RawMessage `json:"config"`
+	State  json.RawMessage `json:"state"`
+	Seed   int64           `json:"seed"`
+	GridW  int             `json:"gridW"`
+	GridH  int             `json:"gridH"`
 	// Scene + entropy status — used by the / live monitor. Panels update
 	// via periodic "metric" commands between full snapshot re-requests.
 	CurrentScene   Scene `json:"currentScene"`
@@ -87,7 +78,7 @@ type atmosphere struct {
 	mu sync.Mutex
 	// Sim + explicit scene RNG. Entropy POSTs flow into both so future event
 	// rolls and future generated scenes survive restarts coherently.
-	sim          *sim.Rain
+	effect       effectRuntime
 	cfg          sim.Config
 	seed         int64
 	sceneRNG     *rngutil.RNG
@@ -119,8 +110,9 @@ func newAtmosphere(_ sim.Config) *atmosphere {
 	// Pre-generate the next scene too — the "single-slot lookahead" model.
 	// StartedAtTick is set when it's promoted to current.
 	nxt := generateScene(sceneRNG, 0)
+	cfgData, _ := json.Marshal(first.Config)
 	return &atmosphere{
-		sim:       sim.NewRain(gridW, gridH, seed, first.Config),
+		effect:    mustNewEffectRuntime("rain", gridW, gridH, seed, cfgData),
 		cfg:       first.Config,
 		seed:      seed,
 		sceneRNG:  sceneRNG,
@@ -149,8 +141,8 @@ func (a *atmosphere) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			a.sim.Step()
-			cur := a.sim.CurrentTick()
+			a.effect.Step()
+			cur := a.effect.CurrentTick()
 
 			a.applyTransition(cur)
 
@@ -164,7 +156,7 @@ func (a *atmosphere) run(ctx context.Context) {
 				a.broadcastMetric(cur)
 			}
 
-			for _, e := range a.sim.DrainLog() {
+			for _, e := range a.effect.DrainLog() {
 				a.broadcast(Command{
 					Kind:  "trigger",
 					Tick:  e.Tick,
@@ -194,8 +186,8 @@ func (a *atmosphere) applyTransition(cur int) {
 		a.transitionStart = 0
 		a.cfg = final
 		a.mu.Unlock()
-		a.sim.SetConfig(final)
 		data, _ := json.Marshal(final)
+		_ = a.effect.ApplyConfig(data)
 		a.broadcast(Command{Kind: "config", Tick: cur, Data: data})
 		return
 	}
@@ -206,9 +198,9 @@ func (a *atmosphere) applyTransition(cur int) {
 
 	progress := easeInOutCubic(float64(elapsed) / float64(dur))
 	lerped := lerpConfig(from, to, progress)
-	a.sim.SetConfig(lerped)
+	data, _ := json.Marshal(lerped)
+	_ = a.effect.ApplyConfig(data)
 	if elapsed%transitionBroadcastEvery == 0 {
-		data, _ := json.Marshal(lerped)
 		a.broadcast(Command{Kind: "config", Tick: cur, Data: data})
 	}
 }
@@ -393,27 +385,29 @@ func (a *atmosphere) snapshot() snapshotData {
 	next := a.next
 	entropyBytes := a.entropyBytes
 	a.mu.Unlock()
-	// Use the sim's effective config (defaults applied), not our raw stored cfg.
-	cfg := a.sim.EffectiveConfig()
-	s := a.sim.SnapshotState()
+	effectSnap, err := a.effect.Snapshot()
+	if err != nil {
+		return snapshotData{
+			Type:           a.effect.Type(),
+			Seed:           seed,
+			CurrentScene:   current,
+			NextScene:      next,
+			EntropyBytes:   entropyBytes,
+			SceneRemaining: current.Remaining(0),
+		}
+	}
 	return snapshotData{
-		Type:           "rain",
-		Tick:           s.Tick,
-		Config:         cfg,
+		Type:           a.effect.Type(),
+		Tick:           effectSnap.Tick,
+		Config:         cloneRaw(effectSnap.Config),
+		State:          cloneRaw(effectSnap.State),
 		Seed:           seed,
-		DownpourLeft:   s.DownpourTicks,
-		DownpourMult:   s.DownpourMult,
-		CalmLeft:       s.CalmTicks,
-		GustLeft:       s.GustTicks,
-		GustWind:       s.GustWind,
-		GridW:          a.sim.W,
-		GridH:          a.sim.H,
-		Drops:          a.sim.DropsCopy(),
-		Splashes:       a.sim.SplashesCopy(),
+		GridW:          effectSnap.GridW,
+		GridH:          effectSnap.GridH,
 		CurrentScene:   current,
 		NextScene:      next,
 		EntropyBytes:   entropyBytes,
-		SceneRemaining: current.Remaining(s.Tick),
+		SceneRemaining: current.Remaining(effectSnap.Tick),
 	}
 }
 
@@ -435,29 +429,34 @@ func (a *atmosphere) AddEntropy(b []byte) {
 	a.entropyBytes += int64(len(b))
 	a.sceneRNG.Mix(acc)
 	a.mu.Unlock()
-	a.sim.PerturbRNG(acc)
+	a.effect.AddEntropy(acc)
 	// Push a metric broadcast on every entropy event so the / live monitor's
 	// counter updates immediately (no 30 s polling cadence needed). Sub-
 	// second latency matches the client-side entropy buffer flush (2 s).
-	a.broadcastMetric(a.sim.CurrentTick())
+	a.broadcastMetric(a.effect.CurrentTick())
 }
 
-func (a *atmosphere) setConfig(cfg sim.Config) {
-	a.mu.Lock()
-	a.cfg = cfg
-	a.mu.Unlock()
-	a.sim.SetConfig(cfg)
-	data, _ := json.Marshal(cfg)
+func (a *atmosphere) setConfigRaw(data json.RawMessage) error {
+	if err := a.effect.ApplyConfig(data); err != nil {
+		return err
+	}
+	var cfg sim.Config
+	if err := json.Unmarshal(data, &cfg); err == nil {
+		a.mu.Lock()
+		a.cfg = cfg
+		a.mu.Unlock()
+	}
 	a.broadcast(Command{
 		Kind: "config",
-		Tick: a.sim.CurrentTick(),
-		Data: data,
+		Tick: a.effect.CurrentTick(),
+		Data: cloneRaw(data),
 	})
+	return nil
 }
 
 func (a *atmosphere) triggerEvent(event string) bool {
 	// TriggerEvent writes to the log; the run loop picks it up and broadcasts.
-	return a.sim.TriggerEvent(event)
+	return a.effect.Trigger(event)
 }
 
 // Per-session dev atmospheres.

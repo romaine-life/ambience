@@ -40,6 +40,17 @@ type Config struct {
 	WindJitter  float64 `json:"wind_jit"`
 	Speed       float64 `json:"speed"`
 	SpeedJitter float64 `json:"speed_jit"`
+	// INTRODUCTION
+	IntroStyle  int     `json:"intro_style"`
+	IntroDur    int     `json:"intro_dur"`
+	IntroSparse float64 `json:"intro_sparse"`
+	IntroOpen   float64 `json:"intro_open"`
+	IntroSeed   int     `json:"intro_seed"`
+	// ENDING
+	EndingStyle    int `json:"ending_style"`
+	EndingDur      int `json:"ending_dur"`
+	EndingLinger   int `json:"ending_linger"`
+	EndingSplashes int `json:"ending_splashes"`
 	// SHAPE
 	StreakLen  int     `json:"streak"`
 	FadeFactor float64 `json:"fade"`
@@ -84,6 +95,37 @@ func (c Config) withDefaults() Config {
 	}
 	if c.StreakLen <= 0 {
 		c.StreakLen = 5
+	}
+	if c.IntroDur <= 0 {
+		c.IntroDur = 60
+	}
+	if c.IntroSparse < 1 {
+		c.IntroSparse = 8
+	}
+	if c.IntroOpen <= 0 {
+		c.IntroOpen = 0.08
+	}
+	c.IntroOpen = clamp01(c.IntroOpen)
+	if c.IntroSeed < 0 {
+		c.IntroSeed = 0
+	}
+	if c.IntroSeed == 0 {
+		c.IntroSeed = 4
+	}
+	if c.EndingStyle == 0 && c.EndingDur == 0 && c.EndingLinger == 0 && c.EndingSplashes == 0 {
+		c.EndingDur = 60
+		c.EndingLinger = 20
+		c.EndingSplashes = 3
+	} else {
+		if c.EndingDur <= 0 {
+			c.EndingDur = 60
+		}
+		if c.EndingLinger < 0 {
+			c.EndingLinger = 0
+		}
+		if c.EndingSplashes < 0 {
+			c.EndingSplashes = 0
+		}
 	}
 	if c.FadeFactor <= 0 {
 		c.FadeFactor = 0.88
@@ -166,9 +208,7 @@ func clamp01(v float64) float64 {
 	return v
 }
 
-// RainSchema describes Rain's tunable knobs for the dev UI. Every current
-// knob is spawn-config (set per drop at creation). When we add events
-// (downpour, splash, calm) they'll gain SlotEvent / SlotEventMod entries.
+// RainSchema describes Rain's tunable knobs for the dev UI.
 func RainSchema() EffectSchema {
 	return EffectSchema{
 		Name: "rain",
@@ -178,8 +218,27 @@ func RainSchema() EffectSchema {
 			// "rescales in-flight" (affects existing drops immediately, e.g.
 			// speed) vs "next drop onward" (applies at spawn time; rain turns
 			// over in a few seconds so visible propagation is quick).
-			// The old SlotSpawn bucket is empty for Rain — future effects may
-			// still use it for genuine once-at-effect-start values.
+			// Introductions belong in the spawn slot: they define how the
+			// effect arrives, rather than how the steady-state body behaves.
+			{Key: "intro_style", Label: "intro style", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 0, Max: 3, Step: 1, Default: 0,
+				Description: "Start-pattern selector: 0=full drizzle, 1=left curtain, 2=center bloom, 3=right curtain. Fire intro to preview."},
+			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 10, Max: 240, Step: 5, Default: 60, Trigger: "intro",
+				Description: "Ticks the introduction spends ramping from sparse first drops into full rain. Fire button previews the current setup."},
+			{Key: "intro_sparse", Label: "intro sparse", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 1, Max: 20, Step: 0.5, Default: 8,
+				Description: "How sparse the very first intro drops are relative to steady-state density. 1 = already full, larger = gentler build-in."},
+			{Key: "intro_open", Label: "intro open", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0.01, Max: 0.5, Step: 0.01, Default: 0.08,
+				Description: "Fraction of the screen initially active for curtain-style intros before the rainy area expands."},
+			{Key: "intro_seed", Label: "intro seed", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 1, Max: 16, Step: 1, Default: 4,
+				Description: "Drops injected immediately when intro fires so the scene starts with a readable first beat."},
+			// Endings belong in the end slot: they shape how the field resolves.
+			{Key: "ending_style", Label: "ending style", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 3, Step: 1, Default: 0,
+				Description: "Outro selector: 0=full taper, 1=left lane, 2=center thread, 3=right lane. Fire ending to preview."},
+			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 10, Max: 240, Step: 5, Default: 60, Trigger: "ending",
+				Description: "Ticks spent thinning the rain before the field settles. Fire button previews the current outro setup."},
+			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 120, Step: 5, Default: 20,
+				Description: "Extra quiet ticks after spawns stop so the last drops and splashes can resolve before the next state."},
+			{Key: "ending_splashes", Label: "ending splashes", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 12, Step: 1, Default: 3,
+				Description: "Residual splash beats spread across the outro so the rain can stop before the scene fully settles."},
 			{Key: "wind", Label: "wind", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: -3, Max: 3, Step: 0.1, Default: 0,
 				Description: "Slope of the rain: cols sideways per row of descent. 0 = straight down, ±1 = 45°. Next drop onward."},
 			{Key: "wind_jit", Label: "wind jitter", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
@@ -278,12 +337,19 @@ type Rain struct {
 	tick int
 
 	// event state
-	downpourTicks int
-	downpourMult  float64
-	calmTicks     int
-	gustTicks     int
-	gustWind      float64
-	splashes      []splashInstance
+	downpourTicks     int
+	downpourMult      float64
+	calmTicks         int
+	gustTicks         int
+	gustWind          float64
+	splashes          []splashInstance
+	introTicks        int
+	introTotal        int
+	endingTicks       int
+	endingTotal       int
+	endingFade        int
+	endingSplashLeft  int
+	endingSplashTotal int
 
 	// log ring — most recent events, bounded. DrainLog returns + clears.
 	log []LogEntry
@@ -359,12 +425,19 @@ func (r *Rain) Resize(w, h int) {
 // State is the subset of Rain state a snapshot exposes to clients so they
 // can initialize a matching local replica.
 type State struct {
-	Tick          int     `json:"tick"`
-	DownpourTicks int     `json:"downpourTicks"`
-	DownpourMult  float64 `json:"downpourMult"`
-	CalmTicks     int     `json:"calmTicks"`
-	GustTicks     int     `json:"gustTicks"`
-	GustWind      float64 `json:"gustWind"`
+	Tick              int     `json:"tick"`
+	DownpourTicks     int     `json:"downpourTicks"`
+	DownpourMult      float64 `json:"downpourMult"`
+	CalmTicks         int     `json:"calmTicks"`
+	GustTicks         int     `json:"gustTicks"`
+	GustWind          float64 `json:"gustWind"`
+	IntroTicks        int     `json:"introTicks"`
+	IntroTotal        int     `json:"introTotal"`
+	EndingTicks       int     `json:"endingTicks"`
+	EndingTotal       int     `json:"endingTotal"`
+	EndingFade        int     `json:"endingFade"`
+	EndingSplashLeft  int     `json:"endingSplashLeft"`
+	EndingSplashTotal int     `json:"endingSplashTotal"`
 }
 
 // PersistedState is the server-side subset of Rain state needed to resume
@@ -408,18 +481,44 @@ type Splash struct {
 	Color     RGB `json:"color"`
 }
 
+// RainSnapshot is the browser/client-facing state dump used to drop a replica
+// into the current simulation without waiting for new particles to spawn.
+type RainSnapshot struct {
+	State
+	Drops    []Drop   `json:"drops"`
+	Splashes []Splash `json:"splashes"`
+}
+
 // SnapshotState returns a copy of the event-timer state at this instant so
 // a joining client can replicate the atmosphere.
 func (r *Rain) SnapshotState() State {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return State{
-		Tick:          r.tick,
-		DownpourTicks: r.downpourTicks,
-		DownpourMult:  r.downpourMult,
-		CalmTicks:     r.calmTicks,
-		GustTicks:     r.gustTicks,
-		GustWind:      r.gustWind,
+		Tick:              r.tick,
+		DownpourTicks:     r.downpourTicks,
+		DownpourMult:      r.downpourMult,
+		CalmTicks:         r.calmTicks,
+		GustTicks:         r.gustTicks,
+		GustWind:          r.gustWind,
+		IntroTicks:        r.introTicks,
+		IntroTotal:        r.introTotal,
+		EndingTicks:       r.endingTicks,
+		EndingTotal:       r.endingTotal,
+		EndingFade:        r.endingFade,
+		EndingSplashLeft:  r.endingSplashLeft,
+		EndingSplashTotal: r.endingSplashTotal,
+	}
+}
+
+// Snapshot returns the full client-facing wire state for the current Rain sim.
+func (r *Rain) Snapshot() RainSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return RainSnapshot{
+		State:    r.snapshotStateLocked(),
+		Drops:    r.copyDropsLocked(),
+		Splashes: r.copySplashesLocked(),
 	}
 }
 
@@ -428,37 +527,14 @@ func (r *Rain) SnapshotState() State {
 func (r *Rain) DropsCopy() []Drop {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]Drop, len(r.drops))
-	for i, d := range r.drops {
-		out[i] = Drop{
-			Row:        d.Row,
-			Col:        d.Col,
-			Color:      RGB{R: d.Color.R, G: d.Color.G, B: d.Color.B},
-			VRow:       d.vRow,
-			VCol:       d.vCol,
-			StreakLen:  d.streakLen,
-			Background: d.background,
-		}
-	}
-	return out
+	return r.copyDropsLocked()
 }
 
 // SplashesCopy returns the active splashes as wire-form Splash values.
 func (r *Rain) SplashesCopy() []Splash {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := make([]Splash, len(r.splashes))
-	for i, s := range r.splashes {
-		out[i] = Splash{
-			Row:       s.row,
-			Col:       s.col,
-			Age:       s.age,
-			MaxAge:    s.maxAge,
-			MaxRadius: s.maxRadius,
-			Color:     RGB{R: s.color.R, G: s.color.G, B: s.color.B},
-		}
-	}
-	return out
+	return r.copySplashesLocked()
 }
 
 // CurrentTick returns the current sim tick number.
@@ -488,6 +564,22 @@ func (r *Rain) RestoreState(s State) {
 	r.calmTicks = s.CalmTicks
 	r.gustTicks = s.GustTicks
 	r.gustWind = s.GustWind
+	r.introTicks = s.IntroTicks
+	r.introTotal = s.IntroTotal
+	r.endingTicks = s.EndingTicks
+	r.endingTotal = s.EndingTotal
+	r.endingFade = s.EndingFade
+	r.endingSplashLeft = s.EndingSplashLeft
+	r.endingSplashTotal = s.EndingSplashTotal
+}
+
+// RestoreSnapshot overwrites the sim's client-facing state, including active
+// drops and splashes, from a full wire snapshot.
+func (r *Rain) RestoreSnapshot(s RainSnapshot) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.restoreStateLocked(s.State)
+	r.restoreParticlesLocked(s.Drops, s.Splashes)
 }
 
 // SnapshotPersistedState returns the full server-side sim state needed to
@@ -497,20 +589,49 @@ func (r *Rain) SnapshotPersistedState() PersistedState {
 	defer r.mu.Unlock()
 
 	out := PersistedState{
-		State: State{
-			Tick:          r.tick,
-			DownpourTicks: r.downpourTicks,
-			DownpourMult:  r.downpourMult,
-			CalmTicks:     r.calmTicks,
-			GustTicks:     r.gustTicks,
-			GustWind:      r.gustWind,
-		},
+		State:    r.snapshotStateLocked(),
 		RNGState: r.rng.State(),
-		Drops:    make([]Drop, len(r.drops)),
-		Splashes: make([]Splash, len(r.splashes)),
+		Drops:    r.copyDropsLocked(),
+		Splashes: r.copySplashesLocked(),
 	}
+	return out
+}
+
+// RestorePersistedState overwrites the sim from a server-side persisted
+// snapshot. Config is handled separately via SetConfig before this call.
+func (r *Rain) RestorePersistedState(s PersistedState) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.restoreStateLocked(s.State)
+	if s.RNGState != 0 {
+		r.rng.SetState(s.RNGState)
+	}
+	r.restoreParticlesLocked(s.Drops, s.Splashes)
+}
+
+func (r *Rain) snapshotStateLocked() State {
+	return State{
+		Tick:              r.tick,
+		DownpourTicks:     r.downpourTicks,
+		DownpourMult:      r.downpourMult,
+		CalmTicks:         r.calmTicks,
+		GustTicks:         r.gustTicks,
+		GustWind:          r.gustWind,
+		IntroTicks:        r.introTicks,
+		IntroTotal:        r.introTotal,
+		EndingTicks:       r.endingTicks,
+		EndingTotal:       r.endingTotal,
+		EndingFade:        r.endingFade,
+		EndingSplashLeft:  r.endingSplashLeft,
+		EndingSplashTotal: r.endingSplashTotal,
+	}
+}
+
+func (r *Rain) copyDropsLocked() []Drop {
+	out := make([]Drop, len(r.drops))
 	for i, d := range r.drops {
-		out.Drops[i] = Drop{
+		out[i] = Drop{
 			Row:        d.Row,
 			Col:        d.Col,
 			Color:      RGB{R: d.Color.R, G: d.Color.G, B: d.Color.B},
@@ -520,8 +641,13 @@ func (r *Rain) SnapshotPersistedState() PersistedState {
 			Background: d.background,
 		}
 	}
+	return out
+}
+
+func (r *Rain) copySplashesLocked() []Splash {
+	out := make([]Splash, len(r.splashes))
 	for i, s := range r.splashes {
-		out.Splashes[i] = Splash{
+		out[i] = Splash{
 			Row:       s.row,
 			Col:       s.col,
 			Age:       s.age,
@@ -533,24 +659,25 @@ func (r *Rain) SnapshotPersistedState() PersistedState {
 	return out
 }
 
-// RestorePersistedState overwrites the sim from a server-side persisted
-// snapshot. Config is handled separately via SetConfig before this call.
-func (r *Rain) RestorePersistedState(s PersistedState) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
+func (r *Rain) restoreStateLocked(s State) {
 	r.tick = s.Tick
 	r.downpourTicks = s.DownpourTicks
 	r.downpourMult = s.DownpourMult
 	r.calmTicks = s.CalmTicks
 	r.gustTicks = s.GustTicks
 	r.gustWind = s.GustWind
-	if s.RNGState != 0 {
-		r.rng.SetState(s.RNGState)
-	}
+	r.introTicks = s.IntroTicks
+	r.introTotal = s.IntroTotal
+	r.endingTicks = s.EndingTicks
+	r.endingTotal = s.EndingTotal
+	r.endingFade = s.EndingFade
+	r.endingSplashLeft = s.EndingSplashLeft
+	r.endingSplashTotal = s.EndingSplashTotal
+}
 
-	r.drops = make([]drop, len(s.Drops))
-	for i, d := range s.Drops {
+func (r *Rain) restoreParticlesLocked(drops []Drop, splashes []Splash) {
+	r.drops = make([]drop, len(drops))
+	for i, d := range drops {
 		r.drops[i] = drop{
 			Row:        d.Row,
 			Col:        d.Col,
@@ -562,8 +689,8 @@ func (r *Rain) RestorePersistedState(s PersistedState) {
 		}
 	}
 
-	r.splashes = make([]splashInstance, len(s.Splashes))
-	for i, sp := range s.Splashes {
+	r.splashes = make([]splashInstance, len(splashes))
+	for i, sp := range splashes {
 		r.splashes[i] = splashInstance{
 			row:       sp.Row,
 			col:       sp.Col,
@@ -599,11 +726,18 @@ func (r *Rain) GridCopy() [][]Pixel {
 }
 
 // TriggerEvent fires a discrete event immediately, bypassing probability.
-// Returns true on recognized event names ("downpour", "calm", "gust", "splash").
+// Returns true on recognized event names ("downpour", "calm", "gust", "splash",
+// "intro", "ending").
 func (r *Rain) TriggerEvent(name string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	switch name {
+	case "intro":
+		r.startIntroductionLocked()
+		r.appendLog("intro", fmt.Sprintf("started (%s, dur=%d)", introStyleName(r.cfg.IntroStyle), r.introTotal))
+	case "ending":
+		r.startEndingLocked()
+		r.appendLog("ending", fmt.Sprintf("started (%s, taper=%d, linger=%d, splashes=%d)", endingStyleName(r.cfg.EndingStyle), r.endingFade, r.endingTotal-r.endingFade, r.endingSplashTotal))
 	case "downpour":
 		r.downpourTicks = jitterInt(r.rng, r.cfg.DownpourDur, 0.3)
 		r.downpourMult = r.cfg.DownpourMult
@@ -675,28 +809,31 @@ func (r *Rain) Step() {
 		r.gustWind = 0
 	}
 
-	// 2. Roll for new events.
-	if r.downpourTicks == 0 && r.rng.Float64() < r.cfg.DownpourChance {
-		r.downpourTicks = jitterInt(r.rng, r.cfg.DownpourDur, 0.3)
-		r.downpourMult = r.cfg.DownpourMult
-		r.appendLog("downpour", fmt.Sprintf("started (dur=%d, ×%.1f)", r.downpourTicks, r.downpourMult))
-	}
-	if r.calmTicks == 0 && r.rng.Float64() < r.cfg.CalmChance {
-		r.calmTicks = jitterInt(r.rng, r.cfg.CalmDur, 0.3)
-		r.appendLog("calm", fmt.Sprintf("started (dur=%d)", r.calmTicks))
-	}
-	if r.gustTicks == 0 && r.rng.Float64() < r.cfg.GustChance {
-		r.gustTicks = jitterInt(r.rng, r.cfg.GustDur, 0.3)
-		sign := 1.0
-		if r.rng.Float64() < 0.5 {
-			sign = -1
+	// 2. Roll for new events unless a manual lifecycle beat is currently
+	// establishing or resolving the scene. Those phases should read on their own.
+	if r.introTicks == 0 && r.endingTicks == 0 {
+		if r.downpourTicks == 0 && r.rng.Float64() < r.cfg.DownpourChance {
+			r.downpourTicks = jitterInt(r.rng, r.cfg.DownpourDur, 0.3)
+			r.downpourMult = r.cfg.DownpourMult
+			r.appendLog("downpour", fmt.Sprintf("started (dur=%d, ×%.1f)", r.downpourTicks, r.downpourMult))
 		}
-		r.gustWind = sign * r.cfg.GustStrength * (0.7 + r.rng.Float64()*0.6)
-		r.appendLog("gust", fmt.Sprintf("started (dur=%d, wind=%+.2f)", r.gustTicks, r.gustWind))
-	}
-	if r.rng.Float64() < r.cfg.SplashChance {
-		r.spawnSplash()
-		r.appendLog("splash", "fired")
+		if r.calmTicks == 0 && r.rng.Float64() < r.cfg.CalmChance {
+			r.calmTicks = jitterInt(r.rng, r.cfg.CalmDur, 0.3)
+			r.appendLog("calm", fmt.Sprintf("started (dur=%d)", r.calmTicks))
+		}
+		if r.gustTicks == 0 && r.rng.Float64() < r.cfg.GustChance {
+			r.gustTicks = jitterInt(r.rng, r.cfg.GustDur, 0.3)
+			sign := 1.0
+			if r.rng.Float64() < 0.5 {
+				sign = -1
+			}
+			r.gustWind = sign * r.cfg.GustStrength * (0.7 + r.rng.Float64()*0.6)
+			r.appendLog("gust", fmt.Sprintf("started (dur=%d, wind=%+.2f)", r.gustTicks, r.gustWind))
+		}
+		if r.rng.Float64() < r.cfg.SplashChance {
+			r.spawnSplash()
+			r.appendLog("splash", "fired")
+		}
 	}
 
 	// 3. Clear.
@@ -709,21 +846,28 @@ func (r *Rain) Step() {
 	// 4. Paint splashes.
 	r.paintSplashes()
 
-	// 5. Spawn drops — unless in a calm period. Downpour multiplies spawn rate.
-	effectiveSpawn := r.cfg.SpawnEvery
-	if r.downpourTicks > 0 && r.downpourMult > 1 {
-		effectiveSpawn = int(float64(r.cfg.SpawnEvery) / r.downpourMult)
-		if effectiveSpawn < 1 {
-			effectiveSpawn = 1
+	// 5. Spawn drops. Manual lifecycle beats temporarily own the spawn pattern;
+	// otherwise steady-state rules apply.
+	if r.introTicks > 0 {
+		r.stepIntroduction()
+	} else if r.endingTicks > 0 {
+		r.stepEnding()
+	} else {
+		effectiveSpawn := r.cfg.SpawnEvery
+		if r.downpourTicks > 0 && r.downpourMult > 1 {
+			effectiveSpawn = int(float64(r.cfg.SpawnEvery) / r.downpourMult)
+			if effectiveSpawn < 1 {
+				effectiveSpawn = 1
+			}
 		}
-	}
-	if r.calmTicks == 0 && r.rng.Intn(effectiveSpawn) == 0 {
-		burst := 1
-		if r.cfg.SpawnBurst > 1 {
-			burst = 1 + r.rng.Intn(r.cfg.SpawnBurst)
-		}
-		for i := 0; i < burst; i++ {
-			r.spawnDrop()
+		if r.calmTicks == 0 && r.rng.Intn(effectiveSpawn) == 0 {
+			burst := 1
+			if r.cfg.SpawnBurst > 1 {
+				burst = 1 + r.rng.Intn(r.cfg.SpawnBurst)
+			}
+			for i := 0; i < burst; i++ {
+				r.spawnDrop()
+			}
 		}
 	}
 
@@ -780,6 +924,292 @@ func (r *Rain) currentWind() float64 {
 	}
 	w += r.gustWind
 	return w
+}
+
+func introStyle(style int) int {
+	switch style {
+	case 1, 2, 3:
+		return style
+	default:
+		return 0
+	}
+}
+
+func introStyleName(style int) string {
+	switch introStyle(style) {
+	case 1:
+		return "left-curtain"
+	case 2:
+		return "center-bloom"
+	case 3:
+		return "right-curtain"
+	default:
+		return "full-drizzle"
+	}
+}
+
+func phaseProgress(total, left int) float64 {
+	if left <= 1 || total <= 1 {
+		return 1
+	}
+	elapsed := total - left
+	if elapsed <= 0 {
+		return 0
+	}
+	return clamp01(float64(elapsed) / float64(total-1))
+}
+
+func endingStyle(style int) int {
+	switch style {
+	case 1, 2, 3:
+		return style
+	default:
+		return 0
+	}
+}
+
+func endingStyleName(style int) string {
+	switch endingStyle(style) {
+	case 1:
+		return "left-lane"
+	case 2:
+		return "center-thread"
+	case 3:
+		return "right-lane"
+	default:
+		return "full-taper"
+	}
+}
+
+func (r *Rain) introColumnRange(progress float64) (float64, float64) {
+	if r.W <= 1 {
+		return 0, float64(r.W)
+	}
+	if introStyle(r.cfg.IntroStyle) == 0 {
+		return 0, float64(r.W)
+	}
+	openFrac := clamp01(r.cfg.IntroOpen)
+	if openFrac <= 0 {
+		openFrac = 0.08
+	}
+	widthFrac := openFrac + (1-openFrac)*clamp01(progress)
+	width := widthFrac * float64(r.W)
+	if width < 1 {
+		width = 1
+	}
+	switch introStyle(r.cfg.IntroStyle) {
+	case 1:
+		return 0, math.Min(float64(r.W), width)
+	case 2:
+		center := float64(r.W) / 2
+		half := width / 2
+		return math.Max(0, center-half), math.Min(float64(r.W), center+half)
+	case 3:
+		return math.Max(0, float64(r.W)-width), float64(r.W)
+	default:
+		return 0, float64(r.W)
+	}
+}
+
+func (r *Rain) endingColumnRange(progress float64) (float64, float64) {
+	if r.W <= 1 {
+		return 0, float64(r.W)
+	}
+	if endingStyle(r.cfg.EndingStyle) == 0 {
+		return 0, float64(r.W)
+	}
+	width := (1 - clamp01(progress)) * float64(r.W)
+	if width < 1 {
+		width = 1
+	}
+	switch endingStyle(r.cfg.EndingStyle) {
+	case 1:
+		return 0, math.Min(float64(r.W), width)
+	case 2:
+		center := float64(r.W) / 2
+		half := width / 2
+		return math.Max(0, center-half), math.Min(float64(r.W), center+half)
+	case 3:
+		return math.Max(0, float64(r.W)-width), float64(r.W)
+	default:
+		return 0, float64(r.W)
+	}
+}
+
+func (r *Rain) spawnDropAt(col float64) {
+	col = math.Max(0, math.Min(float64(r.W)-1, col))
+	isBG := r.cfg.Layers >= 2 && r.rng.Float64() < r.cfg.LayerBalance
+
+	// Motion jitter. Wind uses currentWind() so lever drift + gust events apply.
+	sJit := (r.rng.Float64()*2 - 1) * r.cfg.SpeedJitter
+	wJit := (r.rng.Float64()*2 - 1) * r.cfg.WindJitter
+	effSpeed := r.cfg.Speed * (1 + sJit)
+	effWind := r.currentWind() + wJit*r.cfg.Wind // jitter relative to static base magnitude
+	if effSpeed < 0.1 {
+		effSpeed = 0.1
+	}
+	// Background layer moves slower (parallax depth illusion).
+	if isBG {
+		effSpeed *= 0.6
+	}
+
+	// Color: hue base (possibly drifted) + jitter, lightness sampled from [min, max].
+	hJit := (r.rng.Float64()*2 - 1) * r.cfg.HueSpread
+	hue := math.Mod(r.currentHue()+hJit+360, 360)
+	t := r.rng.Float64()
+	lightness := r.cfg.LightnessMin + t*(r.cfg.LightnessMax-r.cfg.LightnessMin)
+	if isBG {
+		lightness *= 0.65
+	}
+	c := hslToRGB(hue, r.cfg.Saturation, lightness)
+
+	streak := r.cfg.StreakLen
+	if isBG {
+		streak = streak / 2
+		if streak < 2 {
+			streak = 2
+		}
+	}
+
+	r.drops = append(r.drops, drop{
+		Row:        0,
+		Col:        col,
+		Color:      c,
+		vRow:       effSpeed,
+		vCol:       effWind * effSpeed,
+		streakLen:  streak,
+		background: isBG,
+	})
+}
+
+func (r *Rain) spawnIntroDrop(progress float64) {
+	minCol, maxCol := r.introColumnRange(progress)
+	col := minCol
+	if maxCol > minCol {
+		col += r.rng.Float64() * (maxCol - minCol)
+	}
+	r.spawnDropAt(col)
+}
+
+func (r *Rain) spawnEndingDrop(progress float64) {
+	minCol, maxCol := r.endingColumnRange(progress)
+	col := minCol
+	if maxCol > minCol {
+		col += r.rng.Float64() * (maxCol - minCol)
+	}
+	r.spawnDropAt(col)
+}
+
+func (r *Rain) startIntroductionLocked() {
+	r.downpourTicks = 0
+	r.downpourMult = 0
+	r.calmTicks = 0
+	r.gustTicks = 0
+	r.gustWind = 0
+	r.splashes = nil
+	r.drops = nil
+	r.endingTicks = 0
+	r.endingTotal = 0
+	r.endingFade = 0
+	r.endingSplashLeft = 0
+	r.endingSplashTotal = 0
+	r.introTotal = r.cfg.IntroDur
+	if r.introTotal <= 0 {
+		r.introTotal = 60
+	}
+	r.introTicks = r.introTotal
+	for i := 0; i < r.cfg.IntroSeed; i++ {
+		r.spawnIntroDrop(0)
+	}
+}
+
+func (r *Rain) stepIntroduction() {
+	progress := phaseProgress(r.introTotal, r.introTicks)
+	sparse := r.cfg.IntroSparse
+	if sparse < 1 {
+		sparse = 1
+	}
+	factor := 1 + (sparse-1)*(1-progress)
+	effectiveSpawn := int(math.Round(float64(r.cfg.SpawnEvery) * factor))
+	if effectiveSpawn < 1 {
+		effectiveSpawn = 1
+	}
+	if r.rng.Intn(effectiveSpawn) == 0 {
+		burst := 1
+		if r.cfg.SpawnBurst > 1 {
+			burst = 1 + r.rng.Intn(r.cfg.SpawnBurst)
+		}
+		for i := 0; i < burst; i++ {
+			r.spawnIntroDrop(progress)
+		}
+	}
+	r.introTicks--
+}
+
+func (r *Rain) startEndingLocked() {
+	r.introTicks = 0
+	r.introTotal = 0
+	r.downpourTicks = 0
+	r.downpourMult = 0
+	r.calmTicks = 0
+	r.gustTicks = 0
+	r.gustWind = 0
+	r.endingFade = r.cfg.EndingDur
+	if r.endingFade <= 0 {
+		r.endingFade = 60
+	}
+	linger := r.cfg.EndingLinger
+	if linger < 0 {
+		linger = 0
+	}
+	r.endingTotal = r.endingFade + linger
+	if r.endingTotal < 1 {
+		r.endingTotal = r.endingFade
+	}
+	r.endingTicks = r.endingTotal
+	r.endingSplashTotal = r.cfg.EndingSplashes
+	if r.endingSplashTotal < 0 {
+		r.endingSplashTotal = 0
+	}
+	r.endingSplashLeft = r.endingSplashTotal
+}
+
+func (r *Rain) stepEnding() {
+	totalProgress := phaseProgress(r.endingTotal, r.endingTicks)
+	if r.endingSplashLeft > 0 && r.endingSplashTotal > 0 {
+		targetDone := int(math.Floor(math.Pow(totalProgress, 1.8) * float64(r.endingSplashTotal)))
+		done := r.endingSplashTotal - r.endingSplashLeft
+		for done < targetDone && r.endingSplashLeft > 0 {
+			r.spawnSplash()
+			r.endingSplashLeft--
+			done++
+		}
+	}
+
+	elapsed := r.endingTotal - r.endingTicks
+	if elapsed < r.endingFade {
+		fadeProgress := clamp01(float64(elapsed) / float64(max(1, r.endingFade-1)))
+		factor := 1 + 18*fadeProgress*fadeProgress
+		effectiveSpawn := int(math.Round(float64(r.cfg.SpawnEvery) * factor))
+		if effectiveSpawn < 1 {
+			effectiveSpawn = 1
+		}
+		if r.rng.Intn(effectiveSpawn) == 0 {
+			r.spawnEndingDrop(fadeProgress)
+		}
+	}
+
+	r.endingTicks--
+	if r.endingTicks < 0 {
+		r.endingTicks = 0
+	}
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (r *Rain) spawnSplash() {
@@ -847,47 +1277,5 @@ func (r *Rain) paintDrop(d drop) {
 // spawnDrop rolls per-drop jitter (speed, wind, hue, lightness) + layer,
 // computes the motion vector + color, and appends the drop to the list.
 func (r *Rain) spawnDrop() {
-	isBG := r.cfg.Layers >= 2 && r.rng.Float64() < r.cfg.LayerBalance
-
-	// Motion jitter. Wind uses currentWind() so lever drift + gust events apply.
-	sJit := (r.rng.Float64()*2 - 1) * r.cfg.SpeedJitter
-	wJit := (r.rng.Float64()*2 - 1) * r.cfg.WindJitter
-	effSpeed := r.cfg.Speed * (1 + sJit)
-	effWind := r.currentWind() + wJit*r.cfg.Wind // jitter relative to static base magnitude
-	if effSpeed < 0.1 {
-		effSpeed = 0.1
-	}
-	// Background layer moves slower (parallax depth illusion).
-	if isBG {
-		effSpeed *= 0.6
-	}
-
-	// Color: hue base (possibly drifted) + jitter, lightness sampled from [min, max].
-	hJit := (r.rng.Float64()*2 - 1) * r.cfg.HueSpread
-	hue := math.Mod(r.currentHue()+hJit+360, 360)
-	t := r.rng.Float64()
-	lightness := r.cfg.LightnessMin + t*(r.cfg.LightnessMax-r.cfg.LightnessMin)
-	if isBG {
-		lightness *= 0.65
-	}
-	c := hslToRGB(hue, r.cfg.Saturation, lightness)
-
-	streak := r.cfg.StreakLen
-	if isBG {
-		streak = streak / 2
-		if streak < 2 {
-			streak = 2
-		}
-	}
-
-	col := r.rng.Float64() * float64(r.W)
-	r.drops = append(r.drops, drop{
-		Row:        0,
-		Col:        col,
-		Color:      c,
-		vRow:       effSpeed,
-		vCol:       effWind * effSpeed,
-		streakLen:  streak,
-		background: isBG,
-	})
+	r.spawnDropAt(r.rng.Float64() * float64(r.W))
 }

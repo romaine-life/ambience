@@ -17,6 +17,15 @@
 		wind_jit: 0,
 		speed: 1.0,
 		speed_jit: 0,
+		intro_style: 0,
+		intro_dur: 60,
+		intro_sparse: 8,
+		intro_open: 0.08,
+		intro_seed: 4,
+		ending_style: 0,
+		ending_dur: 60,
+		ending_linger: 20,
+		ending_splashes: 3,
 		streak: 5,
 		fade: 0.88,
 		spawn: 5,
@@ -45,6 +54,21 @@
 	function applyDefaults(cfg) {
 		const c = Object.assign({}, DEFAULTS, cfg || {});
 		if (c.speed <= 0) c.speed = DEFAULTS.speed;
+		if (c.intro_dur <= 0) c.intro_dur = DEFAULTS.intro_dur;
+		if (c.intro_sparse < 1) c.intro_sparse = DEFAULTS.intro_sparse;
+		if (c.intro_open <= 0) c.intro_open = DEFAULTS.intro_open;
+		if (c.intro_open > 1) c.intro_open = 1;
+		if (c.intro_seed < 0) c.intro_seed = 0;
+		if (c.intro_seed === 0) c.intro_seed = DEFAULTS.intro_seed;
+		if (c.ending_style === 0 && c.ending_dur === 0 && c.ending_linger === 0 && c.ending_splashes === 0) {
+			c.ending_dur = DEFAULTS.ending_dur;
+			c.ending_linger = DEFAULTS.ending_linger;
+			c.ending_splashes = DEFAULTS.ending_splashes;
+		} else {
+			if (c.ending_dur <= 0) c.ending_dur = DEFAULTS.ending_dur;
+			if (c.ending_linger < 0) c.ending_linger = 0;
+			if (c.ending_splashes < 0) c.ending_splashes = 0;
+		}
 		if (c.spawn <= 0) c.spawn = DEFAULTS.spawn;
 		if (c.burst <= 0) c.burst = DEFAULTS.burst;
 		if (c.streak <= 0) c.streak = DEFAULTS.streak;
@@ -113,6 +137,13 @@
 			this.calmTicks = 0;
 			this.gustTicks = 0;
 			this.gustWind = 0;
+			this.introTicks = 0;
+			this.introTotal = 0;
+			this.endingTicks = 0;
+			this.endingTotal = 0;
+			this.endingFade = 0;
+			this.endingSplashLeft = 0;
+			this.endingSplashTotal = 0;
 		}
 
 		setConfig(cfg) {
@@ -120,18 +151,24 @@
 		}
 
 		// Apply an atmosphere-authoritative initial state (from /snapshot).
-		// The payload is a full "game save" — beyond config + timers, the
-		// server may include its gridW/gridH plus the active drops and
-		// splashes so this client drops straight into mid-simulation
-		// instead of starting with an empty air column.
+		// The outer envelope is effect-agnostic; Rain-specific replica state
+		// lives under snapshot.state.
 		restoreSnapshot(snap) {
+			const state = snap.state || snap;
 			this.setConfig(snap.config || {});
-			this.tick = snap.tick || 0;
-			this.downpourTicks = snap.downpourLeft || 0;
-			this.downpourMult = snap.downpourMult || 0;
-			this.calmTicks = snap.calmLeft || 0;
-			this.gustTicks = snap.gustLeft || 0;
-			this.gustWind = snap.gustWind || 0;
+			this.tick = state.tick || snap.tick || 0;
+			this.downpourTicks = state.downpourTicks || state.downpourLeft || 0;
+			this.downpourMult = state.downpourMult || 0;
+			this.calmTicks = state.calmTicks || state.calmLeft || 0;
+			this.gustTicks = state.gustTicks || state.gustLeft || 0;
+			this.gustWind = state.gustWind || 0;
+			this.introTicks = state.introTicks || state.introLeft || 0;
+			this.introTotal = state.introTotal || 0;
+			this.endingTicks = state.endingTicks || state.endingLeft || 0;
+			this.endingTotal = state.endingTotal || 0;
+			this.endingFade = state.endingFade || 0;
+			this.endingSplashLeft = state.endingSplashLeft || 0;
+			this.endingSplashTotal = state.endingSplashTotal || 0;
 			if (typeof snap.seed === 'number') this.rng = makeRNG(snap.seed);
 			// Adopt the server's grid dims so drops transfer 1:1. The
 			// canvas render() scales whatever resolution we have to fit,
@@ -143,8 +180,8 @@
 				this.h = snap.gridH;
 				this.grid = new Uint8ClampedArray(this.w * this.h * 3);
 			}
-			if (Array.isArray(snap.drops)) {
-				this.drops = snap.drops.map(d => ({
+			if (Array.isArray(state.drops)) {
+				this.drops = state.drops.map(d => ({
 					row: d.row,
 					col: d.col,
 					color: d.color,
@@ -153,8 +190,8 @@
 					streakLen: d.streakLen,
 				}));
 			}
-			if (Array.isArray(snap.splashes)) {
-				this.splashes = snap.splashes.map(s => ({
+			if (Array.isArray(state.splashes)) {
+				this.splashes = state.splashes.map(s => ({
 					row: s.row,
 					col: s.col,
 					age: s.age,
@@ -187,6 +224,12 @@
 				case 'splash':
 					this._spawnSplash();
 					return true;
+				case 'intro':
+					this._startIntro();
+					return true;
+				case 'ending':
+					this._startEnding();
+					return true;
 			}
 			return false;
 		}
@@ -206,15 +249,21 @@
 			// 3. Paint splashes.
 			this._paintSplashes();
 
-			// 4. Spawn drops (respecting calm / downpour multiplier).
-			let spawnEvery = this.cfg.spawn;
-			if (this.downpourTicks > 0 && this.downpourMult > 1) {
-				spawnEvery = Math.max(1, Math.floor(spawnEvery / this.downpourMult));
-			}
-			if (this.calmTicks === 0 && this.rng.intn(spawnEvery) === 0) {
-				let burst = 1;
-				if (this.cfg.burst > 1) burst = 1 + this.rng.intn(this.cfg.burst);
-				for (let i = 0; i < burst; i++) this._spawnDrop();
+			// 4. Spawn drops. While an intro is active it owns the start pattern.
+			if (this.introTicks > 0) {
+				this._stepIntro();
+			} else if (this.endingTicks > 0) {
+				this._stepEnding();
+			} else {
+				let spawnEvery = this.cfg.spawn;
+				if (this.downpourTicks > 0 && this.downpourMult > 1) {
+					spawnEvery = Math.max(1, Math.floor(spawnEvery / this.downpourMult));
+				}
+				if (this.calmTicks === 0 && this.rng.intn(spawnEvery) === 0) {
+					let burst = 1;
+					if (this.cfg.burst > 1) burst = 1 + this.rng.intn(this.cfg.burst);
+					for (let i = 0; i < burst; i++) this._spawnDrop();
+				}
 			}
 
 			// 5. Advance + paint + cull drops.
@@ -284,6 +333,72 @@
 			return w;
 		}
 
+		_introStyle() {
+			const style = this.cfg.intro_style | 0;
+			if (style < 0 || style > 3) return 0;
+			return style;
+		}
+
+		_introProgress() {
+			return this._phaseProgress(this.introTotal, this.introTicks);
+		}
+
+		_phaseProgress(total, left) {
+			if (left <= 1 || total <= 1) return 1;
+			const elapsed = total - left;
+			if (elapsed <= 0) return 0;
+			return Math.max(0, Math.min(1, elapsed / (total - 1)));
+		}
+
+		_introRange(progress) {
+			const style = this._introStyle();
+			if (style === 0) return [0, this.w];
+			let open = this.cfg.intro_open;
+			if (!(open > 0)) open = DEFAULTS.intro_open;
+			open = Math.max(0, Math.min(1, open));
+			let width = (open + (1 - open) * Math.max(0, Math.min(1, progress))) * this.w;
+			if (width < 1) width = 1;
+			switch (style) {
+				case 1:
+					return [0, Math.min(this.w, width)];
+				case 2: {
+					const center = this.w / 2;
+					const half = width / 2;
+					return [Math.max(0, center - half), Math.min(this.w, center + half)];
+				}
+				case 3:
+					return [Math.max(0, this.w - width), this.w];
+				default:
+					return [0, this.w];
+			}
+		}
+
+		_endingStyle() {
+			const style = this.cfg.ending_style | 0;
+			if (style < 0 || style > 3) return 0;
+			return style;
+		}
+
+		_endingRange(progress) {
+			const style = this._endingStyle();
+			if (style === 0) return [0, this.w];
+			let width = (1 - Math.max(0, Math.min(1, progress))) * this.w;
+			if (width < 1) width = 1;
+			switch (style) {
+				case 1:
+					return [0, Math.min(this.w, width)];
+				case 2: {
+					const center = this.w / 2;
+					const half = width / 2;
+					return [Math.max(0, center - half), Math.min(this.w, center + half)];
+				}
+				case 3:
+					return [Math.max(0, this.w - width), this.w];
+				default:
+					return [0, this.w];
+			}
+		}
+
 		_setPixel(gr, gc, r, g, b) {
 			if (gr < 0 || gr >= this.h || gc < 0 || gc >= this.w) return;
 			const i = (gr * this.w + gc) * 3;
@@ -292,7 +407,7 @@
 			this.grid[i + 2] = b;
 		}
 
-		_spawnDrop() {
+		_spawnDropAt(colValue) {
 			const c = this.cfg;
 			const isBG = c.layers >= 2 && this.rng() < c.lbal;
 
@@ -315,12 +430,105 @@
 
 			this.drops.push({
 				row: 0,
-				col: this.rng() * this.w,
+				col: Math.max(0, Math.min(this.w - 1, colValue)),
 				color: col,
 				vRow: effSpeed,
 				vCol: effWind * effSpeed,
 				streakLen: streak,
 			});
+		}
+
+		_spawnDrop() {
+			this._spawnDropAt(this.rng() * this.w);
+		}
+
+		_spawnIntroDrop(progress) {
+			const [minCol, maxCol] = this._introRange(progress);
+			let col = minCol;
+			if (maxCol > minCol) col += this.rng() * (maxCol - minCol);
+			this._spawnDropAt(col);
+		}
+
+		_spawnEndingDrop(progress) {
+			const [minCol, maxCol] = this._endingRange(progress);
+			let col = minCol;
+			if (maxCol > minCol) col += this.rng() * (maxCol - minCol);
+			this._spawnDropAt(col);
+		}
+
+		_startIntro() {
+			this.downpourTicks = 0;
+			this.downpourMult = 0;
+			this.calmTicks = 0;
+			this.gustTicks = 0;
+			this.gustWind = 0;
+			this.drops = [];
+			this.splashes = [];
+			this.endingTicks = 0;
+			this.endingTotal = 0;
+			this.endingFade = 0;
+			this.endingSplashLeft = 0;
+			this.endingSplashTotal = 0;
+			this.introTotal = Math.max(1, this.cfg.intro_dur | 0);
+			this.introTicks = this.introTotal;
+			for (let i = 0; i < this.cfg.intro_seed; i++) {
+				this._spawnIntroDrop(0);
+			}
+		}
+
+		_stepIntro() {
+			const progress = this._introProgress();
+			const sparse = Math.max(1, this.cfg.intro_sparse);
+			const factor = 1 + (sparse - 1) * (1 - progress);
+			const effectiveSpawn = Math.max(1, Math.round(this.cfg.spawn * factor));
+			if (this.rng.intn(effectiveSpawn) === 0) {
+				let burst = 1;
+				if (this.cfg.burst > 1) burst = 1 + this.rng.intn(this.cfg.burst);
+				for (let i = 0; i < burst; i++) this._spawnIntroDrop(progress);
+			}
+			this.introTicks--;
+		}
+
+		_startEnding() {
+			this.introTicks = 0;
+			this.introTotal = 0;
+			this.downpourTicks = 0;
+			this.downpourMult = 0;
+			this.calmTicks = 0;
+			this.gustTicks = 0;
+			this.gustWind = 0;
+			this.endingFade = Math.max(1, this.cfg.ending_dur | 0);
+			const linger = Math.max(0, this.cfg.ending_linger | 0);
+			this.endingTotal = this.endingFade + linger;
+			this.endingTicks = this.endingTotal;
+			this.endingSplashTotal = Math.max(0, this.cfg.ending_splashes | 0);
+			this.endingSplashLeft = this.endingSplashTotal;
+		}
+
+		_stepEnding() {
+			const totalProgress = this._phaseProgress(this.endingTotal, this.endingTicks);
+			if (this.endingSplashLeft > 0 && this.endingSplashTotal > 0) {
+				const targetDone = Math.floor(Math.pow(totalProgress, 1.8) * this.endingSplashTotal);
+				let done = this.endingSplashTotal - this.endingSplashLeft;
+				while (done < targetDone && this.endingSplashLeft > 0) {
+					this._spawnSplash();
+					this.endingSplashLeft--;
+					done++;
+				}
+			}
+
+			const elapsed = this.endingTotal - this.endingTicks;
+			if (elapsed < this.endingFade) {
+				const fadeProgress = Math.max(0, Math.min(1, elapsed / Math.max(1, this.endingFade - 1)));
+				const factor = 1 + 18 * fadeProgress * fadeProgress;
+				const effectiveSpawn = Math.max(1, Math.round(this.cfg.spawn * factor));
+				if (this.rng.intn(effectiveSpawn) === 0) {
+					this._spawnEndingDrop(fadeProgress);
+				}
+			}
+
+			this.endingTicks--;
+			if (this.endingTicks < 0) this.endingTicks = 0;
 		}
 
 		_paintDrop(d) {
@@ -375,8 +583,8 @@
 		}
 	}
 
-	// Subscribe to an SSE command stream, applying messages to a Rain instance.
-	// onReady is called once the initial snapshot has been applied.
+	// Subscribe to an SSE command stream, applying messages to one effect
+	// instance. onReady is called once the initial snapshot has been applied.
 	function subscribe(url, rain, onReady) {
 		const es = new EventSource(url);
 		es.addEventListener('message', (e) => {

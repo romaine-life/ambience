@@ -14,8 +14,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/nelsong6/ambience/sim"
 )
 
 const (
@@ -458,10 +456,7 @@ func (m *authorityMirror) applyCommand(cmd Command) {
 	}
 	switch cmd.Kind {
 	case "config":
-		var cfg sim.Config
-		if err := json.Unmarshal(cmd.Data, &cfg); err == nil {
-			m.snap.Config = cfg
-		}
+		m.snap.Config = cloneRaw(cmd.Data)
 	case "scene":
 		var data struct {
 			Name          string `json:"name"`
@@ -502,8 +497,8 @@ func (m *authorityMirror) applyCommand(cmd Command) {
 
 func cloneSnapshot(snap snapshotData) snapshotData {
 	cloned := snap
-	cloned.Drops = append([]sim.Drop(nil), snap.Drops...)
-	cloned.Splashes = append([]sim.Splash(nil), snap.Splashes...)
+	cloned.Config = cloneRaw(snap.Config)
+	cloned.State = cloneRaw(snap.State)
 	return cloned
 }
 
