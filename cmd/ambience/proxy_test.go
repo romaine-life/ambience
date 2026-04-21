@@ -190,6 +190,30 @@ func TestAuthorityMirrorReplayAfterLastEventID(t *testing.T) {
 	}
 }
 
+func TestAuthorityMirrorReadyRequiresRecentAuthorityStream(t *testing.T) {
+	m := &authorityMirror{
+		ctx:       context.Background(),
+		client:    &http.Client{},
+		listeners: make(map[chan Command]struct{}),
+	}
+	m.setSnapshot(snapshotData{Type: "rain", Tick: 20}, "20")
+	if m.ready() {
+		t.Fatal("mirror reported ready without any authority stream contact")
+	}
+
+	m.noteStreamContact()
+	if !m.ready() {
+		t.Fatal("mirror did not become ready after authority stream contact")
+	}
+
+	m.mu.Lock()
+	m.lastStream = time.Now().Add(-edgeReadyFreshness - time.Second)
+	m.mu.Unlock()
+	if m.ready() {
+		t.Fatal("mirror stayed ready after authority stream contact went stale")
+	}
+}
+
 func TestNewAuthorityProxyStartsReadyAfterSnapshotFetch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

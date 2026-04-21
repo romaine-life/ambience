@@ -27,6 +27,7 @@ const (
 	edgeReconnectDelay     = 1 * time.Second
 	edgeMaxSSEFrame        = 4 * 1024 * 1024
 	edgeReplayBufferSize   = 512
+	edgeReadyFreshness     = 20 * time.Second
 )
 
 type authorityProxy struct {
@@ -123,6 +124,7 @@ type authorityMirror struct {
 	snap        snapshotData
 	snapshotID  string
 	hasSnapshot bool
+	lastStream  time.Time
 	replay      []Command
 	listeners   map[chan Command]struct{}
 }
@@ -149,7 +151,13 @@ func newAuthorityMirror(ctx context.Context, baseURL *url.URL) *authorityMirror 
 func (m *authorityMirror) ready() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.hasSnapshot
+	if !m.hasSnapshot {
+		return false
+	}
+	if m.lastStream.IsZero() {
+		return false
+	}
+	return time.Since(m.lastStream) <= edgeReadyFreshness
 }
 
 func (m *authorityMirror) snapshot() (snapshotData, string, bool) {
@@ -169,6 +177,12 @@ func (m *authorityMirror) setSnapshot(snap snapshotData, snapshotID string) {
 		m.replay = nil
 	}
 	m.hasSnapshot = true
+	m.mu.Unlock()
+}
+
+func (m *authorityMirror) noteStreamContact() {
+	m.mu.Lock()
+	m.lastStream = time.Now()
 	m.mu.Unlock()
 }
 
@@ -367,6 +381,7 @@ func (m *authorityMirror) consumeEvents() error {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return fmt.Errorf("authority /events returned %s", resp.Status)
 	}
+	m.noteStreamContact()
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), edgeMaxSSEFrame)
@@ -388,6 +403,7 @@ func (m *authorityMirror) consumeEvents() error {
 	}
 
 	for scanner.Scan() {
+		m.noteStreamContact()
 		line := scanner.Text()
 		switch {
 		case line == "":

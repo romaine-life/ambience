@@ -11,6 +11,7 @@ images:
 resources:
 - certificate.yaml
 - authority-service.yaml
+- authority-client-service.yaml
 - deployment.yaml
 - edge-deployment.yaml
 - httproute.yaml
