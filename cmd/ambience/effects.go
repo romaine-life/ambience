@@ -121,6 +121,11 @@ var effectRegistry = map[string]effectDefinition{
 		Schema:     sim.RowboatSchema,
 		NewRuntime: newRowboatRuntime,
 	},
+	"underwater": {
+		Type:       "underwater",
+		Schema:     sim.UnderwaterSchema,
+		NewRuntime: newUnderwaterRuntime,
+	},
 }
 
 func lookupEffectDefinition(effectType string) (effectDefinition, bool) {
@@ -299,6 +304,10 @@ func newLighthouseRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRunt
 
 func newRowboatRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
 	return newProceduralRuntime("rowboat", w, h, seed, cfg)
+}
+
+func newUnderwaterRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
+	return newProceduralRuntime("underwater", w, h, seed, cfg)
 }
 
 func (r *rainRuntime) Type() string { return "rain" }
@@ -729,6 +738,8 @@ func (p *proceduralRuntime) Schema() sim.EffectSchema {
 		return sim.LighthouseSchema()
 	case "rowboat":
 		return sim.RowboatSchema()
+	case "underwater":
+		return sim.UnderwaterSchema()
 	default:
 		return sim.EffectSchema{}
 	}
