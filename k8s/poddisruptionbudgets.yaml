@@ -1,0 +1,23 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ambience-authority
+  namespace: ambience
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ambience
+      component: authority
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ambience-edge
+  namespace: ambience
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ambience
+      component: edge

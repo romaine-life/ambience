@@ -4,6 +4,7 @@ metadata:
   name: ambience-authority
   namespace: ambience
 spec:
+  clusterIP: None
   selector:
     app: ambience
     component: authority

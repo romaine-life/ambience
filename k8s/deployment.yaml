@@ -1,12 +1,13 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: ambience-authority
   namespace: ambience
 spec:
+  serviceName: ambience-authority
   replicas: 1
-  strategy:
-    type: Recreate
+  updateStrategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app: ambience
@@ -17,6 +18,7 @@ spec:
         app: ambience
         component: authority
     spec:
+      terminationGracePeriodSeconds: 15
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
