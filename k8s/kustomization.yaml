@@ -6,7 +6,7 @@ kind: Kustomization
 images:
 - name: romainecr.azurecr.io/ambience
   newName: romainecr.azurecr.io/ambience
-  newTag: e50216e
+  newTag: 41c7265
 
 resources:
 - certificate.yaml
