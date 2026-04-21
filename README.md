@@ -4,7 +4,8 @@ Shared-world ambient pixel-art effects. A 10 Hz server decides when
 discrete events fire (downpour, calm, gust, splash) and broadcasts those
 as commands via SSE; every consumer (browser canvas, terminal sixel)
 runs its own sim replica and applies the commands in sync. Rain is the
-only effect live today; more are planned.
+only effect in the shared live world today; Fireflies and Waterfall are
+available in isolated dev sessions.
 
 Canonical live view: <https://ambience.romaine.life>.
 
@@ -16,7 +17,8 @@ go run ./cmd/ambience
 ```
 
 `/` renders the current effect full-screen. `/dev` opens a per-session
-knob-tuning page with 27 live-adjustable parameters.
+effect-tuning page with an effect switcher, presets when the active
+effect defines them, and live adjustable knobs.
 
 ## Consumer integration
 
@@ -61,8 +63,16 @@ tools/conpty-capture/
                  PowerSession misses). For debugging sixel rendering
                  inside fzt-automate.
 
-k8s/             Kubernetes manifests. Deployed via ArgoCD watching
-                 this path on `main`.
+chart/ambience/  Helm chart used by ArgoCD for both prod and dev.
+                 `values-prod.yaml` serves `ambience.romaine.life`;
+                 `values-dev.yaml` serves `ambience.dev.romaine.life`.
+                 The dev Argo app is intentionally manual-sync so
+                 direct session-driven image rolls are not immediately
+                 reconciled away.
+scripts/dev-deploy.ps1
+                 Local k8s-first dev helper that builds, pushes, and
+                 patches just `edge`, just `authority`, or `all` in the
+                 live dev namespace.
 ```
 
 ## Atmosphere model
@@ -100,7 +110,8 @@ Every effect fills a 5-slot template — see
 New effects plug in via the `AmbienceSim.effects` registry in `sim.js`.
 Browser clients look up the constructor by the `type` the server
 broadcasts — so adding Sand / Fire / Tetris is a sim-side change with
-no consumer-side update.
+no consumer-side update. The `/dev` page reads the same registry to
+switch effects without page-specific wiring.
 
 ## Guiding principle
 
@@ -135,7 +146,8 @@ aesthetic perturbation, not secure randomness.
 All broadcast endpoints set permissive CORS for cross-origin consumers.
 
 - `GET  /` — demo page
-- `GET  /dev` — dev-knob page
+- `GET  /dev`, `/dev/<effect>` — dev page with effect switcher, presets,
+  and per-effect knobs
 - `GET  /sim.js`, `/client.js` — consumer scripts
 - `GET  /snapshot` — current atmosphere state (JSON)
 - `GET  /events` — atmosphere command stream (SSE)
@@ -160,19 +172,38 @@ briefly unavailable, then retries forwarding on a short cadence.
 This repo now uses manual, session-driven CI. `.github/workflows/build-and-deploy.yml`
 has no automatic triggers; it only runs when manually dispatched.
 
-The intended deploy loop is:
+The intended production deploy loop is:
 
 1. Push the code change you want built.
 2. Manually dispatch the workflow to build and push
    `romainecr.azurecr.io/ambience:<sha>`.
-3. Update `k8s/kustomization.yaml` to that image tag from the session.
+3. Update `chart/ambience/values-prod.yaml` to that image tag.
 4. Commit and push the tag bump from the session.
-5. Let ArgoCD reconcile the committed `k8s/` change, or manually refresh/sync
+5. Let ArgoCD reconcile the committed chart change, or manually refresh/sync
    it if you want a faster rollout.
 
-The ArgoCD Application at `infra-bootstrap/k8s/apps/ambience.yaml`
-watches this repo's `k8s/` path on `main`; the committed kustomization
-bump triggers a sync that rolls the deployment to the new image.
+The dev environment is also declared through ArgoCD at
+`infra-bootstrap/k8s/apps/ambience-dev.yaml`, but that app intentionally
+leaves automated sync off. That keeps Argo as the owner of the base dev
+environment without immediately reverting fast live image swaps during a
+session.
+
+For local dev against `ambience.dev.romaine.life`, use
+`powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component edge`
+or swap `edge` for `authority` / `all`. The script builds and pushes a
+temporary image tag, then patches the live `ambience-edge` and/or
+`ambience-authority` image fields with `kubectl set image`. That keeps the
+inner loop fast while still treating dev as an Argo-owned environment.
+
+When a dev image should become declared state again, update
+`chart/ambience/values-dev.yaml` to that image tag, commit the bump, and
+manually sync the `ambience-dev` Argo app.
+
+The ArgoCD Applications at
+`infra-bootstrap/k8s/apps/{ambience,ambience-dev}.yaml`
+watch this repo's `chart/ambience/` path on `main`; committed Helm values
+changes feed the desired state, with prod autosyncing and dev syncing on
+demand.
 
 The shipped Kubernetes manifests now split the app into one internal
 `authority` Deployment and a public two-replica `edge` Deployment. The

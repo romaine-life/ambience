@@ -11,6 +11,7 @@ func TestDevPageEffectFromPath(t *testing.T) {
 		{path: "/dev", want: "rain", wantOK: true},
 		{path: "/dev/", want: "rain", wantOK: true},
 		{path: "/dev/fireflies", want: "fireflies", wantOK: true},
+		{path: "/dev/waterfall", want: "waterfall", wantOK: true},
 		{path: "/dev/unknown", wantOK: false},
 		{path: "/dev/fireflies/extra", wantOK: false},
 	}
@@ -33,6 +34,7 @@ func TestEffectFromSchemaPath(t *testing.T) {
 	}{
 		{path: "/effects/rain/schema", want: "rain", wantOK: true},
 		{path: "/effects/fireflies/schema", want: "fireflies", wantOK: true},
+		{path: "/effects/waterfall/schema", want: "waterfall", wantOK: true},
 		{path: "/effects/unknown/schema", wantOK: false},
 		{path: "/effects/fireflies/not-schema", wantOK: false},
 	}
@@ -55,5 +57,16 @@ func TestNewDevSessionFirefliesSnapshotType(t *testing.T) {
 	snap := session.snapshot()
 	if snap.Type != "fireflies" {
 		t.Fatalf("snapshot type = %q, want fireflies", snap.Type)
+	}
+}
+
+func TestNewDevSessionWaterfallSnapshotType(t *testing.T) {
+	session, err := newDevSession("waterfall")
+	if err != nil {
+		t.Fatalf("newDevSession: %v", err)
+	}
+	snap := session.snapshot()
+	if snap.Type != "waterfall" {
+		t.Fatalf("snapshot type = %q, want waterfall", snap.Type)
 	}
 }

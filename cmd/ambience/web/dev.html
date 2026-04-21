@@ -27,6 +27,31 @@
 		cursor: pointer; border-radius: 2px; line-height: 1.5;
 	}
 	.iconbtn:hover { background: #1a1a1a; border-color: #555; }
+	.switcher {
+		display: flex; flex-direction: column; gap: 6px;
+		margin: 0 0 8px 0;
+		padding: 0 0 8px 0;
+		border-bottom: 1px solid #222;
+	}
+	.switcher-row {
+		display: flex; align-items: center; gap: 8px;
+	}
+	.switcher label {
+		opacity: 0.55; font-size: 9px;
+		text-transform: uppercase; letter-spacing: 1px;
+	}
+	.switcher select {
+		flex: 1;
+		background: #111; border: 1px solid #333; color: #e0e0e0;
+		font-family: monospace; font-size: 10px; padding: 4px 6px;
+		border-radius: 3px;
+	}
+	.switcher select:hover { border-color: #555; }
+	.switcher select:focus {
+		outline: none;
+		border-color: #777;
+		box-shadow: 0 0 0 1px rgba(255,255,255,0.08);
+	}
 
 	.section { margin: 6px 0 0 0; }
 	.section-head {
@@ -99,6 +124,16 @@
 			<button class="iconbtn" id="toggle" title="collapse / expand panel (h)">–</button>
 		</span>
 	</h1>
+	<div class="switcher">
+		<div class="switcher-row">
+			<label for="effectSelect">effect</label>
+			<select id="effectSelect" title="switch dev effect"></select>
+		</div>
+		<div class="switcher-row">
+			<label for="presetSelect">preset</label>
+			<select id="presetSelect" title="apply effect preset"></select>
+		</div>
+	</div>
 	<div class="body" id="body"></div>
 </div>
 <script src="/sim.js"></script>
@@ -126,7 +161,11 @@
 	const ctx = canvas.getContext('2d');
 	const body = document.getElementById('body');
 	const title = document.getElementById('title');
+	const effectSelect = document.getElementById('effectSelect');
+	const presetSelect = document.getElementById('presetSelect');
+	const CUSTOM_PRESET = '__custom__';
 	let knobs = [];
+	let currentSchema = null;
 	let effect = effectFromLocation();
 	let sim = newEffectInstance(effect);
 	let ready = false;
@@ -143,6 +182,137 @@
 		const ctor = AmbienceSim.effects[name];
 		if (!ctor) throw new Error('unknown effect: ' + name);
 		return new ctor(GRID_W, GRID_H, {});
+	}
+
+	function availableEffects() {
+		return Object.keys(AmbienceSim.effects || {}).sort((a, b) => a.localeCompare(b));
+	}
+
+	function effectLabel(name) {
+		return name.replace(/-/g, ' ');
+	}
+
+	function effectPath(name) {
+		return '/dev/' + encodeURIComponent(name);
+	}
+
+	function effectPresets(name) {
+		const presets = AmbienceSim.presets && AmbienceSim.presets[name];
+		return Array.isArray(presets) ? presets : [];
+	}
+
+	function presetValue(preset) {
+		return preset.key || preset.name;
+	}
+
+	function presetConfig(preset) {
+		return (preset && (preset.config || preset.values)) || {};
+	}
+
+	function findPreset(name, value) {
+		return effectPresets(name).find((preset) => presetValue(preset) === value) || null;
+	}
+
+	function syncEffectSwitcher() {
+		const effects = availableEffects();
+		effectSelect.innerHTML = '';
+		for (const name of effects) {
+			const opt = document.createElement('option');
+			opt.value = name;
+			opt.textContent = effectLabel(name);
+			opt.selected = name === effect;
+			effectSelect.appendChild(opt);
+		}
+		if (!effects.includes(effect)) {
+			const opt = document.createElement('option');
+			opt.value = effect;
+			opt.textContent = effectLabel(effect);
+			opt.selected = true;
+			effectSelect.appendChild(opt);
+		}
+	}
+
+	function knobMatches(knob, left, right) {
+		if (!knob) return false;
+		const a = Number(left);
+		const b = Number(right);
+		if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+		if (knob.type === 'int') return Math.round(a) === Math.round(b);
+		const step = Number(knob.step) || 0.001;
+		return Math.abs(a - b) <= Math.max(1e-9, step / 2);
+	}
+
+	function currentValues() {
+		const values = {};
+		for (const knob of knobs) {
+			const input = document.getElementById(knob.key);
+			if (input) values[knob.key] = +input.value;
+		}
+		return values;
+	}
+
+	function resolvedPresetConfig(schema, preset) {
+		const resolved = {};
+		for (const knob of (schema && schema.knobs) || []) resolved[knob.key] = knob.default;
+		return Object.assign(resolved, presetConfig(preset));
+	}
+
+	function matchingPresetValue() {
+		if (!currentSchema || !knobs.length) return CUSTOM_PRESET;
+		const values = currentValues();
+		for (const preset of effectPresets(effect)) {
+			const resolved = resolvedPresetConfig(currentSchema, preset);
+			let matches = true;
+			for (const knob of knobs) {
+				if (!knobMatches(knob, values[knob.key], resolved[knob.key])) {
+					matches = false;
+					break;
+				}
+			}
+			if (matches) return presetValue(preset);
+		}
+		return CUSTOM_PRESET;
+	}
+
+	function syncPresetSwitcher(selectedValue) {
+		const presets = effectPresets(effect);
+		presetSelect.innerHTML = '';
+		const custom = document.createElement('option');
+		custom.value = CUSTOM_PRESET;
+		custom.textContent = 'custom';
+		presetSelect.appendChild(custom);
+		for (const preset of presets) {
+			const opt = document.createElement('option');
+			opt.value = presetValue(preset);
+			opt.textContent = preset.label || preset.name || opt.value;
+			presetSelect.appendChild(opt);
+		}
+		presetSelect.disabled = !currentSchema || presets.length === 0;
+		presetSelect.title = presets.length ? 'apply effect preset' : 'no presets for this effect yet';
+		const desired = selectedValue || matchingPresetValue();
+		presetSelect.value = findPreset(effect, desired) ? desired : CUSTOM_PRESET;
+	}
+
+	function applyValues(values) {
+		for (const knob of knobs) {
+			const input = document.getElementById(knob.key);
+			if (!input) continue;
+			const next = values[knob.key] != null ? values[knob.key] : knob.default;
+			input.value = next;
+		}
+		updateReadouts();
+	}
+
+	function applyPresetSelection(value) {
+		const preset = findPreset(effect, value);
+		if (!preset || !currentSchema) return;
+		applyValues(resolvedPresetConfig(currentSchema, preset));
+		syncPresetSwitcher(presetValue(preset));
+		schedule();
+	}
+
+	function markPresetCustom() {
+		if (!presetSelect.disabled) presetSelect.value = CUSTOM_PRESET;
 	}
 
 	function resize() {
@@ -258,6 +428,7 @@
 	}
 
 	function renderPanel(schema) {
+		currentSchema = schema;
 		title.textContent = 'ambience dev — ' + schema.name;
 		body.innerHTML = '';
 		knobs = schema.knobs;
@@ -304,8 +475,12 @@
 		});
 		body.appendChild(logSection);
 		for (const k of knobs) {
-			document.getElementById(k.key).addEventListener('input', schedule);
+			document.getElementById(k.key).addEventListener('input', () => {
+				markPresetCustom();
+				schedule();
+			});
 		}
+		syncPresetSwitcher();
 	}
 
 	function appendLog(entry) {
@@ -330,6 +505,15 @@
 	window.addEventListener('keydown', (e) => {
 		if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
 		if (e.key === 'h') setCollapsed(!panel.classList.contains('collapsed'));
+	});
+	effectSelect.addEventListener('change', () => {
+		const next = effectSelect.value;
+		if (!next || next === effect) return;
+		window.location.assign(effectPath(next));
+	});
+	presetSelect.addEventListener('change', () => {
+		if (presetSelect.value === CUSTOM_PRESET) return;
+		applyPresetSelection(presetSelect.value);
 	});
 	document.getElementById('toggleAll').addEventListener('click', () => {
 		const sections = document.querySelectorAll('.section');
@@ -374,6 +558,7 @@
 							}
 						}
 						updateReadouts();
+						syncPresetSwitcher();
 					}
 				} catch (err) { console.error('bad snapshot', err); }
 				break;
@@ -399,6 +584,7 @@
 
 	// Boot: fetch schema, render panel; SSE will deliver the initial snapshot
 	// which sets the sliders.
+	syncEffectSwitcher();
 	loadSchema(effect);
 </script>
 </body>

@@ -47,14 +47,20 @@ tools/conpty-capture/  Python/pywinpty ConPTY capture tool — records full
                        Closes the diagnostic gap PowerSession leaves
                        (PowerSession doesn't capture CONOUT$ writes).
 
-k8s/             Deployment manifests. ArgoCD Application lives in
-                 infra-bootstrap/k8s/apps/ambience.yaml and watches this
-                 path on main. Image tag is pinned by
-                 `k8s/kustomization.yaml`; push-to-main CI
-                 (`.github/workflows/build-and-deploy.yml`) builds
-                 `romainecr.azurecr.io/ambience:<sha>`, bumps the kustomize
-                 tag, commits back with [skip ci]. ArgoCD picks up the
-                 kustomization change and rolls out.
+chart/ambience/  Helm chart used by ArgoCD for both environments.
+                 `values-prod.yaml` drives the live app at
+                 `ambience.romaine.life`; `values-dev.yaml` drives the
+                 flexible dev environment at `ambience.dev.romaine.life`.
+                 ArgoCD Applications live in
+                 `infra-bootstrap/k8s/apps/{ambience,ambience-dev}.yaml`.
+                 CI is manual / session-driven:
+                 `.github/workflows/build-and-deploy.yml` has no automatic
+                 triggers and only builds + pushes
+                 `romainecr.azurecr.io/ambience:<sha>` when manually
+                 dispatched. The follow-up image-tag bump commit is done
+                 from the session by editing the appropriate Helm values
+                 file, then ArgoCD picks up that committed chart change
+                 and rolls out.
 ```
 
 ## Atmosphere model
