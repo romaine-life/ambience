@@ -195,6 +195,21 @@ temporary image tag, then patches the live `ambience-edge` and/or
 `ambience-authority` image fields with `kubectl set image`. That keeps the
 inner loop fast while still treating dev as an Argo-owned environment.
 
+The recommended feature-iteration loop is:
+
+1. Start a fresh session by re-checking the open issues and open PRs so
+   the next slice comes from the current backlog.
+2. Choose one bounded feature, preferably effect work or an
+   effect-adjacent enhancement when the registry and `/dev` tooling
+   already support it cleanly.
+3. Build and validate it on `ambience.dev.romaine.life` first.
+4. Use `scripts/dev-deploy.ps1 -Component all` for changes that touch both
+   browser assets and authority/runtime code, which is the common case for
+   new effects. Use `edge` or `authority` only when the change is truly
+   one-sided.
+5. Verify the result on `/dev/<effect>` or the relevant dev route before
+   promoting it.
+
 When a dev image should become declared state again, update
 `chart/ambience/values-dev.yaml` to that image tag, commit the bump, and
 manually sync the `ambience-dev` Argo app.

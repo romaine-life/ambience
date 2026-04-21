@@ -5,5 +5,4 @@
 *.test
 *.prof
 .env
-/AGENTS.md
 /.claude/settings.local.json
