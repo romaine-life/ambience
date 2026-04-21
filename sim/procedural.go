@@ -99,6 +99,30 @@ var autumnLeavesDefaults = ProceduralConfig{
 	"swirl_pull":     1.15,
 }
 
+var starfieldDefaults = ProceduralConfig{
+	"intro_dur":          50,
+	"intro_density":      0.08,
+	"ending_dur":         60,
+	"ending_linger":      16,
+	"ending_density":     0.03,
+	"density":            0.22,
+	"speed":              0.12,
+	"drift":              0.04,
+	"layers":             3,
+	"size":               1.0,
+	"hue":                218,
+	"hue_sp":             18,
+	"sat":                0.18,
+	"lmin":               0.55,
+	"lmax":               0.95,
+	"shooting_star_p":    0.0,
+	"twinkle_burst_p":    0.0,
+	"shooting_star_dur":  26,
+	"shooting_star_mult": 1.8,
+	"twinkle_burst_dur":  42,
+	"twinkle_burst_mult": 1.7,
+}
+
 func SnowSchema() EffectSchema {
 	return EffectSchema{
 		Name: "snow",
@@ -209,6 +233,56 @@ func AutumnLeavesSchema() EffectSchema {
 	}
 }
 
+func StarfieldSchema() EffectSchema {
+	return EffectSchema{
+		Name: "starfield",
+		Knobs: []Knob{
+			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 50, Trigger: "intro",
+				Description: "Ticks spent populating the star layers from sparse points into the full field."},
+			{Key: "intro_density", Label: "intro density", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0.01, Max: 0.4, Step: 0.01, Default: 0.08,
+				Description: "Starting fraction of the full star density before the field finishes blooming in."},
+			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 60, Trigger: "ending",
+				Description: "Ticks spent dimming the starfield back toward near-darkness."},
+			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 120, Step: 5, Default: 16,
+				Description: "Extra quiet ticks after the fade so the last points can linger."},
+			{Key: "ending_density", Label: "ending residue", Slot: SlotEnd, Group: "ending", Type: KnobFloat, Min: 0, Max: 0.3, Step: 0.01, Default: 0.03,
+				Description: "How much of the far starfield remains near the end of the outro."},
+			{Key: "density", Label: "density", Slot: SlotLever, Group: "field", Type: KnobFloat, Min: 0.05, Max: 0.6, Step: 0.01, Default: 0.22,
+				Description: "Base star density across the full field."},
+			{Key: "speed", Label: "parallax", Slot: SlotLever, Group: "field", Type: KnobFloat, Min: 0.02, Max: 0.4, Step: 0.01, Default: 0.12,
+				Description: "How quickly the parallax layers drift across the scene."},
+			{Key: "drift", Label: "drift", Slot: SlotLever, Group: "field", Type: KnobFloat, Min: -0.25, Max: 0.25, Step: 0.01, Default: 0.04,
+				Description: "Baseline horizontal drift direction for the starfield."},
+			{Key: "layers", Label: "layers", Slot: SlotLever, Group: "field", Type: KnobInt, Min: 1, Max: 4, Step: 1, Default: 3,
+				Description: "Number of parallax layers."},
+			{Key: "size", Label: "star size", Slot: SlotLever, Group: "field", Type: KnobFloat, Min: 0.5, Max: 2.5, Step: 0.1, Default: 1,
+				Description: "Pixel size of the nearest stars."},
+			{Key: "hue", Label: "hue", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 190, Max: 250, Step: 1, Default: 218,
+				Description: "Base star tint. Lower values lean blue-cyan; higher values lean violet."},
+			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 36, Step: 1, Default: 18,
+				Description: "Variation in the star tint across the field."},
+			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.01, Max: 0.5, Step: 0.01, Default: 0.18,
+				Description: "Overall star color saturation."},
+			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.2, Max: 0.85, Step: 0.01, Default: 0.55,
+				Description: "Minimum lightness used for the dimmest background stars."},
+			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.3, Max: 1.0, Step: 0.01, Default: 0.95,
+				Description: "Maximum lightness used for the nearest stars and bright accents."},
+			{Key: "shooting_star_p", Label: "shooting star", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.01, Step: 0.0002, Default: 0, Trigger: "shooting-star",
+				Description: "Per-tick chance of a rare shooting star crossing the field."},
+			{Key: "twinkle_burst_p", Label: "twinkle burst", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "twinkle-burst",
+				Description: "Per-tick chance of a brief field-wide brightening."},
+			{Key: "shooting_star_dur", Label: "shoot dur", Slot: SlotEventMod, Group: "shooting-star", Type: KnobInt, Min: 6, Max: 80, Step: 2, Default: 26,
+				Description: "How long a shooting star remains visible."},
+			{Key: "shooting_star_mult", Label: "shoot x", Slot: SlotEventMod, Group: "shooting-star", Type: KnobFloat, Min: 1.05, Max: 4, Step: 0.05, Default: 1.8,
+				Description: "Brightness multiplier for the shooting star accent."},
+			{Key: "twinkle_burst_dur", Label: "burst dur", Slot: SlotEventMod, Group: "twinkle-burst", Type: KnobInt, Min: 10, Max: 160, Step: 5, Default: 42,
+				Description: "Duration of the twinkle burst brightening window."},
+			{Key: "twinkle_burst_mult", Label: "burst x", Slot: SlotEventMod, Group: "twinkle-burst", Type: KnobFloat, Min: 1.05, Max: 3, Step: 0.05, Default: 1.7,
+				Description: "Brightness multiplier applied during a twinkle burst."},
+		},
+	}
+}
+
 func cloneProceduralConfig(src ProceduralConfig) ProceduralConfig {
 	if src == nil {
 		return ProceduralConfig{}
@@ -253,6 +327,8 @@ func proceduralDefaults(kind string) ProceduralConfig {
 		return cloneProceduralConfig(snowDefaults)
 	case "autumn-leaves":
 		return cloneProceduralConfig(autumnLeavesDefaults)
+	case "starfield":
+		return cloneProceduralConfig(starfieldDefaults)
 	default:
 		return ProceduralConfig{}
 	}
@@ -377,6 +453,60 @@ func mergeProceduralDefaults(kind string, cfg ProceduralConfig) ProceduralConfig
 		}
 		if out["swirl_pull"] <= 0 {
 			out["swirl_pull"] = autumnLeavesDefaults["swirl_pull"]
+		}
+	case "starfield":
+		if out["intro_dur"] <= 0 {
+			out["intro_dur"] = starfieldDefaults["intro_dur"]
+		}
+		out["intro_density"] = clamp01(out["intro_density"])
+		if out["ending_dur"] <= 0 {
+			out["ending_dur"] = starfieldDefaults["ending_dur"]
+		}
+		if out["ending_linger"] < 0 {
+			out["ending_linger"] = 0
+		}
+		out["ending_density"] = clamp01(out["ending_density"])
+		if out["density"] <= 0 {
+			out["density"] = starfieldDefaults["density"]
+		}
+		if out["speed"] <= 0 {
+			out["speed"] = starfieldDefaults["speed"]
+		}
+		if out["layers"] < 1 {
+			out["layers"] = starfieldDefaults["layers"]
+		}
+		if out["size"] <= 0 {
+			out["size"] = starfieldDefaults["size"]
+		}
+		if out["hue"] == 0 {
+			out["hue"] = starfieldDefaults["hue"]
+		}
+		if out["hue_sp"] < 0 {
+			out["hue_sp"] = 0
+		}
+		if out["sat"] <= 0 {
+			out["sat"] = starfieldDefaults["sat"]
+		}
+		if out["lmin"] <= 0 {
+			out["lmin"] = starfieldDefaults["lmin"]
+		}
+		if out["lmax"] <= 0 {
+			out["lmax"] = starfieldDefaults["lmax"]
+		}
+		if out["lmax"] < out["lmin"] {
+			out["lmin"], out["lmax"] = out["lmax"], out["lmin"]
+		}
+		if out["shooting_star_dur"] <= 0 {
+			out["shooting_star_dur"] = starfieldDefaults["shooting_star_dur"]
+		}
+		if out["shooting_star_mult"] <= 0 {
+			out["shooting_star_mult"] = starfieldDefaults["shooting_star_mult"]
+		}
+		if out["twinkle_burst_dur"] <= 0 {
+			out["twinkle_burst_dur"] = starfieldDefaults["twinkle_burst_dur"]
+		}
+		if out["twinkle_burst_mult"] <= 0 {
+			out["twinkle_burst_mult"] = starfieldDefaults["twinkle_burst_mult"]
 		}
 	}
 	return out
@@ -542,6 +672,22 @@ func (p *Procedural) TriggerEvent(name string) bool {
 			return false
 		}
 		return true
+	case "starfield":
+		switch name {
+		case "shooting-star":
+			p.startStarfieldShootingStarLocked("triggered")
+		case "twinkle-burst":
+			p.startStarfieldTwinkleBurstLocked("triggered")
+		case "intro":
+			p.startStarfieldIntroLocked()
+			p.appendLog("intro", fmt.Sprintf("started (dur=%d, density=%.2f)", p.timers["intro"], p.cfg["intro_density"]))
+		case "ending":
+			p.startStarfieldEndingLocked()
+			p.appendLog("ending", fmt.Sprintf("started (fade=%d, linger=%d)", p.intCfg("ending_dur"), p.intCfg("ending_linger")))
+		default:
+			return false
+		}
+		return true
 	default:
 		return false
 	}
@@ -581,6 +727,8 @@ func (p *Procedural) Step() {
 		p.stepSnowLocked()
 	case "autumn-leaves":
 		p.stepAutumnLeavesLocked()
+	case "starfield":
+		p.stepStarfieldLocked()
 	}
 }
 
@@ -723,5 +871,60 @@ func (p *Procedural) stepAutumnLeavesLocked() {
 	}
 	if p.timers["swirl"] <= 0 && p.cfg["swirl_p"] > 0 && p.rng.Float64() < p.cfg["swirl_p"] {
 		p.startAutumnSwirlLocked("started")
+	}
+}
+
+func (p *Procedural) startStarfieldShootingStarLocked(verb string) {
+	p.timers["shooting-star"] = jitterInt(p.rng, p.intCfg("shooting_star_dur"), 0.3)
+	sign := 1.0
+	if p.rng.Float64() < 0.5 {
+		sign = -1
+	}
+	p.values["shooting_dir"] = sign
+	p.values["shooting_row"] = 6 + p.rng.Float64()*math.Max(4, float64(p.H)/3)
+	p.values["shooting_start"] = p.rng.Float64() * float64(max(1, p.W))
+	p.appendLog("shooting-star", fmt.Sprintf("%s (dur=%d, dir=%+.0f)", verb, p.timers["shooting-star"], sign))
+}
+
+func (p *Procedural) startStarfieldTwinkleBurstLocked(verb string) {
+	p.timers["twinkle-burst"] = jitterInt(p.rng, p.intCfg("twinkle_burst_dur"), 0.3)
+	p.appendLog("twinkle-burst", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["twinkle-burst"], p.cfg["twinkle_burst_mult"]))
+}
+
+func (p *Procedural) startStarfieldIntroLocked() {
+	p.timers["ending"] = 0
+	p.timers["shooting-star"] = 0
+	p.timers["twinkle-burst"] = 0
+	p.timers["intro"] = p.intCfg("intro_dur")
+	p.values["intro_total"] = float64(p.timers["intro"])
+}
+
+func (p *Procedural) startStarfieldEndingLocked() {
+	p.timers["intro"] = 0
+	p.timers["shooting-star"] = 0
+	p.timers["twinkle-burst"] = 0
+	endingTotal := p.intCfg("ending_dur") + max(0, p.intCfg("ending_linger"))
+	if endingTotal < 1 {
+		endingTotal = max(1, p.intCfg("ending_dur"))
+	}
+	p.timers["ending"] = endingTotal
+	p.values["ending_total"] = float64(endingTotal)
+}
+
+func (p *Procedural) stepStarfieldLocked() {
+	if p.timers["intro"] <= 0 {
+		delete(p.values, "intro_total")
+	}
+	if p.timers["ending"] <= 0 {
+		delete(p.values, "ending_total")
+	}
+	if p.timers["intro"] > 0 || p.timers["ending"] > 0 {
+		return
+	}
+	if p.timers["shooting-star"] <= 0 && p.cfg["shooting_star_p"] > 0 && p.rng.Float64() < p.cfg["shooting_star_p"] {
+		p.startStarfieldShootingStarLocked("started")
+	}
+	if p.timers["twinkle-burst"] <= 0 && p.cfg["twinkle_burst_p"] > 0 && p.rng.Float64() < p.cfg["twinkle_burst_p"] {
+		p.startStarfieldTwinkleBurstLocked("started")
 	}
 }
