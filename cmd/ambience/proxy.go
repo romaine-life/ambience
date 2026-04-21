@@ -1,27 +1,37 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/nelsong6/ambience/sim"
 )
 
 const (
 	edgeEntropyBufferLimit = 256 * 1024
 	edgeEntropyFlushEvery  = 2 * time.Second
 	edgeForwardTimeout     = 1 * time.Second
+	edgeSnapshotPollEvery  = 5 * time.Second
+	edgeSnapshotTimeout    = 3 * time.Second
+	edgeReconnectDelay     = 1 * time.Second
+	edgeMaxSSEFrame        = 4 * 1024 * 1024
 )
 
 type authorityProxy struct {
 	proxy   *httputil.ReverseProxy
 	entropy *entropyForwarder
+	mirror  *authorityMirror
 }
 
 func newAuthorityProxy(ctx context.Context, rawURL string) (*authorityProxy, error) {
@@ -46,12 +56,13 @@ func newAuthorityProxy(ctx context.Context, rawURL string) (*authorityProxy, err
 	return &authorityProxy{
 		proxy:   proxy,
 		entropy: newEntropyForwarder(ctx, baseURL),
+		mirror:  newAuthorityMirror(ctx, baseURL),
 	}, nil
 }
 
 func registerEdgeRoutes(mux *http.ServeMux, proxy *authorityProxy) {
-	mux.HandleFunc("/snapshot", cors(proxy.serveHTTP))
-	mux.HandleFunc("/events", cors(proxy.serveHTTP))
+	mux.HandleFunc("/snapshot", cors(proxy.serveSnapshot))
+	mux.HandleFunc("/events", cors(proxy.serveEvents))
 	mux.HandleFunc("/entropy", cors(proxy.serveEntropy))
 	mux.HandleFunc("/dev/snapshot", proxy.serveHTTP)
 	mux.HandleFunc("/dev/events", proxy.serveHTTP)
@@ -59,8 +70,26 @@ func registerEdgeRoutes(mux *http.ServeMux, proxy *authorityProxy) {
 	mux.HandleFunc("/dev/trigger/", proxy.serveHTTP)
 }
 
+func (p *authorityProxy) ready() bool {
+	return p.mirror.ready()
+}
+
 func (p *authorityProxy) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	p.proxy.ServeHTTP(w, r)
+}
+
+func (p *authorityProxy) serveSnapshot(w http.ResponseWriter, _ *http.Request) {
+	snap, ok := p.mirror.snapshot()
+	if !ok {
+		http.Error(w, "authority snapshot unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(snap)
+}
+
+func (p *authorityProxy) serveEvents(w http.ResponseWriter, r *http.Request) {
+	p.mirror.stream(w, r)
 }
 
 func (p *authorityProxy) serveEntropy(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +110,312 @@ func (p *authorityProxy) serveEntropy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type authorityMirror struct {
+	ctx         context.Context
+	client      *http.Client
+	eventsURL   string
+	snapshotURL string
+
+	mu          sync.RWMutex
+	snap        snapshotData
+	hasSnapshot bool
+	listeners   map[chan Command]struct{}
+}
+
+func newAuthorityMirror(ctx context.Context, baseURL *url.URL) *authorityMirror {
+	m := &authorityMirror{
+		ctx:         ctx,
+		client:      &http.Client{},
+		eventsURL:   baseURL.ResolveReference(&url.URL{Path: "/events"}).String(),
+		snapshotURL: baseURL.ResolveReference(&url.URL{Path: "/snapshot"}).String(),
+		listeners:   make(map[chan Command]struct{}),
+	}
+	go func() {
+		snap, err := m.fetchSnapshot()
+		if err == nil {
+			m.setSnapshot(snap)
+		}
+	}()
+	go m.runEventsLoop()
+	go m.runSnapshotPollLoop()
+	return m
+}
+
+func (m *authorityMirror) ready() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.hasSnapshot
+}
+
+func (m *authorityMirror) snapshot() (snapshotData, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if !m.hasSnapshot {
+		return snapshotData{}, false
+	}
+	return cloneSnapshot(m.snap), true
+}
+
+func (m *authorityMirror) setSnapshot(snap snapshotData) {
+	m.mu.Lock()
+	m.snap = cloneSnapshot(snap)
+	m.hasSnapshot = true
+	m.mu.Unlock()
+}
+
+func (m *authorityMirror) addListener() chan Command {
+	ch := make(chan Command, 64)
+	m.mu.Lock()
+	m.listeners[ch] = struct{}{}
+	m.mu.Unlock()
+	return ch
+}
+
+func (m *authorityMirror) removeListener(ch chan Command) {
+	m.mu.Lock()
+	delete(m.listeners, ch)
+	m.mu.Unlock()
+	close(ch)
+}
+
+func (m *authorityMirror) broadcast(cmd Command) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for ch := range m.listeners {
+		select {
+		case ch <- cmd:
+		default:
+		}
+	}
+}
+
+func (m *authorityMirror) stream(w http.ResponseWriter, req *http.Request) {
+	snap, ok := m.snapshot()
+	if !ok {
+		http.Error(w, "authority snapshot unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	flusher, ok := sseHeaders(w)
+	if !ok {
+		return
+	}
+	ch := m.addListener()
+	defer m.removeListener(ch)
+
+	heartbeat := time.NewTicker(sseHeartbeat)
+	defer heartbeat.Stop()
+
+	if err := writeSnapshotDataFrame(w, flusher, snap); err != nil {
+		return
+	}
+
+	ctx := req.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-heartbeat.C:
+			if err := writeSSEComment(w, flusher, "keep-alive"); err != nil {
+				return
+			}
+		case cmd, ok := <-ch:
+			if !ok {
+				return
+			}
+			if err := writeCommand(w, flusher, cmd); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func (m *authorityMirror) runSnapshotPollLoop() {
+	t := time.NewTicker(edgeSnapshotPollEvery)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-t.C:
+			snap, err := m.fetchSnapshot()
+			if err != nil {
+				continue
+			}
+			m.setSnapshot(snap)
+		}
+	}
+}
+
+func (m *authorityMirror) fetchSnapshot() (snapshotData, error) {
+	ctx, cancel := context.WithTimeout(m.ctx, edgeSnapshotTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.snapshotURL, nil)
+	if err != nil {
+		return snapshotData{}, err
+	}
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return snapshotData{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return snapshotData{}, fmt.Errorf("authority /snapshot returned %s", resp.Status)
+	}
+	var snap snapshotData
+	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+		return snapshotData{}, err
+	}
+	return snap, nil
+}
+
+func (m *authorityMirror) runEventsLoop() {
+	for {
+		if m.ctx.Err() != nil {
+			return
+		}
+		if err := m.consumeEvents(); err != nil && m.ctx.Err() == nil {
+			log.Printf("edge authority stream: %v", err)
+		}
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-time.After(edgeReconnectDelay):
+		}
+	}
+}
+
+func (m *authorityMirror) consumeEvents() error {
+	req, err := http.NewRequestWithContext(m.ctx, http.MethodGet, m.eventsURL, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return fmt.Errorf("authority /events returned %s", resp.Status)
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), edgeMaxSSEFrame)
+
+	var dataLines []string
+	flush := func() error {
+		if len(dataLines) == 0 {
+			return nil
+		}
+		payload := strings.Join(dataLines, "\n")
+		dataLines = dataLines[:0]
+		return m.handleEventPayload([]byte(payload))
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		switch {
+		case line == "":
+			if err := flush(); err != nil {
+				log.Printf("edge authority event decode: %v", err)
+			}
+		case strings.HasPrefix(line, ":"):
+			continue
+		case strings.HasPrefix(line, "data:"):
+			part := strings.TrimPrefix(line, "data:")
+			part = strings.TrimPrefix(part, " ")
+			dataLines = append(dataLines, part)
+		}
+	}
+	if err := flush(); err != nil {
+		log.Printf("edge authority event decode: %v", err)
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	return io.EOF
+}
+
+func (m *authorityMirror) handleEventPayload(payload []byte) error {
+	var cmd Command
+	if err := json.Unmarshal(payload, &cmd); err != nil {
+		return err
+	}
+	if cmd.Kind == "snapshot" {
+		var snap snapshotData
+		if err := json.Unmarshal(cmd.Data, &snap); err != nil {
+			return err
+		}
+		m.setSnapshot(snap)
+		return nil
+	}
+	m.applyCommand(cmd)
+	m.broadcast(cmd)
+	return nil
+}
+
+func (m *authorityMirror) applyCommand(cmd Command) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.hasSnapshot {
+		return
+	}
+	if cmd.Tick > m.snap.Tick {
+		m.snap.Tick = cmd.Tick
+	}
+	switch cmd.Kind {
+	case "config":
+		var cfg sim.Config
+		if err := json.Unmarshal(cmd.Data, &cfg); err == nil {
+			m.snap.Config = cfg
+		}
+	case "scene":
+		var data struct {
+			Name          string `json:"name"`
+			DurationTicks int    `json:"durationTicks"`
+			StartedAtTick int    `json:"startedAtTick"`
+			NextName      string `json:"nextName"`
+		}
+		if err := json.Unmarshal(cmd.Data, &data); err == nil {
+			m.snap.CurrentScene.Name = data.Name
+			m.snap.CurrentScene.DurationTicks = data.DurationTicks
+			m.snap.CurrentScene.StartedAtTick = data.StartedAtTick
+			m.snap.NextScene.Name = data.NextName
+			m.snap.SceneRemaining = data.DurationTicks
+		}
+	case "metric":
+		var data struct {
+			EntropyBytes   int64  `json:"entropyBytes"`
+			SceneRemaining int    `json:"sceneRemaining"`
+			CurrentName    string `json:"currentName"`
+			NextName       string `json:"nextName"`
+		}
+		if err := json.Unmarshal(cmd.Data, &data); err == nil {
+			m.snap.EntropyBytes = data.EntropyBytes
+			if data.SceneRemaining > 0 {
+				m.snap.SceneRemaining = data.SceneRemaining
+			}
+			if data.CurrentName != "" {
+				m.snap.CurrentScene.Name = data.CurrentName
+			}
+			if data.NextName != "" {
+				m.snap.NextScene.Name = data.NextName
+			}
+		}
+	}
+}
+
+func cloneSnapshot(snap snapshotData) snapshotData {
+	cloned := snap
+	cloned.Drops = append([]sim.Drop(nil), snap.Drops...)
+	cloned.Splashes = append([]sim.Splash(nil), snap.Splashes...)
+	return cloned
 }
 
 type entropyForwarder struct {

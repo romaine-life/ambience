@@ -77,7 +77,7 @@ func main() {
 	defer cancel()
 
 	mux := http.NewServeMux()
-	registerCommonRoutes(mux)
+	readyCheck := func() bool { return true }
 
 	switch cfg.role {
 	case roleAll, roleAuthority:
@@ -93,12 +93,14 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		readyCheck = proxy.ready
 		registerStaticRoutes(mux, web)
 		registerSchemaRoute(mux)
 		registerEdgeRoutes(mux, proxy)
 	default:
 		log.Fatalf("unsupported ambience role %q", cfg.role)
 	}
+	registerCommonRoutes(mux, readyCheck)
 
 	// AMBIENCE_ADDR overrides the bind address. For local dev, set it to
 	// "127.0.0.1:8080" so Windows Firewall doesn't prompt (loopback skips
@@ -144,9 +146,9 @@ func bootAuthority(ctx context.Context) error {
 	return nil
 }
 
-func registerCommonRoutes(mux *http.ServeMux) {
+func registerCommonRoutes(mux *http.ServeMux, ready func() bool) {
 	mux.HandleFunc("/healthz", serveHealthz)
-	mux.HandleFunc("/readyz", serveReadyz)
+	mux.HandleFunc("/readyz", serveReadyz(ready))
 }
 
 func registerStaticRoutes(mux *http.ServeMux, web fs.FS) {
@@ -180,8 +182,14 @@ func serveHealthz(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func serveReadyz(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusNoContent)
+func serveReadyz(ready func() bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		if ready != nil && !ready() {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 // cors wraps a handler to send permissive CORS headers. Safe because the
@@ -248,6 +256,11 @@ func writeCommand(w http.ResponseWriter, flusher http.Flusher, cmd Command) erro
 	return nil
 }
 
+func writeSnapshotDataFrame(w http.ResponseWriter, flusher http.Flusher, snap snapshotData) error {
+	data, _ := json.Marshal(snap)
+	return writeCommand(w, flusher, Command{Kind: "snapshot", Tick: snap.Tick, Data: data})
+}
+
 func writeSSEComment(w http.ResponseWriter, flusher http.Flusher, comment string) error {
 	if _, err := fmt.Fprintf(w, ": %s\n\n", comment); err != nil {
 		return err
@@ -259,9 +272,7 @@ func writeSSEComment(w http.ResponseWriter, flusher http.Flusher, comment string
 // writeSnapshotFrame encodes an initial snapshot and sends it as the first
 // SSE frame for a new subscriber.
 func writeSnapshotFrame(w http.ResponseWriter, flusher http.Flusher, a *atmosphere) error {
-	snap := a.snapshot()
-	data, _ := json.Marshal(snap)
-	return writeCommand(w, flusher, Command{Kind: "snapshot", Tick: snap.Tick, Data: data})
+	return writeSnapshotDataFrame(w, flusher, a.snapshot())
 }
 
 func streamAtmosphere(w http.ResponseWriter, req *http.Request, a *atmosphere) {
