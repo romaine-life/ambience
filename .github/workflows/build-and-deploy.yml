@@ -25,7 +25,33 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ inputs.git_ref || github.sha }}
+
+      - name: Resolve requested ref
+        env:
+          INPUT_REF: ${{ inputs.git_ref }}
+        run: |
+          set -euo pipefail
+
+          # Fetch refs so short SHAs, remote branches, and tags can all
+          # resolve cleanly during manual dispatches.
+          git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
+
+          TARGET_REF="${INPUT_REF:-$GITHUB_SHA}"
+          FULL_SHA=""
+
+          if FULL_SHA="$(git rev-parse --verify "${TARGET_REF}^{commit}" 2>/dev/null)"; then
+            :
+          elif git show-ref --verify --quiet "refs/remotes/origin/${TARGET_REF}"; then
+            FULL_SHA="$(git rev-parse "refs/remotes/origin/${TARGET_REF}^{commit}")"
+          elif git show-ref --verify --quiet "refs/tags/${TARGET_REF}"; then
+            FULL_SHA="$(git rev-parse "refs/tags/${TARGET_REF}^{commit}")"
+          else
+            echo "::error::Unable to resolve git_ref '${TARGET_REF}' to a commit."
+            exit 1
+          fi
+
+          git checkout --detach "${FULL_SHA}"
+          echo "Resolved ${TARGET_REF} -> ${FULL_SHA}"
 
       - name: Azure Login (OIDC)
         uses: azure/login@v3
