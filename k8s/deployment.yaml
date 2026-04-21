@@ -17,6 +17,12 @@ spec:
         app: ambience
         component: authority
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: ambience
           image: romainecr.azurecr.io/ambience:latest

@@ -39,6 +39,7 @@ const (
 	gridW           = 160
 	gridH           = 80
 	tickRate        = 100 * time.Millisecond // ~10 Hz
+	sseHeartbeat    = 10 * time.Second
 	defaultAddr     = ":8080"
 	devSessionIdle  = 60 * time.Second
 	devSessionSweep = 30 * time.Second
@@ -247,6 +248,14 @@ func writeCommand(w http.ResponseWriter, flusher http.Flusher, cmd Command) erro
 	return nil
 }
 
+func writeSSEComment(w http.ResponseWriter, flusher http.Flusher, comment string) error {
+	if _, err := fmt.Fprintf(w, ": %s\n\n", comment); err != nil {
+		return err
+	}
+	flusher.Flush()
+	return nil
+}
+
 // writeSnapshotFrame encodes an initial snapshot and sends it as the first
 // SSE frame for a new subscriber.
 func writeSnapshotFrame(w http.ResponseWriter, flusher http.Flusher, a *atmosphere) error {
@@ -262,6 +271,8 @@ func streamAtmosphere(w http.ResponseWriter, req *http.Request, a *atmosphere) {
 	}
 	ch := a.addListener()
 	defer a.removeListener(ch)
+	heartbeat := time.NewTicker(sseHeartbeat)
+	defer heartbeat.Stop()
 
 	if err := writeSnapshotFrame(w, flusher, a); err != nil {
 		return
@@ -272,6 +283,10 @@ func streamAtmosphere(w http.ResponseWriter, req *http.Request, a *atmosphere) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-heartbeat.C:
+			if err := writeSSEComment(w, flusher, "keep-alive"); err != nil {
+				return
+			}
 		case cmd, ok := <-ch:
 			if !ok {
 				return
