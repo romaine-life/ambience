@@ -900,7 +900,8 @@ func (w *Waterfall) paintSheetLocked() {
 	width := math.Max(1, w.cfg.Width*flow)
 	for y := 0; y < surface; y++ {
 		progress := float64(y) / float64(max(1, surface-1))
-		rowCenter := center + math.Sin(progress*5.1+float64(w.tick)*0.05*w.cfg.Speed)*w.cfg.Wobble*0.55
+		// Let the sheet's bend drift downward so the wobble reinforces the fall.
+		rowCenter := center + math.Sin(progress*5.1-float64(w.tick)*0.05*w.cfg.Speed)*w.cfg.Wobble*0.55
 		rowWidth := width * (0.86 + 0.32*progress)
 		half := math.Max(0.6, rowWidth*0.5)
 		start := int(math.Floor(rowCenter - half - 1))

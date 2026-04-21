@@ -1,6 +1,9 @@
 package sim
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestNewWaterfallAppliesDefaults(t *testing.T) {
 	w := NewWaterfall(20, 12, 1, WaterfallConfig{})
@@ -84,4 +87,86 @@ func TestWaterfallSnapshotRestoreRoundTrip(t *testing.T) {
 	if len(got.Ripples) != len(snap.Ripples) {
 		t.Fatalf("ripple count = %d, want %d", len(got.Ripples), len(snap.Ripples))
 	}
+}
+
+func TestWaterfallSheetWobbleDriftsDownward(t *testing.T) {
+	w := NewWaterfall(72, 36, 1, WaterfallConfig{
+		Width:           6,
+		Wobble:          4.5,
+		Speed:           1,
+		PoolY:           0.8,
+		MistSpawnEvery:  99,
+		MaxMist:         1,
+		RippleEvery:     99,
+		MaxRipples:      1,
+		SurgeChance:     0,
+		CalmChance:      0,
+		MistBurstChance: 0,
+	})
+
+	before := waterfallSheetCentersAtTick(w, 0)
+	after := waterfallSheetCentersAtTick(w, 15)
+	shift := bestWaterfallCenterShift(before, after, 6)
+	if shift <= 0 {
+		t.Fatalf("sheet wobble shift = %d, want downward drift", shift)
+	}
+}
+
+func waterfallSheetCentersAtTick(w *Waterfall, tick int) []float64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.tick = tick
+	w.clearGridLocked()
+	w.paintSheetLocked()
+
+	surface := w.poolRowLocked()
+	centers := make([]float64, surface)
+	for y := 0; y < surface; y++ {
+		sum := 0.0
+		count := 0.0
+		for x := range w.Grid[y] {
+			if !w.Grid[y][x].Filled {
+				continue
+			}
+			sum += float64(x)
+			count++
+		}
+		if count == 0 {
+			centers[y] = math.NaN()
+			continue
+		}
+		centers[y] = sum / count
+	}
+	return centers
+}
+
+func bestWaterfallCenterShift(before, after []float64, maxShift int) int {
+	bestShift := 0
+	bestScore := math.Inf(1)
+	for shift := -maxShift; shift <= maxShift; shift++ {
+		score := 0.0
+		pairs := 0
+		for y := range before {
+			y2 := y + shift
+			if y2 < 0 || y2 >= len(after) {
+				continue
+			}
+			if math.IsNaN(before[y]) || math.IsNaN(after[y2]) {
+				continue
+			}
+			diff := before[y] - after[y2]
+			score += diff * diff
+			pairs++
+		}
+		if pairs == 0 {
+			continue
+		}
+		score /= float64(pairs)
+		if score < bestScore {
+			bestScore = score
+			bestShift = shift
+		}
+	}
+	return bestShift
 }
