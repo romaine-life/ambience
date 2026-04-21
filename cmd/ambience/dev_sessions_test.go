@@ -20,6 +20,7 @@ func TestDevPageEffectFromPath(t *testing.T) {
 		{path: "/dev/snow", want: "snow", wantOK: true},
 		{path: "/dev/starfield", want: "starfield", wantOK: true},
 		{path: "/dev/waterfall", want: "waterfall", wantOK: true},
+		{path: "/dev/wheat-field", want: "wheat-field", wantOK: true},
 		{path: "/dev/unknown", wantOK: false},
 		{path: "/dev/fireflies/extra", wantOK: false},
 	}
@@ -48,6 +49,7 @@ func TestEffectFromSchemaPath(t *testing.T) {
 		{path: "/effects/snow/schema", want: "snow", wantOK: true},
 		{path: "/effects/starfield/schema", want: "starfield", wantOK: true},
 		{path: "/effects/waterfall/schema", want: "waterfall", wantOK: true},
+		{path: "/effects/wheat-field/schema", want: "wheat-field", wantOK: true},
 		{path: "/effects/unknown/schema", wantOK: false},
 		{path: "/effects/fireflies/not-schema", wantOK: false},
 	}
@@ -114,6 +116,17 @@ func TestNewDevSessionAuroraSnapshotType(t *testing.T) {
 	snap := session.snapshot()
 	if snap.Type != "aurora" {
 		t.Fatalf("snapshot type = %q, want aurora", snap.Type)
+	}
+}
+
+func TestNewDevSessionWheatFieldSnapshotType(t *testing.T) {
+	session, err := newDevSession("wheat-field")
+	if err != nil {
+		t.Fatalf("newDevSession: %v", err)
+	}
+	snap := session.snapshot()
+	if snap.Type != "wheat-field" {
+		t.Fatalf("snapshot type = %q, want wheat-field", snap.Type)
 	}
 }
 

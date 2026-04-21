@@ -1815,6 +1815,32 @@
 			fade_dur: 58,
 			fade_mult: 0.6,
 		},
+		'wheat-field': {
+			intro_dur: 60,
+			intro_breeze: 0.16,
+			ending_dur: 70,
+			ending_linger: 20,
+			ending_sway: 0.08,
+			density: 0.48,
+			speed: 0.12,
+			drift: 0.16,
+			sway: 0.68,
+			wave_freq: 0.18,
+			field_top: 0.62,
+			stalk_h: 18,
+			layers: 3,
+			hue: 46,
+			hue_sp: 18,
+			sat: 0.64,
+			lmin: 0.3,
+			lmax: 0.76,
+			gust_p: 0,
+			calm_p: 0,
+			gust_dur: 50,
+			gust_mult: 1.85,
+			calm_dur: 72,
+			calm_mult: 0.4,
+		},
 		starfield: {
 			intro_dur: 50,
 			intro_density: 0.08,
@@ -1895,6 +1921,30 @@
 		const base = PROCEDURAL_DEFAULTS[kind] || {};
 		const c = Object.assign({}, base, cfg || {});
 		switch (kind) {
+			case 'wheat-field':
+				if (c.intro_dur <= 0) c.intro_dur = base.intro_dur;
+				c.intro_breeze = clamp01(c.intro_breeze);
+				if (c.ending_dur <= 0) c.ending_dur = base.ending_dur;
+				if (c.ending_linger < 0) c.ending_linger = 0;
+				c.ending_sway = clamp01(c.ending_sway);
+				if (c.density <= 0) c.density = base.density;
+				if (c.speed <= 0) c.speed = base.speed;
+				if (c.sway <= 0) c.sway = base.sway;
+				if (c.wave_freq <= 0) c.wave_freq = base.wave_freq;
+				if (c.field_top <= 0) c.field_top = base.field_top;
+				if (c.stalk_h <= 0) c.stalk_h = base.stalk_h;
+				if (c.layers < 1) c.layers = base.layers;
+				if (c.hue === 0) c.hue = base.hue;
+				if (c.hue_sp < 0) c.hue_sp = 0;
+				if (c.sat <= 0) c.sat = base.sat;
+				if (c.lmin <= 0) c.lmin = base.lmin;
+				if (c.lmax <= 0) c.lmax = base.lmax;
+				if (c.lmax < c.lmin) [c.lmin, c.lmax] = [c.lmax, c.lmin];
+				if (c.gust_dur <= 0) c.gust_dur = base.gust_dur;
+				if (c.gust_mult <= 0) c.gust_mult = base.gust_mult;
+				if (c.calm_dur <= 0) c.calm_dur = base.calm_dur;
+				if (c.calm_mult <= 0) c.calm_mult = base.calm_mult;
+				break;
 			case 'aurora':
 				if (c.intro_dur <= 0) c.intro_dur = base.intro_dur;
 				c.intro_glow = clamp01(c.intro_glow);
@@ -2030,6 +2080,8 @@
 
 		triggerEvent(name) {
 			switch (this.kind) {
+				case 'wheat-field':
+					return this._triggerWheatField(name);
 				case 'aurora':
 					return this._triggerAurora(name);
 				case 'starfield':
@@ -2061,10 +2113,15 @@
 					this.values.shift_seed = 0;
 				}
 			}
+			if (this.kind === 'wheat-field' && (!this.timers.gust || this.timers.gust <= 0)) {
+				this.values.gust_push = 0;
+			}
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
 			switch (this.kind) {
+				case 'wheat-field':
+					return this._renderWheatField(ctx, canvasW, canvasH, opts);
 				case 'aurora':
 					return this._renderAurora(ctx, canvasW, canvasH, opts);
 				case 'starfield':
@@ -2158,6 +2215,36 @@
 					this.timers.swirl = 0;
 					this.values.gust_push = 0;
 					this.values.swirl_spin = 0;
+					this.timers.ending = Math.max(1, Math.round(this.cfg.ending_dur + Math.max(0, this.cfg.ending_linger)));
+					this.values.ending_total = this.timers.ending;
+					return true;
+			}
+			return false;
+		}
+
+		_triggerWheatField(name) {
+			const rng = this._eventRng(name.length + 47);
+			switch (name) {
+				case 'gust':
+					this.timers.gust = jitterInt(rng, this.cfg.gust_dur, 0.3);
+					this.values.gust_push = (rng() < 0.35 ? -1 : 1) * this.cfg.gust_mult * (0.55 + rng() * 0.55);
+					return true;
+				case 'calm':
+					this.timers.calm = jitterInt(rng, this.cfg.calm_dur, 0.3);
+					return true;
+				case 'intro':
+					this.timers.gust = 0;
+					this.timers.calm = 0;
+					this.timers.ending = 0;
+					this.values.gust_push = 0;
+					this.timers.intro = Math.max(1, Math.round(this.cfg.intro_dur));
+					this.values.intro_total = this.timers.intro;
+					return true;
+				case 'ending':
+					this.timers.intro = 0;
+					this.timers.gust = 0;
+					this.timers.calm = 0;
+					this.values.gust_push = 0;
 					this.timers.ending = Math.max(1, Math.round(this.cfg.ending_dur + Math.max(0, this.cfg.ending_linger)));
 					this.values.ending_total = this.timers.ending;
 					return true;
@@ -2301,6 +2388,23 @@
 				level *= 1 - (1 - this.cfg.ending_glow) * progress;
 			}
 			return Math.max(0.02, level);
+		}
+
+		_motionLevelWheatField() {
+			let level = this.cfg.sway;
+			if (this.timers.gust > 0) level *= 1 + Math.abs(this.values.gust_push || this.cfg.gust_mult) * 0.35;
+			if (this.timers.calm > 0) level *= this.cfg.calm_mult;
+			if (this.timers.intro > 0) {
+				const total = this.values.intro_total || this.cfg.intro_dur;
+				const progress = this._phaseProgress(total, this.timers.intro);
+				level *= this.cfg.intro_breeze + (1 - this.cfg.intro_breeze) * progress;
+			}
+			if (this.timers.ending > 0) {
+				const total = this.values.ending_total || (this.cfg.ending_dur + this.cfg.ending_linger);
+				const progress = this._phaseProgress(total, this.timers.ending);
+				level *= 1 - (1 - this.cfg.ending_sway) * progress;
+			}
+			return Math.max(0.05, level);
 		}
 
 		_renderSnow(ctx, canvasW, canvasH, opts) {
@@ -2513,6 +2617,101 @@
 			}
 		}
 
+		_renderWheatField(ctx, canvasW, canvasH, opts) {
+			opts = opts || {};
+			if (opts.transparent) {
+				ctx.clearRect(0, 0, canvasW, canvasH);
+			} else {
+				const sky = ctx.createLinearGradient(0, 0, 0, canvasH);
+				sky.addColorStop(0, '#16213f');
+				sky.addColorStop(0.56, '#556785');
+				sky.addColorStop(1, '#d2ad66');
+				ctx.fillStyle = sky;
+				ctx.fillRect(0, 0, canvasW, canvasH);
+			}
+
+			const sx = canvasW / this.w;
+			const sy = canvasH / this.h;
+			const ceilSx = Math.ceil(sx);
+			const ceilSy = Math.ceil(sy);
+			const motion = this._motionLevelWheatField();
+			const density = Math.max(0.08, this.cfg.density);
+			const layers = Math.max(1, Math.round(this.cfg.layers));
+			const gustPush = this.values.gust_push || 0;
+			const fieldBase = Math.floor(this.h * this.cfg.field_top);
+
+			const sunX = canvasW * (0.16 + this._hash(21000) * 0.18);
+			const sunY = canvasH * (0.2 + this._hash(21001) * 0.06);
+			const sunR = Math.max(18, Math.min(canvasW, canvasH) * 0.06);
+			const sun = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, sunR * 2.8);
+			sun.addColorStop(0, 'rgba(255, 228, 153, 0.2)');
+			sun.addColorStop(1, 'rgba(255, 228, 153, 0)');
+			ctx.fillStyle = sun;
+			ctx.fillRect(0, 0, canvasW, canvasH);
+
+			const hillColor = hslToRGB(38, 0.18, 0.3);
+			const hillPoints = [];
+			for (let i = 0; i <= 8; i++) {
+				hillPoints.push(Math.floor(this.h * 0.56) - Math.floor(this._hash(21100 + i) * 5) - Math.floor((0.5 + 0.5 * Math.sin(i * 0.9 + this._hash(21200 + i) * 3)) * 5));
+			}
+			ctx.fillStyle = `rgb(${hillColor.r},${hillColor.g},${hillColor.b})`;
+			ctx.beginPath();
+			ctx.moveTo(0, canvasH);
+			for (let x = 0; x < this.w; x++) {
+				const pos = (x / Math.max(1, this.w - 1)) * 8;
+				const idx = Math.min(7, Math.floor(pos));
+				const frac = pos - idx;
+				const eased = frac * frac * (3 - 2 * frac);
+				const y = hillPoints[idx] + (hillPoints[idx + 1] - hillPoints[idx]) * eased;
+				ctx.lineTo(Math.floor(x * sx), Math.floor(y * sy));
+			}
+			ctx.lineTo(canvasW, canvasH);
+			ctx.closePath();
+			ctx.fill();
+
+			const groundGrad = ctx.createLinearGradient(0, Math.floor(fieldBase * sy), 0, canvasH);
+			groundGrad.addColorStop(0, '#b28d45');
+			groundGrad.addColorStop(0.45, '#be9c56');
+			groundGrad.addColorStop(1, '#8e6e32');
+			ctx.fillStyle = groundGrad;
+			ctx.fillRect(0, Math.floor(fieldBase * sy), canvasW, canvasH - Math.floor(fieldBase * sy));
+
+			for (let layer = 0; layer < layers; layer++) {
+				const layerRatio = layers === 1 ? 1 : layer / (layers - 1);
+				const amp = motion * (2.4 + layerRatio * 4.8);
+				const speed = this.cfg.speed * (0.4 + layerRatio * 0.65);
+				const drift = this.cfg.drift * (0.25 + layerRatio * 0.75) + gustPush * 0.04 * (0.5 + layerRatio * 0.5);
+				const topBase = fieldBase - this.cfg.stalk_h * (0.28 + layerRatio * 0.46);
+				const tipChance = clamp01(density * (0.4 + layerRatio * 0.22));
+				for (let x = 0; x < this.w;) {
+					const clumpSeed = layer * 4000 + x;
+					const width = Math.max(1, Math.min(4, Math.round(1 + this._hash(21700 + clumpSeed) * (1.2 + layerRatio * 2.4))));
+					const sampleX = Math.min(this.w - 1, x + width * 0.5);
+					const idx = layer * 2000 + sampleX;
+					const wave = Math.sin(sampleX * this.cfg.wave_freq * (0.85 + layerRatio * 0.25) + this.tick * speed + layer * 1.7);
+					const subWave = Math.sin(sampleX * this.cfg.wave_freq * 0.42 - this.tick * speed * 0.62 + layer * 2.3);
+					const lean = wave * amp + subWave * amp * 0.32 + Math.sin(this.tick * 0.012 + sampleX * 0.05) * drift * 3.2;
+					const top = Math.max(0, Math.min(this.h - 2, topBase + lean + this._hash(21300 + idx) * 2));
+					const depth = Math.max(6, Math.round(this.cfg.stalk_h * (0.48 + layerRatio * 0.42)));
+					const hue = ((this.cfg.hue + (this._hash(21400 + idx) * 2 - 1) * this.cfg.hue_sp) % 360 + 360) % 360;
+					const light = clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * (0.18 + layerRatio * 0.6));
+					const alpha = clamp01(0.34 + layerRatio * 0.24);
+					const color = hslToRGB(hue, this.cfg.sat, light);
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, Math.round(top), width, depth, `rgb(${color.r},${color.g},${color.b})`, alpha);
+					const shadow = hslToRGB(hue, clamp01(this.cfg.sat * 0.72), clamp01(light * 0.76));
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, Math.round(top), width, Math.max(1, Math.round(depth * 0.28)), `rgb(${shadow.r},${shadow.g},${shadow.b})`, clamp01(alpha * 0.55));
+
+					if (this._hash(21500 + idx) < tipChance) {
+						const tipHeight = 1 + Math.floor(this._hash(21600 + idx) * (1 + layerRatio * 3));
+						const tipX = Math.max(0, Math.min(this.w - 1, Math.round(x + width * 0.5 + lean * 0.18)));
+						const accent = hslToRGB((hue + 4) % 360, clamp01(this.cfg.sat * 0.82), clamp01(light * 1.08));
+						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, tipX, Math.round(top) - tipHeight + 1, 1, tipHeight, `rgb(${accent.r},${accent.g},${accent.b})`, clamp01(alpha * 0.9));
+					}
+					x += width;
+				}
+			}
+		}
+
 		_renderAurora(ctx, canvasW, canvasH, opts) {
 			opts = opts || {};
 			if (opts.transparent) {
@@ -2641,6 +2840,12 @@
 		}
 	}
 
+	class WheatField extends ProceduralScene {
+		constructor(w, h, cfg, seed) {
+			super('wheat-field', w, h, cfg, seed);
+		}
+	}
+
 	class Aurora extends ProceduralScene {
 		constructor(w, h, cfg, seed) {
 			super('aurora', w, h, cfg, seed);
@@ -2699,8 +2904,93 @@
 	// server's snapshot payload — the client looks up the constructor here
 	// by name so new effects just register themselves and work without
 	// client-side changes.
-	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield };
+	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield };
 	const presets = {
+		'wheat-field': [
+			{
+				key: 'still-evening',
+				label: 'still evening',
+				config: {
+					density: 0.4,
+					speed: 0.07,
+					drift: 0.05,
+					sway: 0.34,
+					wave_freq: 0.14,
+					field_top: 0.64,
+					stalk_h: 17,
+					layers: 2,
+					hue: 42,
+					hue_sp: 12,
+					sat: 0.56,
+					lmin: 0.28,
+					lmax: 0.7,
+					calm_p: 0.001,
+				},
+			},
+			{
+				key: 'gentle-breeze',
+				label: 'gentle breeze',
+				config: {
+					density: 0.48,
+					speed: 0.12,
+					drift: 0.14,
+					sway: 0.68,
+					wave_freq: 0.18,
+					field_top: 0.62,
+					stalk_h: 18,
+					layers: 3,
+					hue: 46,
+					hue_sp: 18,
+					sat: 0.64,
+					lmin: 0.3,
+					lmax: 0.76,
+					gust_p: 0.0008,
+				},
+			},
+			{
+				key: 'rolling-field',
+				label: 'rolling field',
+				config: {
+					density: 0.56,
+					speed: 0.16,
+					drift: 0.2,
+					sway: 0.88,
+					wave_freq: 0.16,
+					field_top: 0.6,
+					stalk_h: 20,
+					layers: 3,
+					hue: 48,
+					hue_sp: 20,
+					sat: 0.68,
+					lmin: 0.3,
+					lmax: 0.8,
+					gust_p: 0.0012,
+					gust_mult: 2.15,
+				},
+			},
+			{
+				key: 'windy-harvest',
+				label: 'windy harvest',
+				config: {
+					density: 0.62,
+					speed: 0.2,
+					drift: 0.28,
+					sway: 1.02,
+					wave_freq: 0.21,
+					field_top: 0.59,
+					stalk_h: 22,
+					layers: 4,
+					hue: 44,
+					hue_sp: 24,
+					sat: 0.72,
+					lmin: 0.32,
+					lmax: 0.84,
+					gust_p: 0.0016,
+					gust_mult: 2.45,
+					gust_dur: 66,
+				},
+			},
+		],
 		aurora: [
 			{
 				key: 'green-veil',
@@ -3212,5 +3502,5 @@
 		],
 	};
 
-	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, Aurora, AutumnLeaves, Snow, Starfield, subscribe, applyDefaults, hslToRGB, effects, presets };
+	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Aurora, AutumnLeaves, Snow, Starfield, subscribe, applyDefaults, hslToRGB, effects, presets };
 })(window);
