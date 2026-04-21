@@ -34,6 +34,10 @@ spec:
               value: {{ .Values.edge.authorityURL | quote }}
             - name: AMBIENCE_SHUTDOWN_DRAIN
               value: {{ .Values.edge.shutdownDrain | quote }}
+            {{- if .Values.edge.webOverride.enabled }}
+            - name: AMBIENCE_WEB_OVERRIDE_DIR
+              value: {{ .Values.edge.webOverride.mountPath | quote }}
+            {{- end }}
           ports:
             - containerPort: 8080
               name: http
@@ -47,4 +51,29 @@ spec:
               port: http
           resources:
             {{- toYaml .Values.edge.resources | nindent 12 }}
+          {{- if .Values.edge.webOverride.enabled }}
+          volumeMounts:
+            - name: web-override
+              mountPath: {{ .Values.edge.webOverride.mountPath | quote }}
+              readOnly: true
+          {{- end }}
+        {{- if .Values.edge.webOverride.enabled }}
+        - name: {{ .Values.edge.webOverride.containerName }}
+          image: {{ .Values.edge.webOverride.sidecarImage | quote }}
+          imagePullPolicy: {{ .Values.edge.webOverride.sidecarImagePullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p {{ .Values.edge.webOverride.mountPath | quote }}
+              while true; do sleep 3600; done
+          volumeMounts:
+            - name: web-override
+              mountPath: {{ .Values.edge.webOverride.mountPath | quote }}
+        {{- end }}
+      {{- if .Values.edge.webOverride.enabled }}
+      volumes:
+        - name: web-override
+          emptyDir: {}
+      {{- end }}
 {{- end }}

@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestDevPageEffectFromPath(t *testing.T) {
 	cases := []struct {
@@ -10,6 +13,7 @@ func TestDevPageEffectFromPath(t *testing.T) {
 	}{
 		{path: "/dev", want: "rain", wantOK: true},
 		{path: "/dev/", want: "rain", wantOK: true},
+		{path: "/dev/dust", want: "dust", wantOK: true},
 		{path: "/dev/fireflies", want: "fireflies", wantOK: true},
 		{path: "/dev/waterfall", want: "waterfall", wantOK: true},
 		{path: "/dev/unknown", wantOK: false},
@@ -33,6 +37,7 @@ func TestEffectFromSchemaPath(t *testing.T) {
 		wantOK bool
 	}{
 		{path: "/effects/rain/schema", want: "rain", wantOK: true},
+		{path: "/effects/dust/schema", want: "dust", wantOK: true},
 		{path: "/effects/fireflies/schema", want: "fireflies", wantOK: true},
 		{path: "/effects/waterfall/schema", want: "waterfall", wantOK: true},
 		{path: "/effects/unknown/schema", wantOK: false},
@@ -60,6 +65,17 @@ func TestNewDevSessionFirefliesSnapshotType(t *testing.T) {
 	}
 }
 
+func TestNewDevSessionDustSnapshotType(t *testing.T) {
+	session, err := newDevSession("dust")
+	if err != nil {
+		t.Fatalf("newDevSession: %v", err)
+	}
+	snap := session.snapshot()
+	if snap.Type != "dust" {
+		t.Fatalf("snapshot type = %q, want dust", snap.Type)
+	}
+}
+
 func TestNewDevSessionWaterfallSnapshotType(t *testing.T) {
 	session, err := newDevSession("waterfall")
 	if err != nil {
@@ -68,5 +84,23 @@ func TestNewDevSessionWaterfallSnapshotType(t *testing.T) {
 	snap := session.snapshot()
 	if snap.Type != "waterfall" {
 		t.Fatalf("snapshot type = %q, want waterfall", snap.Type)
+	}
+}
+
+func TestDevSessionRandomizeConfigChangesSnapshotConfig(t *testing.T) {
+	session, err := newDevSession("dust")
+	if err != nil {
+		t.Fatalf("newDevSession: %v", err)
+	}
+
+	before := session.snapshot()
+	time.Sleep(time.Nanosecond)
+	if _, err := session.randomizeConfig(99); err != nil {
+		t.Fatalf("randomizeConfig: %v", err)
+	}
+	after := session.snapshot()
+
+	if configsEqualJSON(before.Config, after.Config) {
+		t.Fatal("expected randomized config to differ from previous session config")
 	}
 }

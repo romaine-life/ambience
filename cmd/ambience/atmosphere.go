@@ -440,12 +440,22 @@ func (a *atmosphere) setConfigRaw(data json.RawMessage) error {
 	if err := a.effect.ApplyConfig(data); err != nil {
 		return err
 	}
+	effectType := a.effect.Type()
 	var cfg sim.Config
-	if err := json.Unmarshal(data, &cfg); err == nil {
-		a.mu.Lock()
-		a.cfg = cfg
-		a.mu.Unlock()
+	hasRainConfig := effectType == "rain" && json.Unmarshal(data, &cfg) == nil
+	if hasRainConfig {
+		cfg = sim.NormalizeConfig(cfg)
 	}
+	a.mu.Lock()
+	// A manual live edit should take over immediately instead of getting
+	// overwritten by the previous scene transition on the next tick.
+	a.transitionDur = 0
+	a.transitionStart = 0
+	if hasRainConfig {
+		a.cfg = cfg
+		a.current.Config = cfg
+	}
+	a.mu.Unlock()
 	a.broadcast(Command{
 		Kind: "config",
 		Tick: a.effect.CurrentTick(),

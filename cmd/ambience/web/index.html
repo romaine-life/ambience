@@ -2,79 +2,466 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>ambience — live</title>
+<title>ambience - live</title>
 <style>
-  html, body { margin:0; padding:0; height:100%; background:#0a0a0a; color:#eee; font-family: Consolas, "SF Mono", Menlo, monospace; overflow:hidden; }
-  #c { position:fixed; inset:0; z-index:0; image-rendering:pixelated; width:100vw; height:100vh; display:block; }
-  #panel {
-    position:fixed; top:12px; right:12px; z-index:1;
-    background:rgba(10,10,10,0.75); backdrop-filter:blur(6px);
-    border:1px solid #333; border-radius:4px;
-    padding:10px 14px;
-    min-width:280px; max-width:320px;
-    font-size:12px; line-height:1.55;
-    box-shadow: 0 4px 18px rgba(0,0,0,0.4);
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: #0a0a0a;
+    color: #eee;
+    font-family: Consolas, "SF Mono", Menlo, monospace;
+    overflow: hidden;
   }
-  h2 { margin:0 0 6px; font-size:13px; font-weight:normal; color:#9cf; letter-spacing:0.05em; text-transform:uppercase; }
-  .row { display:flex; justify-content:space-between; padding:1px 0; }
-  .row .k { color:#888; }
-  .row .v { color:#eee; font-variant-numeric: tabular-nums; }
-  .section { margin-top:8px; padding-top:8px; border-top:1px solid #222; }
-  .toggle { display:flex; align-items:center; gap:8px; }
-  .toggle label { color:#aaa; cursor:pointer; flex:1; }
-  .toggle input[type="checkbox"] { accent-color:#9cf; }
-  .toggle .v { color:#9cf; font-variant-numeric: tabular-nums; }
-  #events { max-height:200px; overflow-y:auto; font-size:11px; }
-  #events::-webkit-scrollbar { width:4px; }
-  #events::-webkit-scrollbar-thumb { background:#333; }
-  .event { color:#999; padding:1px 0; font-variant-numeric: tabular-nums; }
-  .event .time { color:#555; margin-right:6px; }
-  .event.trigger { color:#fc9; }
-  .event.scene { color:#9fc; }
-  .event.entropy { color:#c9f; }
-  #devlink { margin-top:6px; font-size:10px; text-align:right; }
-  #devlink a { color:#666; text-decoration:none; }
-  #devlink a:hover { color:#9cf; }
-  .flash { animation: flash 350ms ease-out; }
-  @keyframes flash { from { background:rgba(70,90,80,0.6); } to { background:rgba(10,10,10,0.75); } }
-  .entropy-pulse { animation: pulse 200ms ease-out; }
-  @keyframes pulse { from { color:#c9f; transform:scale(1.08); } to { color:#9cf; transform:scale(1); } }
+  #c {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    image-rendering: pixelated;
+    width: 100vw;
+    height: 100vh;
+    display: block;
+  }
+  #panel {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 1;
+    width: 360px;
+    max-width: min(360px, calc(100vw - 24px));
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+    background: rgba(10, 10, 10, 0.82);
+    backdrop-filter: blur(8px);
+    border: 1px solid #333;
+    border-radius: 4px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+  }
+  #panel.collapsed {
+    width: auto;
+  }
+  #panel.collapsed .panel-body {
+    display: none;
+  }
+  #panel h2 {
+    margin: 0;
+    padding: 10px 14px 8px;
+    font-size: 12px;
+    font-weight: normal;
+    color: #9cf;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .panel-body {
+    padding: 0 14px 10px;
+  }
+  .btnbar {
+    display: flex;
+    gap: 4px;
+  }
+  .iconbtn {
+    background: none;
+    border: 1px solid #333;
+    color: #e0e0e0;
+    font-family: inherit;
+    font-size: 10px;
+    padding: 0 6px;
+    cursor: pointer;
+    border-radius: 2px;
+    line-height: 1.5;
+  }
+  .iconbtn:hover {
+    background: #1a1a1a;
+    border-color: #555;
+  }
+  .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 2px 0;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .row .k {
+    color: #888;
+    text-transform: lowercase;
+  }
+  .row .v {
+    color: #eee;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .section-lite {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #222;
+  }
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .toggle label {
+    color: #aaa;
+    cursor: pointer;
+    flex: 1;
+    font-size: 11px;
+  }
+  .toggle input[type="checkbox"] {
+    accent-color: #9cf;
+  }
+  .switcher {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .switcher-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .switcher label {
+    width: 52px;
+    opacity: 0.55;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .switcher select {
+    flex: 1;
+    background: #111;
+    border: 1px solid #333;
+    color: #e0e0e0;
+    font-family: inherit;
+    font-size: 10px;
+    padding: 4px 6px;
+    border-radius: 3px;
+  }
+  .switcher select:disabled {
+    opacity: 0.8;
+    cursor: default;
+  }
+  .lock-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .lock-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .lock-copy .eyebrow {
+    opacity: 0.55;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .lock-copy .lock-state {
+    font-size: 12px;
+    color: #bbb;
+  }
+  .lock-copy .lock-state.unlocked {
+    color: #f7c06a;
+  }
+  .lock-button {
+    min-width: 78px;
+    background: #171717;
+    border: 1px solid #555;
+    color: #eee;
+    font-family: inherit;
+    font-size: 10px;
+    padding: 5px 8px;
+    cursor: pointer;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+  .lock-button:hover {
+    background: #212121;
+    border-color: #777;
+  }
+  .lock-button.unlocked {
+    background: #33210c;
+    border-color: #a56d20;
+    color: #ffdca7;
+  }
+  .hint {
+    margin-top: 6px;
+    font-size: 10px;
+    line-height: 1.45;
+    color: #8b8b8b;
+  }
+  #controlBody {
+    margin-top: 8px;
+  }
+  .section {
+    margin-top: 6px;
+  }
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid #2a2a2a;
+    font-size: 10px;
+    opacity: 0.78;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .section-head:hover {
+    opacity: 1;
+  }
+  .section-head .chev {
+    display: inline-block;
+    width: 10px;
+    transition: transform 0.15s;
+    opacity: 0.6;
+    font-size: 9px;
+  }
+  .section.closed .section-head .chev {
+    transform: rotate(-90deg);
+  }
+  .section-head .name {
+    flex: 1;
+  }
+  .section-head .count {
+    opacity: 0.4;
+    font-size: 9px;
+  }
+  .section-body {
+    padding: 4px 0 6px;
+  }
+  .section.closed .section-body {
+    display: none;
+  }
+  #controlBody h3 {
+    font-size: 9px;
+    margin: 6px 0 2px;
+    opacity: 0.4;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: normal;
+  }
+  .empty-slot {
+    opacity: 0.3;
+    font-size: 10px;
+    padding: 4px 0;
+    font-style: italic;
+  }
+  .control-row {
+    display: flex;
+    align-items: center;
+    margin: 3px 0;
+    gap: 6px;
+  }
+  .control-row label {
+    opacity: 0.75;
+    min-width: 76px;
+    font-size: 10px;
+  }
+  .control-row input[type="range"] {
+    flex: 1;
+    min-width: 50px;
+  }
+  .control-row .val {
+    opacity: 0.6;
+    min-width: 42px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+  }
+  .help {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 13px;
+    height: 13px;
+    min-width: 13px;
+    border: 1px solid #555;
+    border-radius: 50%;
+    font-size: 8px;
+    line-height: 1;
+    color: #888;
+    cursor: help;
+    user-select: none;
+  }
+  .help:hover {
+    border-color: #aaa;
+    color: #e0e0e0;
+    background: #1a1a1a;
+  }
+  .fire {
+    background: #2a2a2a;
+    border: 1px solid #555;
+    color: #e0e0e0;
+    font-family: inherit;
+    font-size: 9px;
+    padding: 1px 5px;
+    cursor: pointer;
+    border-radius: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+  }
+  .fire:hover {
+    background: #3a3a3a;
+    border-color: #888;
+  }
+  .fire:disabled,
+  .control-row input:disabled,
+  .switcher select:disabled {
+    cursor: default;
+  }
+  .subhead {
+    font-size: 10px;
+    opacity: 0.72;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+  }
+  #events {
+    max-height: 180px;
+    overflow-y: auto;
+    font-size: 11px;
+    background: #060606;
+    border: 1px solid #1a1a1a;
+    padding: 6px;
+  }
+  #events::-webkit-scrollbar {
+    width: 4px;
+  }
+  #events::-webkit-scrollbar-thumb {
+    background: #333;
+  }
+  .event {
+    color: #999;
+    padding: 1px 0;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.45;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .event .time {
+    color: #555;
+    margin-right: 6px;
+  }
+  .event.trigger {
+    color: #fc9;
+  }
+  .event.scene {
+    color: #9fc;
+  }
+  .event.entropy {
+    color: #c9f;
+  }
+  .event.system {
+    color: #f7b86c;
+  }
+  #devlink {
+    margin-top: 8px;
+    font-size: 10px;
+    text-align: right;
+  }
+  #devlink a {
+    color: #666;
+    text-decoration: none;
+  }
+  #devlink a:hover {
+    color: #9cf;
+  }
+  .flash {
+    animation: flash 350ms ease-out;
+  }
+  @keyframes flash {
+    from { background: rgba(70, 90, 80, 0.6); }
+    to { background: rgba(10, 10, 10, 0.82); }
+  }
+  .entropy-pulse {
+    animation: pulse 200ms ease-out;
+  }
+  @keyframes pulse {
+    from { color: #c9f; transform: scale(1.08); }
+    to { color: #9cf; transform: scale(1); }
+  }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 
 <div id="panel">
-  <h2>ambience · live broadcast</h2>
-  <div class="row"><span class="k">scene</span><span class="v" id="sceneName">—</span></div>
-  <div class="row"><span class="k">remaining</span><span class="v" id="sceneRemaining">—</span></div>
-  <div class="row"><span class="k">up next</span><span class="v" id="nextName">—</span></div>
-  <div class="row"><span class="k">tick</span><span class="v" id="tick">0</span></div>
+  <h2>
+    <span>ambience live broadcast</span>
+    <span class="btnbar">
+      <button class="iconbtn" id="toggleAll" title="collapse or expand all control sections">[]</button>
+      <button class="iconbtn" id="togglePanel" title="collapse or expand panel (h)">-</button>
+    </span>
+  </h2>
+  <div class="panel-body" id="panelBody">
+    <div class="row"><span class="k">scene</span><span class="v" id="sceneName">-</span></div>
+    <div class="row"><span class="k">remaining</span><span class="v" id="sceneRemaining">-</span></div>
+    <div class="row"><span class="k">up next</span><span class="v" id="nextName">-</span></div>
+    <div class="row"><span class="k">tick</span><span class="v" id="tick">0</span></div>
 
-  <div class="section toggle">
-    <input type="checkbox" id="entropyToggle" checked>
-    <label for="entropyToggle">entropy capture</label>
-    <span class="v" id="entropyCount">0 B</span>
+    <div class="section-lite toggle">
+      <input type="checkbox" id="entropyToggle" checked>
+      <label for="entropyToggle">entropy capture</label>
+      <span class="v" id="entropyCount">0 B</span>
+    </div>
+
+    <div class="section-lite">
+      <div class="lock-row">
+        <div class="lock-copy">
+          <span class="eyebrow">live controls</span>
+          <span class="lock-state locked" id="lockState">view only</span>
+        </div>
+        <button class="lock-button" id="lockButton" type="button">unlock</button>
+      </div>
+      <div class="hint" id="lockHelp">Controls mirror the shared atmosphere, but slider moves and fire buttons stay inert until you unlock them.</div>
+    </div>
+
+    <div class="section-lite switcher">
+      <div class="switcher-row">
+        <label for="effectSelect">effect</label>
+        <select id="effectSelect" title="shared live effect"></select>
+      </div>
+      <div class="switcher-row">
+        <label for="presetSelect">preset</label>
+        <select id="presetSelect" title="apply effect preset"></select>
+      </div>
+    </div>
+
+    <div id="controlBody"></div>
+
+    <div class="section-lite">
+      <div class="subhead">event log</div>
+      <div id="events"></div>
+    </div>
+
+    <div id="devlink"><a href="/dev">/dev -&gt;</a></div>
   </div>
-
-  <div class="section">
-    <div id="events"></div>
-  </div>
-
-  <div id="devlink"><a href="/dev">/dev →</a></div>
 </div>
 
 <script src="/sim.js"></script>
+<script src="/controls.js"></script>
 <script>
 (() => {
   'use strict';
 
-  // Grid dims match the server's cmd/ambience/main.go gridW/gridH. Snapshots
-  // re-adopt server dims so this is more of an initial hint than a constraint.
-  const GRID_W = 160, GRID_H = 80;
+  const GRID_W = 160;
+  const GRID_H = 80;
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
+
   function resize() {
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.floor(window.innerWidth * dpr);
@@ -83,11 +470,23 @@
   resize();
   window.addEventListener('resize', resize);
 
-  let effectType = 'rain';
-  let effect = new AmbienceSim.effects[effectType](GRID_W, GRID_H, {});
+  function newEffectInstance(name) {
+    const ctor = AmbienceSim.effects[name];
+    if (!ctor) throw new Error('unknown effect: ' + name);
+    return new ctor(GRID_W, GRID_H, {});
+  }
 
-  // Panel DOM refs.
+  let effectType = 'rain';
+  let effect = newEffectInstance(effectType);
+  let latestConfig = null;
+  let ready = false;
+  let schemaLoadToken = 0;
+
   const el = {
+    panel: document.getElementById('panel'),
+    panelBody: document.getElementById('panelBody'),
+    togglePanel: document.getElementById('togglePanel'),
+    toggleAll: document.getElementById('toggleAll'),
     sceneName: document.getElementById('sceneName'),
     sceneRemaining: document.getElementById('sceneRemaining'),
     nextName: document.getElementById('nextName'),
@@ -95,10 +494,57 @@
     entropyToggle: document.getElementById('entropyToggle'),
     entropyCount: document.getElementById('entropyCount'),
     events: document.getElementById('events'),
-    panel: document.getElementById('panel'),
+    lockButton: document.getElementById('lockButton'),
+    lockState: document.getElementById('lockState'),
+    lockHelp: document.getElementById('lockHelp'),
+    effectSelect: document.getElementById('effectSelect'),
+    presetSelect: document.getElementById('presetSelect'),
+    controlBody: document.getElementById('controlBody'),
   };
 
-  // ── Formatting helpers ─────────────────────────────────────
+  const controls = AmbienceControls.create({
+    root: el.controlBody,
+    effect: effectType,
+    effectOptions: (current) => [current],
+    effectSelect: el.effectSelect,
+    presetSelect: el.presetSelect,
+    toggleAll: el.toggleAll,
+    storagePrefix: 'ambience.live.section.',
+    locked: true,
+    canSwitchEffect: false,
+    onConfigChange: () => scheduleSharedConfigPush(),
+    onTrigger: (eventName) => triggerSharedEvent(eventName),
+  });
+
+  function setControlsLocked(locked) {
+    controls.setLocked(locked);
+    el.lockButton.textContent = locked ? 'unlock' : 'lock';
+    el.lockButton.classList.toggle('unlocked', !locked);
+    el.lockState.textContent = locked ? 'view only' : 'live mutations armed';
+    el.lockState.classList.toggle('locked', locked);
+    el.lockState.classList.toggle('unlocked', !locked);
+    el.lockHelp.textContent = locked
+      ? 'Controls mirror the shared atmosphere, but slider moves and fire buttons stay inert until you unlock them.'
+      : 'Slider moves, presets, and fire buttons now hit the shared atmosphere immediately. This is the deliberate havoc switch.';
+  }
+  setControlsLocked(true);
+
+  el.lockButton.addEventListener('click', () => {
+    setControlsLocked(!controls.isLocked());
+  });
+
+  function setPanelCollapsed(on) {
+    el.panel.classList.toggle('collapsed', on);
+    el.togglePanel.textContent = on ? '+' : '-';
+  }
+  el.togglePanel.addEventListener('click', () => {
+    setPanelCollapsed(!el.panel.classList.contains('collapsed'));
+  });
+  window.addEventListener('keydown', (event) => {
+    if (event.target && (event.target.tagName === 'INPUT' || event.target.tagName === 'BUTTON' || event.target.tagName === 'SELECT')) return;
+    if (event.key === 'h') setPanelCollapsed(!el.panel.classList.contains('collapsed'));
+  });
+
   function fmtDuration(ticks) {
     const secs = Math.max(0, Math.round(ticks / 10));
     const h = Math.floor(secs / 3600);
@@ -108,17 +554,32 @@
     if (m > 0) return m + 'm ' + String(s).padStart(2, '0') + 's';
     return s + 's';
   }
+
   function fmtBytes(n) {
     if (n < 1024) return n + ' B';
     if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
     return (n / 1024 / 1024).toFixed(2) + ' MB';
   }
+
   function nowTimestamp() {
     const d = new Date();
     return d.toTimeString().slice(0, 8);
   }
 
-  // ── Scene state (client-side interpolation of remaining time) ─
+  function log(text, kind) {
+    const div = document.createElement('div');
+    div.className = 'event' + (kind ? ' ' + kind : '');
+    const time = document.createElement('span');
+    time.className = 'time';
+    time.textContent = nowTimestamp();
+    const body = document.createElement('span');
+    body.textContent = text;
+    div.append(time, body);
+    el.events.appendChild(div);
+    while (el.events.children.length > 60) el.events.removeChild(el.events.firstChild);
+    el.events.scrollTop = el.events.scrollHeight;
+  }
+
   let serverTick = 0;
   let lastBeatAt = Date.now();
   let sceneStartTick = 0;
@@ -128,134 +589,178 @@
     if (sceneDurationTicks <= 0) return;
     const elapsedSecs = (Date.now() - lastBeatAt) / 1000;
     const tickNow = serverTick + Math.round(elapsedSecs * 10);
-    const rem = Math.max(0, sceneStartTick + sceneDurationTicks - tickNow);
-    el.sceneRemaining.textContent = fmtDuration(rem);
+    const remaining = Math.max(0, sceneStartTick + sceneDurationTicks - tickNow);
+    el.sceneRemaining.textContent = fmtDuration(remaining);
     el.tick.textContent = tickNow.toLocaleString();
   }
   setInterval(updateRemainingDisplay, 1000);
 
-  // ── Event log ────────────────────────────────────────────
-  function log(text, kind) {
-    const div = document.createElement('div');
-    div.className = 'event' + (kind ? ' ' + kind : '');
-    div.innerHTML = '<span class="time">' + nowTimestamp() + '</span>' + text;
-    el.events.appendChild(div);
-    // Cap at 40 lines; scroll to bottom.
-    while (el.events.children.length > 40) el.events.removeChild(el.events.firstChild);
-    el.events.scrollTop = el.events.scrollHeight;
+  async function loadSchema(effectName) {
+    const token = ++schemaLoadToken;
+    try {
+      const resp = await fetch('/effects/' + encodeURIComponent(effectName) + '/schema');
+      const schema = await resp.json();
+      if (token !== schemaLoadToken) return;
+      controls.setEffect(effectName);
+      controls.render(schema);
+      if (latestConfig) controls.setValues(latestConfig);
+    } catch (err) {
+      console.error('schema', err);
+      log('schema unavailable for ' + effectName, 'system');
+    }
   }
 
-  // ── SSE subscription ─────────────────────────────────────
-  // All five command kinds handled here (snapshot/config/trigger/scene/metric).
-  // We deliberately do NOT use AmbienceSim.subscribe — that helper only knows
-  // the first three kinds and we want scene/metric plumbed into the panel.
-  function applySnapshot(snap) {
-    const newType = (snap && snap.type) || 'rain';
-    if (newType !== effectType) {
-      const ctor = AmbienceSim.effects[newType];
-      if (!ctor) {
-        console.warn('live monitor: unknown effect type', newType);
-        return;
-      }
-      effectType = newType;
-      effect = new ctor(GRID_W, GRID_H, {});
+  function currentSharedQuery() {
+    const values = controls.currentValues();
+    const q = new URLSearchParams();
+    q.set('effect', effectType);
+    for (const knob of controls.getKnobs()) {
+      const value = values[knob.key];
+      if (value == null) continue;
+      q.set(knob.key, knob.type === 'int' ? String(Math.round(value)) : String(value));
     }
-    try { effect.restoreSnapshot(snap); } catch (e) { console.error('restoreSnapshot failed', e); }
+    return q.toString();
+  }
+
+  async function pushSharedConfig() {
+    if (controls.isLocked() || !controls.getSchema()) return;
+    try {
+      const resp = await fetch('/config?' + currentSharedQuery(), { method: 'POST' });
+      if (!resp.ok) throw new Error('config returned ' + resp.status);
+    } catch (err) {
+      console.error('shared config push', err);
+      log('live config push failed', 'system');
+    }
+  }
+
+  let debounceTimer = null;
+  function scheduleSharedConfigPush() {
+    if (controls.isLocked()) return;
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(pushSharedConfig, 150);
+  }
+
+  async function triggerSharedEvent(eventName) {
+    if (controls.isLocked()) return;
+    try {
+      const resp = await fetch('/trigger/' + encodeURIComponent(eventName) + '?effect=' + encodeURIComponent(effectType), {
+        method: 'POST',
+      });
+      if (!resp.ok) throw new Error('trigger returned ' + resp.status);
+    } catch (err) {
+      console.error('shared trigger', err);
+      log('trigger failed: ' + eventName, 'system');
+    }
+  }
+
+  function applySnapshot(snap) {
+    const nextType = (snap && snap.type) || 'rain';
+    const typeChanged = nextType !== effectType;
+    if (typeChanged) {
+      effectType = nextType;
+      controls.setEffect(effectType);
+      effect = newEffectInstance(effectType);
+      loadSchema(effectType);
+    }
+    try {
+      effect.restoreSnapshot(snap);
+    } catch (err) {
+      console.error('restoreSnapshot failed', err);
+    }
+    latestConfig = snap.config || null;
+    if (!typeChanged && latestConfig && controls.getSchema()) controls.setValues(latestConfig);
     if (snap.currentScene) {
-      el.sceneName.textContent = snap.currentScene.name || '—';
+      el.sceneName.textContent = snap.currentScene.name || '-';
       sceneDurationTicks = snap.currentScene.durationTicks || 0;
       sceneStartTick = snap.currentScene.startedAtTick || 0;
     }
-    if (snap.nextScene) {
-      el.nextName.textContent = snap.nextScene.name || '—';
-    }
-    if (typeof snap.entropyBytes === 'number') {
-      el.entropyCount.textContent = fmtBytes(snap.entropyBytes);
-    }
-    log('snapshot applied · tick ' + snap.tick, 'scene');
+    if (snap.nextScene) el.nextName.textContent = snap.nextScene.name || '-';
+    if (typeof snap.entropyBytes === 'number') el.entropyCount.textContent = fmtBytes(snap.entropyBytes);
+    if (typeof snap.sceneRemaining === 'number') el.sceneRemaining.textContent = fmtDuration(snap.sceneRemaining);
+    log('snapshot applied - tick ' + snap.tick, 'scene');
   }
 
-  let ready = false;
+  loadSchema(effectType);
+
   const es = new EventSource('/events');
   es.onmessage = (ev) => {
     let cmd;
-    try { cmd = JSON.parse(ev.data); } catch (e) { return; }
+    try {
+      cmd = JSON.parse(ev.data);
+    } catch (_) {
+      return;
+    }
     serverTick = cmd.tick || serverTick;
     lastBeatAt = Date.now();
 
-    // NOTE: cmd.data is already an object (server uses json.RawMessage which
-    // inlines into the enclosing JSON); no second JSON.parse needed.
     switch (cmd.kind) {
-      case 'snapshot': {
-        try { applySnapshot(cmd.data); } catch (e) { console.error(e); }
+      case 'snapshot':
+        applySnapshot(cmd.data);
         ready = true;
         break;
-      }
-      case 'config': {
-        try { effect.setConfig(cmd.data); } catch (e) {}
+      case 'config':
+        try {
+          effect.setConfig(cmd.data);
+        } catch (_) {}
+        latestConfig = cmd.data || null;
+        if (latestConfig && controls.getSchema()) controls.setValues(latestConfig);
         break;
-      }
-      case 'trigger': {
+      case 'trigger':
         effect.triggerEvent(cmd.event);
-        log(cmd.event + (cmd.desc ? ' · ' + cmd.desc : ''), 'trigger');
+        log(cmd.event + (cmd.desc ? ' - ' + cmd.desc : ''), 'trigger');
         break;
-      }
-      case 'scene': {
+      case 'scene':
         try {
-          const s = cmd.data;
-          el.sceneName.textContent = s.name || '—';
-          el.nextName.textContent = s.nextName || '—';
-          sceneDurationTicks = s.durationTicks || 0;
-          sceneStartTick = s.startedAtTick || 0;
-          log('scene → ' + s.name + ' · up next ' + s.nextName, 'scene');
+          const scene = cmd.data;
+          el.sceneName.textContent = scene.name || '-';
+          el.nextName.textContent = scene.nextName || '-';
+          sceneDurationTicks = scene.durationTicks || 0;
+          sceneStartTick = scene.startedAtTick || 0;
+          log('scene -> ' + scene.name + ' - up next ' + scene.nextName, 'scene');
           el.panel.classList.remove('flash');
-          void el.panel.offsetWidth; // restart animation
+          void el.panel.offsetWidth;
           el.panel.classList.add('flash');
-        } catch (e) { console.error(e); }
+        } catch (err) {
+          console.error(err);
+        }
         break;
-      }
-      case 'metric': {
+      case 'metric':
         try {
-          const m = cmd.data;
-          if (typeof m.entropyBytes === 'number') {
-            el.entropyCount.textContent = fmtBytes(m.entropyBytes);
-          }
-          // Metric doubles as a heartbeat for the tick/remaining display.
-        } catch (e) {}
+          const metric = cmd.data;
+          if (typeof metric.entropyBytes === 'number') el.entropyCount.textContent = fmtBytes(metric.entropyBytes);
+          if (typeof metric.sceneRemaining === 'number') el.sceneRemaining.textContent = fmtDuration(metric.sceneRemaining);
+          if (metric.currentName) el.sceneName.textContent = metric.currentName;
+          if (metric.nextName) el.nextName.textContent = metric.nextName;
+        } catch (_) {}
         break;
-      }
     }
   };
-  es.onerror = () => { log('sse disconnected · retrying', 'trigger'); };
+  es.onerror = () => {
+    log('sse disconnected - retrying', 'system');
+  };
 
-  // ── Local tick + render loop ────────────────────────────
-  setInterval(() => { if (ready) effect.step(); }, 100);
+  setInterval(() => {
+    if (ready) effect.step();
+  }, 100);
+
   (function draw() {
     effect.render(ctx, canvas.width, canvas.height);
     requestAnimationFrame(draw);
   })();
 
-  // ── Entropy capture (togglable) ─────────────────────────
-  // Keystrokes hashed to a single byte each (key charCode XOR low-byte of
-  // wall clock), buffered, POSTed to /entropy every 2s. Toggle off to stop
-  // contributing; the server keeps its accumulated entropy. Server's running
-  // byte count (via "metric" broadcasts) is authoritative for the counter.
   let entropyBuf = [];
   const ENTROPY_FLUSH_MS = 2000;
   const ENTROPY_MAX_BUFFERED = 256;
 
-  document.addEventListener('keydown', (e) => {
+  document.addEventListener('keydown', (event) => {
     if (!el.entropyToggle.checked) return;
-    // Skip modifier-only keypresses.
-    const k = (e.key && e.key.length === 1) ? e.key.charCodeAt(0) : 0;
-    if (k === 0) return;
+    const charCode = (event.key && event.key.length === 1) ? event.key.charCodeAt(0) : 0;
+    if (charCode === 0) return;
     const t = Date.now() & 0xff;
-    entropyBuf.push((k ^ t) & 0xff);
+    entropyBuf.push((charCode ^ t) & 0xff);
     if (entropyBuf.length > ENTROPY_MAX_BUFFERED) {
       entropyBuf.splice(0, entropyBuf.length - ENTROPY_MAX_BUFFERED);
     }
-    // Pulse the counter so keystrokes are visibly captured even before the
-    // server metric catches up.
     el.entropyCount.classList.remove('entropy-pulse');
     void el.entropyCount.offsetWidth;
     el.entropyCount.classList.add('entropy-pulse');
@@ -273,11 +778,10 @@
       }).then(() => {
         log('entropy +' + count + ' B', 'entropy');
       }).catch(() => {});
-    } catch (_) { /* swallow */ }
+    } catch (_) {}
   }, ENTROPY_FLUSH_MS);
 
-  // Initial log entry so the panel isn't empty on first paint.
-  log('connecting…');
+  log('connecting...', 'system');
 })();
 </script>
 </body>
