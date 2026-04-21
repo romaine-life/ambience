@@ -7,8 +7,11 @@
 //	GET  /                      — canonical demo page (browser runs a JS sim)
 //	GET  /ambience.js           — shared renderer / SSE helpers
 //	GET  /sim.js                — JS port of sim/rain.go (runs in browser)
+//	GET  /controls.js           — shared schema-driven control panel helper
 //	GET  /snapshot              — shared atmosphere init payload (JSON)
 //	GET  /events                — shared atmosphere SSE command stream
+//	POST /config?effect=&...    — mutate the shared atmosphere config
+//	POST /trigger/:event        — fire a discrete event on the shared atmosphere
 //	GET  /dev                   — dev page with knob controls (defaults to rain)
 //	GET  /dev/<effect>          — effect-specific dev page (e.g. /dev/fireflies)
 //	GET  /dev/snapshot?session=&effect=
@@ -219,6 +222,10 @@ func registerAuthorityRoutes(mux *http.ServeMux) {
 	// my-homepage, etc.) can consume the stream.
 	mux.HandleFunc("/snapshot", cors(serveSharedSnapshot))
 	mux.HandleFunc("/events", cors(serveSharedEvents))
+	// Shared live controls stay same-origin only. They intentionally do not
+	// opt into permissive CORS because they mutate the shared atmosphere.
+	mux.HandleFunc("/config", serveSharedConfig)
+	mux.HandleFunc("/trigger/", serveSharedTrigger)
 	// Entropy intake — clients POST keystroke-derived bytes here; bytes
 	// get folded into the shared atmosphere's RNG.
 	mux.HandleFunc("/entropy", cors(serveEntropy))
