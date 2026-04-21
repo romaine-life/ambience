@@ -1,0 +1,12 @@
+domain:
+  host: ambience.romaine.life
+  tlsSecretName: ambience-tls
+
+image:
+  tag: 700c1d0
+
+edge:
+  replicas: 2
+
+pdb:
+  enabled: true

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ambience.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ambience.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "ambience.edgeSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}

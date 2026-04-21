@@ -1,0 +1,50 @@
+{{- if .Values.edge.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ambience.name" . }}-edge
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ambience.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.edge.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: {{ .Values.edge.strategy.maxSurge }}
+      maxUnavailable: {{ .Values.edge.strategy.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "ambience.edgeSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ambience.edgeSelectorLabels" . | nindent 8 }}
+        {{- include "ambience.labels" . | nindent 8 }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.edge.terminationGracePeriodSeconds }}
+      containers:
+        - name: {{ include "ambience.name" . }}
+          image: "{{ include "ambience.edgeImage" . }}"
+          imagePullPolicy: {{ include "ambience.edgeImagePullPolicy" . }}
+          env:
+            - name: AMBIENCE_ROLE
+              value: edge
+            - name: AMBIENCE_AUTHORITY_URL
+              value: {{ .Values.edge.authorityURL | quote }}
+            - name: AMBIENCE_SHUTDOWN_DRAIN
+              value: {{ .Values.edge.shutdownDrain | quote }}
+          ports:
+            - containerPort: 8080
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            {{- toYaml .Values.edge.resources | nindent 12 }}
+{{- end }}

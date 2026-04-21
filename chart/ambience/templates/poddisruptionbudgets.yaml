@@ -1,0 +1,27 @@
+{{- if .Values.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ambience.name" . }}-authority
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ambience.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.pdb.authority.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "ambience.authoritySelectorLabels" . | nindent 6 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ambience.name" . }}-edge
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ambience.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.pdb.edge.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "ambience.edgeSelectorLabels" . | nindent 6 }}
+{{- end }}

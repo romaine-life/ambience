@@ -1,0 +1,14 @@
+domain:
+  host: ambience.dev.romaine.life
+  tlsSecretName: ambience-dev-tls
+
+image:
+  tag: 700c1d0
+
+edge:
+  replicas: 1
+  terminationGracePeriodSeconds: 3
+  shutdownDrain: 1s
+
+pdb:
+  enabled: false

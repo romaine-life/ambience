@@ -1,0 +1,16 @@
+{{- if .Values.certificate.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.domain.tlsSecretName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ambience.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.domain.tlsSecretName }}
+  issuerRef:
+    name: {{ .Values.certificate.issuerRef.name }}
+    kind: {{ .Values.certificate.issuerRef.kind }}
+  dnsNames:
+    - {{ .Values.domain.host }}
+{{- end }}

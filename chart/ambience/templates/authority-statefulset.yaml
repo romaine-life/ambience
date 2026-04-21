@@ -1,0 +1,57 @@
+{{- if .Values.authority.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "ambience.name" . }}-authority
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ambience.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "ambience.name" . }}-authority
+  replicas: {{ .Values.authority.replicas }}
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "ambience.authoritySelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ambience.authoritySelectorLabels" . | nindent 8 }}
+        {{- include "ambience.labels" . | nindent 8 }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.authority.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.authority.securityContext | nindent 8 }}
+      containers:
+        - name: {{ include "ambience.name" . }}
+          image: "{{ include "ambience.authorityImage" . }}"
+          imagePullPolicy: {{ include "ambience.authorityImagePullPolicy" . }}
+          env:
+            - name: AMBIENCE_ROLE
+              value: authority
+            - name: AMBIENCE_PERSIST_PATH
+              value: {{ .Values.authority.persistPath | quote }}
+            - name: AMBIENCE_PERSIST_INTERVAL
+              value: {{ .Values.authority.persistInterval | quote }}
+          ports:
+            - containerPort: 8080
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            {{- toYaml .Values.authority.resources | nindent 12 }}
+          volumeMounts:
+            - name: ambience-state
+              mountPath: /data
+      volumes:
+        - name: ambience-state
+          persistentVolumeClaim:
+            claimName: {{ .Values.authority.storage.existingClaim }}
+{{- end }}
