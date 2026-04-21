@@ -9,13 +9,14 @@
 //	GET  /sim.js                — JS port of sim/rain.go (runs in browser)
 //	GET  /snapshot              — shared atmosphere init payload (JSON)
 //	GET  /events                — shared atmosphere SSE command stream
-//	GET  /dev                   — dev page with knob controls
-//	GET  /dev/snapshot?session= — dev atmosphere snapshot (JSON, creates if new)
-//	GET  /dev/events?session=   — dev atmosphere SSE command stream
-//	POST /dev/config?session=   — update the dev atmosphere's config
-//	POST /dev/trigger/:session/:event
+//	GET  /dev                   — dev page with knob controls (defaults to rain)
+//	GET  /dev/<effect>          — effect-specific dev page (e.g. /dev/fireflies)
+//	GET  /dev/snapshot?session=&effect=
+//	GET  /dev/events?session=&effect=
+//	POST /dev/config?session=&effect=
+//	POST /dev/trigger/:session/:event?effect=
 //	                            — fire a discrete event on the dev atmosphere
-//	GET  /effects/:effect/schema — JSON schema for an effect's dev panel
+//	GET  /effects/<effect>/schema — JSON schema for the dev knob panel
 package main
 
 import (
@@ -194,7 +195,7 @@ func bootAuthority(ctx context.Context) error {
 	if store != nil {
 		go persistLoop(ctx, persistInterval, store, shared)
 	}
-	go sweepDevAtmospheres()
+	go sweepDevSessions()
 	return nil
 }
 
@@ -205,6 +206,7 @@ func registerCommonRoutes(mux *http.ServeMux, ready func() bool) {
 
 func registerStaticRoutes(mux *http.ServeMux, web fs.FS) {
 	mux.HandleFunc("/dev", serveDevPage(web))
+	mux.HandleFunc("/dev/", serveDevPage(web))
 	mux.Handle("/", http.FileServer(http.FS(web)))
 }
 
@@ -224,10 +226,10 @@ func registerAuthorityRoutes(mux *http.ServeMux) {
 
 func registerDevRoutes(mux *http.ServeMux) {
 	// Dev atmospheres (per-session)
-	mux.HandleFunc("/dev/snapshot", serveDevSnapshot)
-	mux.HandleFunc("/dev/events", serveDevEvents)
-	mux.HandleFunc("/dev/config", serveDevConfig)
-	mux.HandleFunc("/dev/trigger/", serveDevTrigger)
+	mux.HandleFunc("/dev/snapshot", serveDevSessionSnapshot)
+	mux.HandleFunc("/dev/events", serveDevSessionEvents)
+	mux.HandleFunc("/dev/config", serveDevSessionConfig)
+	mux.HandleFunc("/dev/trigger/", serveDevSessionTrigger)
 }
 
 func serveHealthz(w http.ResponseWriter, _ *http.Request) {
@@ -262,7 +264,7 @@ func cors(h http.HandlerFunc) http.HandlerFunc {
 
 func serveDevPage(web fs.FS) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.Path != "/dev" {
+		if _, ok := devPageEffectFromPath(req.URL.Path); !ok {
 			http.NotFound(w, req)
 			return
 		}
@@ -274,23 +276,6 @@ func serveDevPage(web fs.FS) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(data)
 	}
-}
-
-func serveEffectSchema(w http.ResponseWriter, req *http.Request) {
-	const prefix = "/effects/"
-	rest := strings.TrimPrefix(req.URL.Path, prefix)
-	parts := strings.Split(rest, "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] != "schema" {
-		http.NotFound(w, req)
-		return
-	}
-	schema, ok := schemaForEffect(parts[0])
-	if !ok {
-		http.Error(w, "unknown effect: "+parts[0], http.StatusNotFound)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(schema)
 }
 
 // sseHeaders sets the three standard SSE headers and returns a Flusher.
@@ -403,80 +388,6 @@ func serveEntropy(w http.ResponseWriter, req *http.Request) {
 	n, _ := io.ReadFull(req.Body, buf)
 	if n > 0 {
 		shared.AddEntropy(buf[:n])
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func devAtmosphereFromRequest(req *http.Request) (*atmosphere, string, error) {
-	sessionID := req.URL.Query().Get("session")
-	if sessionID == "" {
-		return nil, "", fmt.Errorf("session param required")
-	}
-	return getOrCreateDevAtmosphere(sessionID), sessionID, nil
-}
-
-func serveDevSnapshot(w http.ResponseWriter, req *http.Request) {
-	a, _, err := devAtmosphereFromRequest(req)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(a.snapshot())
-}
-
-func serveDevEvents(w http.ResponseWriter, req *http.Request) {
-	a, _, err := devAtmosphereFromRequest(req)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	streamAtmosphere(w, req, a)
-}
-
-func serveDevConfig(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPost {
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
-		return
-	}
-	a, _, err := devAtmosphereFromRequest(req)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	data, err := parseEffectConfig(req.URL.Query(), a.effect.Schema())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := a.setConfigRaw(data); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func serveDevTrigger(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPost {
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
-		return
-	}
-	rest := strings.TrimPrefix(req.URL.Path, "/dev/trigger/")
-	parts := strings.SplitN(rest, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		http.Error(w, "usage: /dev/trigger/<session>/<event>", http.StatusBadRequest)
-		return
-	}
-	sessionID, event := parts[0], parts[1]
-	v, ok := devAtmospheres.Load(sessionID)
-	if !ok {
-		http.Error(w, "session not found", http.StatusNotFound)
-		return
-	}
-	a := v.(*atmosphere)
-	if !a.triggerEvent(event) {
-		http.Error(w, "unknown event: "+event, http.StatusBadRequest)
-		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
