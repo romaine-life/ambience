@@ -152,6 +152,16 @@ func TestBurningTreesSchema(t *testing.T) {
 	}
 }
 
+func TestSandSchema(t *testing.T) {
+	schema := SandSchema()
+	if schema.Name != "sand" {
+		t.Fatalf("schema name = %q, want sand", schema.Name)
+	}
+	if len(schema.Knobs) == 0 {
+		t.Fatal("expected sand schema knobs")
+	}
+}
+
 func TestProceduralSnowSnapshotRestore(t *testing.T) {
 	p := NewProcedural("snow", 160, 80, 42, nil)
 	if !p.TriggerEvent("gust") {
@@ -676,5 +686,42 @@ func TestProceduralBurningTreesSnapshotRestore(t *testing.T) {
 				t.Fatalf("restored %s = %f, want %f", key, again.Values[key], value)
 			}
 		}
+	}
+}
+
+func TestProceduralSandSnapshotRestore(t *testing.T) {
+	p := NewProcedural("sand", 160, 80, 71, nil)
+	if !p.TriggerEvent("intro") {
+		t.Fatal("expected intro trigger to succeed")
+	}
+	if !p.TriggerEvent("surge") {
+		t.Fatal("expected surge trigger to succeed")
+	}
+	for i := 0; i < 6; i++ {
+		p.Step()
+	}
+
+	snap := p.Snapshot()
+	if snap.Timers["surge"] <= 0 {
+		t.Fatal("expected surge timer in snapshot")
+	}
+	if snap.Values["fill_level"] <= 0 {
+		t.Fatal("expected fill level value in snapshot")
+	}
+	if snap.Values["surface_bias"] == 0 {
+		t.Fatal("expected surface bias value in snapshot")
+	}
+
+	restored := NewProcedural("sand", 160, 80, 7, nil)
+	restored.RestoreSnapshot(snap)
+	again := restored.Snapshot()
+	if again.Timers["surge"] != snap.Timers["surge"] {
+		t.Fatalf("restored surge timer = %d, want %d", again.Timers["surge"], snap.Timers["surge"])
+	}
+	if again.Values["fill_level"] != snap.Values["fill_level"] {
+		t.Fatalf("restored fill level = %f, want %f", again.Values["fill_level"], snap.Values["fill_level"])
+	}
+	if again.Values["surface_bias"] != snap.Values["surface_bias"] {
+		t.Fatalf("restored surface bias = %f, want %f", again.Values["surface_bias"], snap.Values["surface_bias"])
 	}
 }

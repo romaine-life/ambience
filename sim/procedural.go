@@ -477,6 +477,36 @@ var burningTreesDefaults = ProceduralConfig{
 	"lull_mult":     0.55,
 }
 
+var sandDefaults = ProceduralConfig{
+	"intro_dur":       55,
+	"intro_trickle":   0.10,
+	"intro_fill":      0.02,
+	"ending_dur":      70,
+	"ending_linger":   20,
+	"ending_settle":   0.08,
+	"pipe_x":          0.28,
+	"pipe_width":      7.0,
+	"pipe_drop":       18.0,
+	"container_x":     0.58,
+	"container_width": 34.0,
+	"container_depth": 10.0,
+	"flow":            0.24,
+	"spread":          0.90,
+	"settle":          0.32,
+	"overflow":        0.28,
+	"hue":             38,
+	"hue_sp":          10,
+	"sat":             0.54,
+	"lmin":            0.16,
+	"lmax":            0.86,
+	"surge_p":         0.0,
+	"calm_p":          0.0,
+	"surge_dur":       42,
+	"surge_mult":      2.00,
+	"calm_dur":        60,
+	"calm_mult":       0.42,
+}
+
 func SnowSchema() EffectSchema {
 	return EffectSchema{
 		Name: "snow",
@@ -1369,6 +1399,68 @@ func BurningTreesSchema() EffectSchema {
 	}
 }
 
+func SandSchema() EffectSchema {
+	return EffectSchema{
+		Name: "sand",
+		Knobs: []Knob{
+			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 55, Trigger: "intro",
+				Description: "Ticks spent ramping from a few first grains into the full pour."},
+			{Key: "intro_trickle", Label: "intro trickle", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0.01, Max: 0.4, Step: 0.01, Default: 0.10,
+				Description: "Starting fraction of the full sand flow during the intro."},
+			{Key: "intro_fill", Label: "intro fill", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0, Max: 0.25, Step: 0.01, Default: 0.02,
+				Description: "Initial amount of settled sand in the container when the intro begins."},
+			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 10, Max: 240, Step: 5, Default: 70, Trigger: "ending",
+				Description: "Ticks spent tapering the source down from a pour to the last grains."},
+			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 180, Step: 5, Default: 20,
+				Description: "Extra settle ticks after the source cuts off so the pile can quiet down."},
+			{Key: "ending_settle", Label: "ending settle", Slot: SlotEnd, Group: "ending", Type: KnobFloat, Min: 0.01, Max: 0.4, Step: 0.01, Default: 0.08,
+				Description: "Residual settling and trickle level near the end of the outro."},
+			{Key: "pipe_x", Label: "pipe x", Slot: SlotLever, Group: "layout", Type: KnobFloat, Min: 0.08, Max: 0.45, Step: 0.01, Default: 0.28,
+				Description: "Horizontal location of the pipe outlet."},
+			{Key: "pipe_width", Label: "pipe width", Slot: SlotLever, Group: "layout", Type: KnobFloat, Min: 4, Max: 12, Step: 1, Default: 7,
+				Description: "Width of the source pipe silhouette in pixels."},
+			{Key: "pipe_drop", Label: "pipe drop", Slot: SlotLever, Group: "layout", Type: KnobFloat, Min: 8, Max: 28, Step: 1, Default: 18,
+				Description: "Distance from the pipe outlet down to the basin floor."},
+			{Key: "container_x", Label: "basin x", Slot: SlotLever, Group: "layout", Type: KnobFloat, Min: 0.35, Max: 0.78, Step: 0.01, Default: 0.58,
+				Description: "Horizontal center of the receiving container."},
+			{Key: "container_width", Label: "basin width", Slot: SlotLever, Group: "layout", Type: KnobFloat, Min: 18, Max: 56, Step: 1, Default: 34,
+				Description: "Interior width of the receiving basin."},
+			{Key: "container_depth", Label: "basin depth", Slot: SlotLever, Group: "layout", Type: KnobFloat, Min: 6, Max: 18, Step: 1, Default: 10,
+				Description: "Interior depth of the receiving basin."},
+			{Key: "flow", Label: "flow", Slot: SlotLever, Group: "pour", Type: KnobFloat, Min: 0.05, Max: 0.7, Step: 0.01, Default: 0.24,
+				Description: "Baseline sand emission rate from the pipe."},
+			{Key: "spread", Label: "spread", Slot: SlotLever, Group: "pour", Type: KnobFloat, Min: 0.2, Max: 2.5, Step: 0.05, Default: 0.90,
+				Description: "Lateral scatter and plume width of the falling grains."},
+			{Key: "settle", Label: "settle", Slot: SlotLever, Group: "pour", Type: KnobFloat, Min: 0.05, Max: 1.2, Step: 0.05, Default: 0.32,
+				Description: "How quickly the pile redistributes and smooths after impact."},
+			{Key: "overflow", Label: "overflow", Slot: SlotLever, Group: "pour", Type: KnobFloat, Min: 0.05, Max: 1.4, Step: 0.05, Default: 0.28,
+				Description: "How readily excess sand escapes the basin and spills along the floor."},
+			{Key: "hue", Label: "hue", Slot: SlotLever, Group: "palette", Type: KnobFloat, Min: 24, Max: 56, Step: 1, Default: 38,
+				Description: "Base sand hue from pale tan toward warm ochre."},
+			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "palette", Type: KnobFloat, Min: 0, Max: 20, Step: 1, Default: 10,
+				Description: "Variation between highlights, shadowed grains, and pipe/basin accents."},
+			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "palette", Type: KnobFloat, Min: 0.1, Max: 0.9, Step: 0.01, Default: 0.54,
+				Description: "Overall scene saturation."},
+			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "palette", Type: KnobFloat, Min: 0.05, Max: 0.4, Step: 0.01, Default: 0.16,
+				Description: "Minimum lightness used for the deepest sand shadows and background."},
+			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "palette", Type: KnobFloat, Min: 0.4, Max: 1, Step: 0.01, Default: 0.86,
+				Description: "Maximum lightness used for highlights and fresh grains."},
+			{Key: "surge_p", Label: "surge", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "surge",
+				Description: "Per-tick chance of the source temporarily pouring harder."},
+			{Key: "calm_p", Label: "calm", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "calm",
+				Description: "Per-tick chance of the source slowing to a softer trickle."},
+			{Key: "surge_dur", Label: "surge dur", Slot: SlotEventMod, Group: "surge", Type: KnobInt, Min: 10, Max: 160, Step: 5, Default: 42,
+				Description: "Duration of the surge window."},
+			{Key: "surge_mult", Label: "surge x", Slot: SlotEventMod, Group: "surge", Type: KnobFloat, Min: 1.05, Max: 3, Step: 0.05, Default: 2.0,
+				Description: "Flow multiplier applied during a surge."},
+			{Key: "calm_dur", Label: "calm dur", Slot: SlotEventMod, Group: "calm", Type: KnobInt, Min: 10, Max: 180, Step: 5, Default: 60,
+				Description: "Duration of the slower calm window."},
+			{Key: "calm_mult", Label: "calm x", Slot: SlotEventMod, Group: "calm", Type: KnobFloat, Min: 0.05, Max: 1, Step: 0.05, Default: 0.42,
+				Description: "Flow multiplier applied during a calm period."},
+		},
+	}
+}
+
 func cloneProceduralConfig(src ProceduralConfig) ProceduralConfig {
 	if src == nil {
 		return ProceduralConfig{}
@@ -1439,6 +1531,8 @@ func proceduralDefaults(kind string) ProceduralConfig {
 		return cloneProceduralConfig(mysteriousManDefaults)
 	case "burning-trees":
 		return cloneProceduralConfig(burningTreesDefaults)
+	case "sand":
+		return cloneProceduralConfig(sandDefaults)
 	default:
 		return ProceduralConfig{}
 	}
@@ -2445,6 +2539,79 @@ func mergeProceduralDefaults(kind string, cfg ProceduralConfig) ProceduralConfig
 		if out["lull_mult"] <= 0 {
 			out["lull_mult"] = burningTreesDefaults["lull_mult"]
 		}
+	case "sand":
+		if out["intro_dur"] <= 0 {
+			out["intro_dur"] = sandDefaults["intro_dur"]
+		}
+		out["intro_trickle"] = clamp01(out["intro_trickle"])
+		out["intro_fill"] = clamp01(out["intro_fill"])
+		if out["ending_dur"] <= 0 {
+			out["ending_dur"] = sandDefaults["ending_dur"]
+		}
+		if out["ending_linger"] < 0 {
+			out["ending_linger"] = 0
+		}
+		out["ending_settle"] = clamp01(out["ending_settle"])
+		if out["pipe_x"] <= 0 {
+			out["pipe_x"] = sandDefaults["pipe_x"]
+		}
+		if out["pipe_width"] <= 0 {
+			out["pipe_width"] = sandDefaults["pipe_width"]
+		}
+		if out["pipe_drop"] <= 0 {
+			out["pipe_drop"] = sandDefaults["pipe_drop"]
+		}
+		if out["container_x"] <= 0 {
+			out["container_x"] = sandDefaults["container_x"]
+		}
+		if out["container_width"] <= 0 {
+			out["container_width"] = sandDefaults["container_width"]
+		}
+		if out["container_depth"] <= 0 {
+			out["container_depth"] = sandDefaults["container_depth"]
+		}
+		if out["flow"] <= 0 {
+			out["flow"] = sandDefaults["flow"]
+		}
+		if out["spread"] <= 0 {
+			out["spread"] = sandDefaults["spread"]
+		}
+		if out["settle"] <= 0 {
+			out["settle"] = sandDefaults["settle"]
+		}
+		if out["overflow"] <= 0 {
+			out["overflow"] = sandDefaults["overflow"]
+		}
+		if out["hue"] <= 0 {
+			out["hue"] = sandDefaults["hue"]
+		}
+		if out["hue_sp"] < 0 {
+			out["hue_sp"] = 0
+		}
+		if out["sat"] <= 0 {
+			out["sat"] = sandDefaults["sat"]
+		}
+		if out["lmin"] <= 0 {
+			out["lmin"] = sandDefaults["lmin"]
+		}
+		if out["lmax"] <= 0 {
+			out["lmax"] = sandDefaults["lmax"]
+		}
+		if out["lmax"] < out["lmin"] {
+			out["lmin"], out["lmax"] = out["lmax"], out["lmin"]
+		}
+		if out["surge_dur"] <= 0 {
+			out["surge_dur"] = sandDefaults["surge_dur"]
+		}
+		if out["surge_mult"] <= 0 {
+			out["surge_mult"] = sandDefaults["surge_mult"]
+		}
+		if out["calm_dur"] <= 0 {
+			out["calm_dur"] = sandDefaults["calm_dur"]
+		}
+		if out["calm_mult"] <= 0 {
+			out["calm_mult"] = sandDefaults["calm_mult"]
+		}
 	}
 	return out
 }
@@ -2837,6 +3004,22 @@ func (p *Procedural) TriggerEvent(name string) bool {
 			return false
 		}
 		return true
+	case "sand":
+		switch name {
+		case "surge":
+			p.startSandSurgeLocked("triggered")
+		case "calm":
+			p.startSandCalmLocked("triggered")
+		case "intro":
+			p.startSandIntroLocked()
+			p.appendLog("intro", fmt.Sprintf("started (dur=%d, trickle=%.2f)", p.timers["intro"], p.cfg["intro_trickle"]))
+		case "ending":
+			p.startSandEndingLocked()
+			p.appendLog("ending", fmt.Sprintf("started (fade=%d, linger=%d)", p.intCfg("ending_dur"), p.intCfg("ending_linger")))
+		default:
+			return false
+		}
+		return true
 	default:
 		return false
 	}
@@ -2902,11 +3085,24 @@ func (p *Procedural) Step() {
 		p.stepMysteriousManLocked()
 	case "burning-trees":
 		p.stepBurningTreesLocked()
+	case "sand":
+		p.stepSandLocked()
 	}
 }
 
 func (p *Procedural) intCfg(key string) int {
 	return int(math.Round(p.cfg[key]))
+}
+
+func proceduralPhaseProgress(total, left int) float64 {
+	if left <= 1 || total <= 1 {
+		return 1
+	}
+	elapsed := total - left
+	if elapsed <= 0 {
+		return 0
+	}
+	return clamp01(float64(elapsed) / float64(max(1, total-1)))
 }
 
 func (p *Procedural) startSnowGustLocked(verb string) {
@@ -4151,5 +4347,150 @@ func (p *Procedural) stepBurningTreesLocked() {
 	}
 	if p.timers["ignite"] > 0 && p.timers["lull"] <= 0 && p.timers["flare"] <= 0 && p.cfg["lull_p"] > 0 && p.rng.Float64() < p.cfg["lull_p"] {
 		p.startBurningTreesLullLocked("started")
+	}
+}
+
+func (p *Procedural) sandFlowLevelLocked() float64 {
+	flow := math.Max(0, p.cfg["flow"])
+	if p.timers["intro"] > 0 {
+		total := int(math.Round(p.values["intro_total"]))
+		progress := proceduralPhaseProgress(total, p.timers["intro"])
+		flow = p.cfg["intro_trickle"] + (flow-p.cfg["intro_trickle"])*progress
+	}
+	if p.timers["ending"] > 0 {
+		total := int(math.Round(p.values["ending_total"]))
+		progress := proceduralPhaseProgress(total, p.timers["ending"])
+		flow *= math.Max(0, 1-progress)
+	}
+	if p.timers["surge"] > 0 {
+		gain := p.values["surge_gain"]
+		if gain <= 0 {
+			gain = p.cfg["surge_mult"]
+		}
+		flow *= gain
+	}
+	if p.timers["calm"] > 0 {
+		gain := p.values["calm_gain"]
+		if gain <= 0 {
+			gain = p.cfg["calm_mult"]
+		}
+		flow *= gain
+	}
+	return math.Max(0, flow)
+}
+
+func (p *Procedural) startSandSurgeLocked(verb string) {
+	p.timers["calm"] = 0
+	p.timers["surge"] = jitterInt(p.rng, p.intCfg("surge_dur"), 0.3)
+	p.values["calm_gain"] = 1
+	p.values["surge_gain"] = p.cfg["surge_mult"] * (0.9 + p.rng.Float64()*0.4)
+	p.appendLog("surge", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["surge"], p.values["surge_gain"]))
+}
+
+func (p *Procedural) startSandCalmLocked(verb string) {
+	p.timers["surge"] = 0
+	p.timers["calm"] = jitterInt(p.rng, p.intCfg("calm_dur"), 0.3)
+	p.values["surge_gain"] = 1
+	p.values["calm_gain"] = math.Max(0.08, p.cfg["calm_mult"]*(0.85+p.rng.Float64()*0.25))
+	p.appendLog("calm", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["calm"], p.values["calm_gain"]))
+}
+
+func (p *Procedural) startSandIntroLocked() {
+	p.timers["surge"] = 0
+	p.timers["calm"] = 0
+	p.timers["ending"] = 0
+	p.values["surge_gain"] = 1
+	p.values["calm_gain"] = 1
+	p.values["fill_level"] = clamp01(p.cfg["intro_fill"])
+	p.values["spill_level"] = 0
+	p.values["surface_bias"] = 0
+	p.timers["intro"] = p.intCfg("intro_dur")
+	p.values["intro_total"] = float64(p.timers["intro"])
+}
+
+func (p *Procedural) startSandEndingLocked() {
+	p.timers["intro"] = 0
+	p.timers["surge"] = 0
+	p.timers["calm"] = 0
+	p.values["surge_gain"] = 1
+	p.values["calm_gain"] = 1
+	endingTotal := p.intCfg("ending_dur") + max(0, p.intCfg("ending_linger"))
+	if endingTotal < 1 {
+		endingTotal = max(1, p.intCfg("ending_dur"))
+	}
+	p.timers["ending"] = endingTotal
+	p.values["ending_total"] = float64(endingTotal)
+}
+
+func (p *Procedural) stepSandStateLocked() {
+	flow := p.sandFlowLevelLocked()
+	fill := clamp01(p.values["fill_level"])
+	spill := clamp01(p.values["spill_level"])
+	bias := p.values["surface_bias"]
+
+	incoming := flow * (0.02 + p.cfg["spread"]*0.012)
+	fill += incoming * (0.8 + p.cfg["settle"]*0.35)
+	if fill > 1 {
+		spill += (fill - 1) * (0.6 + p.cfg["overflow"]*0.5)
+		fill = 1
+	}
+	if fill > 0.88 {
+		spill += (fill - 0.88) * incoming * (0.4 + p.cfg["overflow"]*0.8)
+	}
+	spill -= (0.004 + p.cfg["settle"]*0.008) * math.Max(0.12, 1-flow*1.2)
+	if p.timers["ending"] > 0 {
+		total := int(math.Round(p.values["ending_total"]))
+		progress := proceduralPhaseProgress(total, p.timers["ending"])
+		spill += p.cfg["ending_settle"] * 0.006 * (1 - progress)
+	}
+
+	targetBias := (p.cfg["pipe_x"] - p.cfg["container_x"]) / 0.22
+	if targetBias < -1 {
+		targetBias = -1
+	} else if targetBias > 1 {
+		targetBias = 1
+	}
+	bias += (targetBias - bias) * (0.04 + flow*0.08 + p.cfg["settle"]*0.04)
+	if spill > 0.02 {
+		dir := 1.0
+		if targetBias < 0 {
+			dir = -1
+		}
+		bias += dir * spill * 0.01
+	}
+	if bias < -1 {
+		bias = -1
+	} else if bias > 1 {
+		bias = 1
+	}
+
+	p.values["fill_level"] = clamp01(fill)
+	p.values["spill_level"] = clamp01(spill)
+	p.values["surface_bias"] = bias
+}
+
+func (p *Procedural) stepSandLocked() {
+	p.stepSandStateLocked()
+	if p.timers["surge"] <= 0 {
+		p.values["surge_gain"] = 1
+	}
+	if p.timers["calm"] <= 0 {
+		p.values["calm_gain"] = 1
+	}
+	if p.timers["intro"] <= 0 {
+		delete(p.values, "intro_total")
+	}
+	if p.timers["ending"] <= 0 {
+		delete(p.values, "ending_total")
+	}
+	if p.timers["intro"] > 0 || p.timers["ending"] > 0 {
+		return
+	}
+	if p.timers["surge"] <= 0 && p.timers["calm"] <= 0 && p.cfg["surge_p"] > 0 && p.rng.Float64() < p.cfg["surge_p"] {
+		p.startSandSurgeLocked("started")
+		return
+	}
+	if p.timers["calm"] <= 0 && p.timers["surge"] <= 0 && p.cfg["calm_p"] > 0 && p.rng.Float64() < p.cfg["calm_p"] {
+		p.startSandCalmLocked("started")
 	}
 }
