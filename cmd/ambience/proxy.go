@@ -17,21 +17,24 @@ import (
 )
 
 const (
-	edgeEntropyBufferLimit = 256 * 1024
-	edgeEntropyFlushEvery  = 2 * time.Second
-	edgeForwardTimeout     = 1 * time.Second
-	edgeSnapshotPollEvery  = 5 * time.Second
-	edgeSnapshotTimeout    = 3 * time.Second
-	edgeReconnectDelay     = 1 * time.Second
-	edgeMaxSSEFrame        = 4 * 1024 * 1024
-	edgeReplayBufferSize   = 512
-	edgeReadyFreshness     = 20 * time.Second
+	edgeEntropyBufferLimit  = 256 * 1024
+	edgeEntropyFlushEvery   = 2 * time.Second
+	edgeForwardTimeout      = 1 * time.Second
+	edgeSnapshotPollEvery   = 5 * time.Second
+	edgeSnapshotTimeout     = 3 * time.Second
+	edgeReconnectDelay      = 1 * time.Second
+	edgeSchemaLookupTimeout = 1 * time.Second
+	edgeMaxSSEFrame         = 4 * 1024 * 1024
+	edgeReplayBufferSize    = 512
+	edgeReadyFreshness      = 20 * time.Second
 )
 
 type authorityProxy struct {
 	proxy   *httputil.ReverseProxy
 	entropy *entropyForwarder
 	mirror  *authorityMirror
+	client  *http.Client
+	baseURL *url.URL
 }
 
 func newAuthorityProxy(ctx context.Context, rawURL string) (*authorityProxy, error) {
@@ -57,10 +60,13 @@ func newAuthorityProxy(ctx context.Context, rawURL string) (*authorityProxy, err
 		proxy:   proxy,
 		entropy: newEntropyForwarder(ctx, baseURL),
 		mirror:  newAuthorityMirror(ctx, baseURL),
+		client:  &http.Client{},
+		baseURL: baseURL,
 	}, nil
 }
 
 func registerEdgeRoutes(mux *http.ServeMux, proxy *authorityProxy) {
+	mux.HandleFunc("/effects/", proxy.serveHTTP)
 	mux.HandleFunc("/snapshot", cors(proxy.serveSnapshot))
 	mux.HandleFunc("/events", cors(proxy.serveEvents))
 	mux.HandleFunc("/entropy", cors(proxy.serveEntropy))
@@ -75,6 +81,42 @@ func registerEdgeRoutes(mux *http.ServeMux, proxy *authorityProxy) {
 
 func (p *authorityProxy) ready() bool {
 	return p.mirror.ready()
+}
+
+func (p *authorityProxy) effectSchemaExists(effect string) (bool, error) {
+	if p == nil || p.client == nil || p.baseURL == nil {
+		return false, fmt.Errorf("authority proxy is not configured for schema lookup")
+	}
+	effect = strings.TrimSpace(effect)
+	if effect == "" {
+		return false, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), edgeSchemaLookupTimeout)
+	defer cancel()
+
+	schemaURL := p.baseURL.ResolveReference(&url.URL{
+		Path: "/effects/" + url.PathEscape(effect) + "/schema",
+	}).String()
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, schemaURL, nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, fmt.Errorf("authority schema lookup returned %s", resp.Status)
+	}
 }
 
 func (p *authorityProxy) serveHTTP(w http.ResponseWriter, r *http.Request) {

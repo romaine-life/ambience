@@ -20,13 +20,19 @@ If you only read one section in this file, read this one.
    This is the fast path that syncs edited web files into the live dev
    edge pod without a Docker build. Never run the background watcher
    form unless the user explicitly asks for it.
-4. For Go/runtime/image-backed changes, use
+4. For effect work that changes authority-side Go plus `cmd/ambience/web/**`
+   without changing edge-only proxy/static serving behavior, use
+   `powershell -ExecutionPolicy Bypass -File scripts/dev-effect-loop.ps1`.
+   This rolls the authority image, then syncs web overrides into the live
+   edge pod so new or updated dev effects avoid an unnecessary edge image
+   rollout.
+5. For true edge/runtime/image-backed changes, use
    `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component all`
    by default. Use `edge` or `authority` only when the change is truly
    one-sided.
-5. Validate the result on `ambience.dev.romaine.life`, usually on
+6. Validate the result on `ambience.dev.romaine.life`, usually on
    `/dev/<effect>` for effect work, before treating it as ready.
-6. Only after dev validation should the change move into the manual
+7. Only after dev validation should the change move into the manual
    production promotion flow: build/push the real image, bump the prod
    Helm values file, commit that desired-state change, and let ArgoCD
    reconcile it.
@@ -127,15 +133,21 @@ For future Codex sessions, the default loop should be:
    `powershell -ExecutionPolicy Bypass -File scripts/dev-loop.ps1 -Once`
    so the edge pod serves override files directly. Never run the
    long-lived watcher form unless the user explicitly asks for it.
-5. For Go or image-backed changes, patch the dev environment with
-   `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component all`
-   when both browser and authority change together. If the change is only
-   static/browser-side or only authority-side, use `edge` or `authority`
-   respectively.
-6. Validate on `ambience.dev.romaine.life`, usually via
+5. For effect work that changes authority-side Go together with
+   `cmd/ambience/web`, prefer
+   `powershell -ExecutionPolicy Bypass -File scripts/dev-effect-loop.ps1`.
+   The edge now proxies effect schemas and validates `/dev/<effect>` via
+   authority, so this path keeps effect iteration on the fast
+   authority+web-sync loop instead of rebuilding edge.
+6. For true edge or shared image-backed changes, patch the dev
+   environment with
+   `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component all`.
+   If the change is only edge-side or only authority-side, use `edge` or
+   `authority` respectively.
+7. Validate on `ambience.dev.romaine.life`, usually via
    `/dev/<effect>` for new or changed dev effects, before treating the
    slice as ready for promotion.
-7. Only after the dev environment looks right should the change move into
+8. Only after the dev environment looks right should the change move into
    the manual production promotion flow: build/push the real image, bump
    the Helm values file, commit that desired-state change, and let ArgoCD
    reconcile it.

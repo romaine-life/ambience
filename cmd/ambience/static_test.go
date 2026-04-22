@@ -65,6 +65,50 @@ func TestServeDevPageUsesOverride(t *testing.T) {
 	}
 }
 
+func TestServeDevPageWithEffectLookupUsesCustomLookup(t *testing.T) {
+	static := newStaticAssets(fstest.MapFS{
+		"dev.html": &fstest.MapFile{Data: []byte("dev-page")},
+	}, "")
+
+	var lookedUp string
+	handler := serveDevPageWithEffectLookup(static, func(effect string) (bool, error) {
+		lookedUp = effect
+		return effect == "volcano", nil
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/dev/volcano", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if lookedUp != "volcano" {
+		t.Fatalf("looked up effect = %q, want %q", lookedUp, "volcano")
+	}
+	if body := rec.Body.String(); body != "dev-page" {
+		t.Fatalf("body = %q, want %q", body, "dev-page")
+	}
+}
+
+func TestServeDevPageWithEffectLookupReturnsUnavailableOnLookupError(t *testing.T) {
+	static := newStaticAssets(fstest.MapFS{
+		"dev.html": &fstest.MapFile{Data: []byte("dev-page")},
+	}, "")
+
+	handler := serveDevPageWithEffectLookup(static, func(string) (bool, error) {
+		return false, os.ErrDeadlineExceeded
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/dev/volcano", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
 func TestServeExactStaticFileServesOnlyConfiguredRoute(t *testing.T) {
 	static := newStaticAssets(fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte("home")},

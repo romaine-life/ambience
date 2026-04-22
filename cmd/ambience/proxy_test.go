@@ -261,3 +261,76 @@ func TestNewAuthorityProxyStartsReadyAfterSnapshotFetch(t *testing.T) {
 	}
 	t.Fatal("proxy never became ready after snapshot fetch")
 }
+
+func TestAuthorityProxyEffectSchemaExists(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/effects/snow/schema":
+			w.WriteHeader(http.StatusOK)
+		case "/effects/unknown/schema":
+			http.NotFound(w, r)
+		default:
+			http.Error(w, "unexpected path", http.StatusInternalServerError)
+		}
+	}))
+	defer server.Close()
+
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+
+	proxy := &authorityProxy{
+		client:  server.Client(),
+		baseURL: baseURL,
+	}
+
+	exists, err := proxy.effectSchemaExists("snow")
+	if err != nil {
+		t.Fatalf("effectSchemaExists returned error for known effect: %v", err)
+	}
+	if !exists {
+		t.Fatal("effectSchemaExists reported snow missing")
+	}
+
+	exists, err = proxy.effectSchemaExists("unknown")
+	if err != nil {
+		t.Fatalf("effectSchemaExists returned error for unknown effect: %v", err)
+	}
+	if exists {
+		t.Fatal("effectSchemaExists reported unknown effect present")
+	}
+}
+
+func TestRegisterEdgeRoutesProxiesEffectSchema(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/effects/snow/schema" {
+			http.Error(w, "unexpected path", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"name":"snow"}`)
+	}))
+	defer server.Close()
+
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	registerEdgeRoutes(mux, &authorityProxy{
+		proxy: httputil.NewSingleHostReverseProxy(baseURL),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/effects/snow/schema", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if body := rec.Body.String(); body != `{"name":"snow"}` {
+		t.Fatalf("body = %q, want proxied schema payload", body)
+	}
+}

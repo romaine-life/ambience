@@ -45,10 +45,16 @@ spec:
             httpGet:
               path: /readyz
               port: http
+            periodSeconds: {{ .Values.edge.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.edge.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.edge.probes.readiness.failureThreshold }}
           livenessProbe:
             httpGet:
               path: /healthz
               port: http
+            periodSeconds: {{ .Values.edge.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.edge.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.edge.probes.liveness.failureThreshold }}
           resources:
             {{- toYaml .Values.edge.resources | nindent 12 }}
           {{- if .Values.edge.webOverride.enabled }}

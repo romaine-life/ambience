@@ -9,8 +9,28 @@ edge:
   replicas: 1
   terminationGracePeriodSeconds: 3
   shutdownDrain: 1s
+  probes:
+    readiness:
+      periodSeconds: 2
+      timeoutSeconds: 1
+      failureThreshold: 2
+    liveness:
+      periodSeconds: 2
+      timeoutSeconds: 1
+      failureThreshold: 3
   webOverride:
     enabled: true
+
+authority:
+  probes:
+    readiness:
+      periodSeconds: 2
+      timeoutSeconds: 1
+      failureThreshold: 2
+    liveness:
+      periodSeconds: 2
+      timeoutSeconds: 1
+      failureThreshold: 3
 
 pdb:
   enabled: false

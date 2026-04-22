@@ -41,10 +41,16 @@ spec:
             httpGet:
               path: /readyz
               port: http
+            periodSeconds: {{ .Values.authority.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.authority.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.authority.probes.readiness.failureThreshold }}
           livenessProbe:
             httpGet:
               path: /healthz
               port: http
+            periodSeconds: {{ .Values.authority.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.authority.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.authority.probes.liveness.failureThreshold }}
           resources:
             {{- toYaml .Values.authority.resources | nindent 12 }}
           volumeMounts:

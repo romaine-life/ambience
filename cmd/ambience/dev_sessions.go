@@ -44,6 +44,22 @@ func normalizeDevEffect(effect string) string {
 	return effect
 }
 
+func devPageEffectCandidateFromPath(path string) (string, bool) {
+	switch path {
+	case "/dev", "/dev/":
+		return "rain", true
+	}
+	if !strings.HasPrefix(path, "/dev/") {
+		return "", false
+	}
+	rest := strings.TrimPrefix(path, "/dev/")
+	rest = strings.Trim(rest, "/")
+	if rest == "" || strings.Contains(rest, "/") {
+		return "", false
+	}
+	return rest, true
+}
+
 func effectFromSchemaPath(path string) (string, bool) {
 	if !strings.HasPrefix(path, "/effects/") || !strings.HasSuffix(path, "/schema") {
 		return "", false
@@ -61,22 +77,14 @@ func effectFromSchemaPath(path string) (string, bool) {
 }
 
 func devPageEffectFromPath(path string) (string, bool) {
-	switch path {
-	case "/dev", "/dev/":
-		return "rain", true
-	}
-	if !strings.HasPrefix(path, "/dev/") {
+	effect, ok := devPageEffectCandidateFromPath(path)
+	if !ok {
 		return "", false
 	}
-	rest := strings.TrimPrefix(path, "/dev/")
-	rest = strings.Trim(rest, "/")
-	if rest == "" || strings.Contains(rest, "/") {
+	if _, ok := schemaForEffect(effect); !ok {
 		return "", false
 	}
-	if _, ok := schemaForEffect(rest); !ok {
-		return "", false
-	}
-	return rest, true
+	return effect, true
 }
 
 func serveEffectSchema(w http.ResponseWriter, req *http.Request) {

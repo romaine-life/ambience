@@ -71,6 +71,8 @@ type lifecycleState struct {
 	draining atomic.Bool
 }
 
+type effectLookup func(effect string) (bool, error)
+
 //go:embed web
 var webFS embed.FS
 
@@ -98,7 +100,7 @@ func main() {
 		if err := bootAuthority(ctx); err != nil {
 			log.Fatal(err)
 		}
-		registerStaticRoutes(mux, static)
+		registerStaticRoutes(mux, static, localEffectLookup)
 		registerSchemaRoute(mux)
 		registerAuthorityRoutes(mux)
 		registerDevRoutes(mux)
@@ -108,8 +110,7 @@ func main() {
 			log.Fatal(err)
 		}
 		baseReady = proxy.ready
-		registerStaticRoutes(mux, static)
-		registerSchemaRoute(mux)
+		registerStaticRoutes(mux, static, proxy.effectSchemaExists)
 		registerEdgeRoutes(mux, proxy)
 	default:
 		log.Fatalf("unsupported ambience role %q", cfg.role)
@@ -211,9 +212,10 @@ func registerCommonRoutes(mux *http.ServeMux, ready func() bool) {
 	mux.HandleFunc("/readyz", serveReadyz(ready))
 }
 
-func registerStaticRoutes(mux *http.ServeMux, static staticAssets) {
-	mux.HandleFunc("/dev", serveDevPage(static))
-	mux.HandleFunc("/dev/", serveDevPage(static))
+func registerStaticRoutes(mux *http.ServeMux, static staticAssets, lookup effectLookup) {
+	handler := serveDevPageWithEffectLookup(static, lookup)
+	mux.HandleFunc("/dev", handler)
+	mux.HandleFunc("/dev/", handler)
 	mux.HandleFunc("/sim.js", serveStaticFile(static, "sim.js"))
 	mux.HandleFunc("/controls.js", serveStaticFile(static, "controls.js"))
 	mux.HandleFunc("/client.js", serveStaticFile(static, "client.js"))
@@ -278,11 +280,32 @@ func cors(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func localEffectLookup(effect string) (bool, error) {
+	_, ok := schemaForEffect(effect)
+	return ok, nil
+}
+
 func serveDevPage(static staticAssets) http.HandlerFunc {
+	return serveDevPageWithEffectLookup(static, localEffectLookup)
+}
+
+func serveDevPageWithEffectLookup(static staticAssets, lookup effectLookup) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		if _, ok := devPageEffectFromPath(req.URL.Path); !ok {
+		effect, ok := devPageEffectCandidateFromPath(req.URL.Path)
+		if !ok {
 			http.NotFound(w, req)
 			return
+		}
+		if lookup != nil {
+			exists, err := lookup(effect)
+			if err != nil {
+				http.Error(w, "effect lookup unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			if !exists {
+				http.NotFound(w, req)
+				return
+			}
 		}
 		data, err := static.readFile("dev.html")
 		if err != nil {

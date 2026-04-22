@@ -131,6 +131,30 @@ function Set-WorkloadImage {
 	kubectl set image "$Kind/$Name" "ambience=$Image" -n $Namespace | Out-Null
 }
 
+function Invoke-WorkloadRollout {
+	param(
+		[string]$Kind,
+		[string]$Name,
+		[string]$Namespace,
+		[string]$Image,
+		[string]$RolloutTarget,
+		[System.Diagnostics.Stopwatch]$Step
+	)
+
+	$Step.Restart()
+	Set-WorkloadImage -Kind $Kind -Name $Name -Namespace $Namespace -Image $Image
+	$patchElapsed = Format-Seconds $Step
+
+	$Step.Restart()
+	kubectl rollout status $RolloutTarget -n $Namespace --timeout=120s
+	$rolloutElapsed = Format-Seconds $Step
+
+	return [pscustomobject]@{
+		PatchSeconds   = $patchElapsed
+		RolloutSeconds = $rolloutElapsed
+	}
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $registryLoginServer = "$RegistryName.azurecr.io"
 
@@ -190,28 +214,59 @@ if (-not $argoAppPresent) {
 	Write-Warning "Argo application '$ArgoAppName' was not found in namespace '$ArgoNamespace'. Patching live dev workloads anyway."
 }
 
-$step.Restart()
-if ($Component -in @("all", "edge")) {
-	Set-WorkloadImage -Kind "deployment" -Name $EdgeDeployment -Namespace $Namespace -Image $image
-}
-if ($Component -in @("all", "authority")) {
-	Set-WorkloadImage -Kind "statefulset" -Name $AuthorityStatefulSet -Namespace $Namespace -Image $image
-}
-$patchSeconds = Format-Seconds $step
-
+$patchSeconds = 0.0
 $edgeSeconds = 0.0
 $authoritySeconds = 0.0
+$rolloutOrder = @()
 
-if ($Component -in @("all", "edge")) {
-	$step.Restart()
-	kubectl rollout status "deployment/$EdgeDeployment" -n $Namespace --timeout=120s
-	$edgeSeconds = Format-Seconds $step
-}
+switch ($Component) {
+	"edge" {
+		$result = Invoke-WorkloadRollout `
+			-Kind "deployment" `
+			-Name $EdgeDeployment `
+			-Namespace $Namespace `
+			-Image $image `
+			-RolloutTarget "deployment/$EdgeDeployment" `
+			-Step $step
+		$patchSeconds += $result.PatchSeconds
+		$edgeSeconds = $result.RolloutSeconds
+		$rolloutOrder += "edge"
+	}
+	"authority" {
+		$result = Invoke-WorkloadRollout `
+			-Kind "statefulset" `
+			-Name $AuthorityStatefulSet `
+			-Namespace $Namespace `
+			-Image $image `
+			-RolloutTarget "statefulset/$AuthorityStatefulSet" `
+			-Step $step
+		$patchSeconds += $result.PatchSeconds
+		$authoritySeconds = $result.RolloutSeconds
+		$rolloutOrder += "authority"
+	}
+	"all" {
+		$result = Invoke-WorkloadRollout `
+			-Kind "statefulset" `
+			-Name $AuthorityStatefulSet `
+			-Namespace $Namespace `
+			-Image $image `
+			-RolloutTarget "statefulset/$AuthorityStatefulSet" `
+			-Step $step
+		$patchSeconds += $result.PatchSeconds
+		$authoritySeconds = $result.RolloutSeconds
+		$rolloutOrder += "authority"
 
-if ($Component -in @("all", "authority")) {
-	$step.Restart()
-	kubectl rollout status "statefulset/$AuthorityStatefulSet" -n $Namespace --timeout=120s
-	$authoritySeconds = Format-Seconds $step
+		$result = Invoke-WorkloadRollout `
+			-Kind "deployment" `
+			-Name $EdgeDeployment `
+			-Namespace $Namespace `
+			-Image $image `
+			-RolloutTarget "deployment/$EdgeDeployment" `
+			-Step $step
+		$patchSeconds += $result.PatchSeconds
+		$edgeSeconds = $result.RolloutSeconds
+		$rolloutOrder += "edge"
+	}
 }
 
 $total.Stop()
@@ -222,6 +277,7 @@ Write-Output "TAG=$tag"
 Write-Output "IMAGE=$image"
 Write-Output "ARGO_APP_PRESENT=$argoAppPresent"
 Write-Output "ARGO_DRIFT_EXPECTED=$argoAppPresent"
+Write-Output "ROLLOUT_ORDER=$($rolloutOrder -join ',')"
 Write-Output "REGISTRY_TAG_VERIFIED=true"
 Write-Output "EDGE_TAG=$nextEdgeTag"
 Write-Output "AUTHORITY_TAG=$nextAuthorityTag"

@@ -33,6 +33,15 @@ edge:
     maxSurge: 1
     maxUnavailable: 0
   terminationGracePeriodSeconds: 20
+  probes:
+    readiness:
+      periodSeconds: 10
+      timeoutSeconds: 1
+      failureThreshold: 3
+    liveness:
+      periodSeconds: 10
+      timeoutSeconds: 1
+      failureThreshold: 3
   authorityURL: http://ambience-authority-client
   shutdownDrain: 12s
   webOverride:
@@ -57,6 +66,15 @@ authority:
     pullPolicy: ""
   replicas: 1
   terminationGracePeriodSeconds: 15
+  probes:
+    readiness:
+      periodSeconds: 10
+      timeoutSeconds: 1
+      failureThreshold: 3
+    liveness:
+      periodSeconds: 10
+      timeoutSeconds: 1
+      failureThreshold: 3
   securityContext:
     runAsNonRoot: true
     runAsUser: 65532
