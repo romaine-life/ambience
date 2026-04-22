@@ -54,10 +54,15 @@ type Command struct {
 // snapshotData is carried in the initial "snapshot" command and in response
 // to GET /snapshot.
 //
-// Type identifies which effect this atmosphere is currently running ("rain"
-// for now; future: "sand", "fire", etc.). Clients look the type up in
+// Type identifies which effect mechanism this atmosphere is currently running
+// ("rain", "sand", "volcano", ...). Clients look the type up in
 // AmbienceSim.effects[type] to pick the renderer constructor — so adding a
 // new effect doesn't require any client-side change.
+//
+// CurrentScene / NextScene are the viewer-facing current/next scene labels
+// within that effect. They are intentionally distinct from Type: Type answers
+// "which effect is active?", while Scene answers "what is that effect showing
+// right now?"
 type snapshotData struct {
 	Type   string          `json:"type"`
 	Tick   int             `json:"tick"`
@@ -66,8 +71,9 @@ type snapshotData struct {
 	Seed   int64           `json:"seed"`
 	GridW  int             `json:"gridW"`
 	GridH  int             `json:"gridH"`
-	// Scene + entropy status — used by the / live monitor. Panels update
-	// via periodic "metric" commands between full snapshot re-requests.
+	// Viewer-facing scene + entropy status — used by the / live monitor.
+	// Panels update via periodic "metric" commands between full snapshot
+	// re-requests.
 	CurrentScene   Scene `json:"currentScene"`
 	NextScene      Scene `json:"nextScene"`
 	EntropyBytes   int64 `json:"entropyBytes"`

@@ -171,6 +171,19 @@ advance timers and physics locally. Frame-level sync is not guaranteed
 (each client RNG drifts after initial snapshot), but event timing
 (downpour starts/ends, calm windows, scene changes) stays in sync.
 
+## Terminology
+
+- **Effect** = a registry entry / simulation mechanism keyed by snapshot
+  `type` (`rain`, `sand`, `volcano`, ...).
+- **Scene** = the viewer-facing current/next state within that effect,
+  surfaced as `currentScene` / `nextScene`.
+- Rain currently has true within-effect scene generation; simpler
+  effects can still use scene fields as the display surface for
+  "what is showing now?" without a rotating config pipeline.
+
+Short version: effect answers "which mechanism is active?", while scene
+answers "what is that mechanism showing right now?"
+
 ## Scene rotation
 
 Rain runs with generated scenes rather than a single fixed config.

@@ -106,6 +106,20 @@ Clients do not roll for discrete events — only the server does. Each
 client's RNG drifts from the server's after the initial snapshot, but
 event timing stays in sync.
 
+## Terminology
+
+- **Effect** means the simulation mechanism selected from the
+  `AmbienceSim.effects` registry and carried on the wire as snapshot
+  `type` (`rain`, `sand`, `volcano`, ...).
+- **Scene** means the viewer-facing "what is showing right now?" state
+  within an effect, carried as `currentScene` / `nextScene`.
+- In Rain today, a scene is a generated config variant with a duration
+  and lookahead. In simpler effects, scene data can just be the display
+  label surface for the active effect.
+
+Short version: effect answers "which sim is running?", while scene
+answers "what version of that sim is on screen right now?"
+
 ## Effects model
 
 Every effect fills a 5-slot template — see

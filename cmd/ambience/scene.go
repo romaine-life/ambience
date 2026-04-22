@@ -1,8 +1,10 @@
-// Scene is a time-bounded Rain configuration. The atmosphere keeps a single-
-// slot lookahead (current + next) and transitions when current's DurationTicks
-// elapses. Each scene is freshly generated from the atmosphere's RNG, so
-// entropy contributed via AddEntropy naturally biases future scene generation —
-// no separate wiring needed.
+// Scene is the viewer-facing "what is showing right now?" metadata carried in
+// shared snapshots and live-monitor updates.
+//
+// For rain, a scene is a generated config variant with a duration and
+// single-slot lookahead (current + next). For other effects, we still reuse
+// Scene as the current/next display surface even when there is no rotating
+// within-effect config pipeline.
 package main
 
 import (
@@ -30,9 +32,10 @@ func (s Scene) Remaining(currentTick int) int {
 	return r
 }
 
-// generateScene produces a Scene using rng. Duration is randomized across
-// 1–4 hours (36k–144k ticks at 10 Hz). The config ranges are kept within
-// sim-safe bounds so any generated scene is guaranteed to look reasonable.
+// generateScene produces a rain-specific Scene using rng. Duration is
+// randomized across 1–4 hours (36k–144k ticks at 10 Hz). The config ranges are
+// kept within sim-safe bounds so any generated scene is guaranteed to look
+// reasonable.
 func generateScene(rng *rngutil.RNG, startedAt int) Scene {
 	hue := rng.Float64() * 360
 	hueSpread := 10 + rng.Float64()*50     // 10–60°

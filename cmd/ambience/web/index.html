@@ -406,9 +406,9 @@
     </span>
   </h2>
   <div class="panel-body" id="panelBody">
-    <div class="row"><span class="k">scene</span><span class="v" id="sceneName">-</span></div>
+    <div class="row"><span class="k">current scene</span><span class="v" id="sceneName">-</span></div>
     <div class="row"><span class="k">remaining</span><span class="v" id="sceneRemaining">-</span></div>
-    <div class="row"><span class="k">up next</span><span class="v" id="nextName">-</span></div>
+    <div class="row"><span class="k">next scene</span><span class="v" id="nextName">-</span></div>
     <div class="row"><span class="k">tick</span><span class="v" id="tick">0</span></div>
 
     <div class="section-lite toggle">
@@ -737,7 +737,7 @@
           el.nextName.textContent = scene.nextName || '-';
           sceneDurationTicks = scene.durationTicks || 0;
           sceneStartTick = scene.startedAtTick || 0;
-          log('scene -> ' + scene.name + ' - up next ' + scene.nextName, 'scene');
+          log('scene -> ' + scene.name + ' - next scene ' + scene.nextName, 'scene');
           el.panel.classList.remove('flash');
           void el.panel.offsetWidth;
           el.panel.classList.add('flash');
