@@ -2008,6 +2008,34 @@
 			calm_dur: 74,
 			calm_mult: 0.55,
 		},
+		volcano: {
+			intro_dur: 55,
+			intro_glow: 0.12,
+			ending_dur: 70,
+			ending_linger: 22,
+			ending_embers: 0.08,
+			horizon: 0.8,
+			cone_height: 26,
+			cone_width: 44,
+			crater_width: 8,
+			glow: 0.28,
+			smoke: 0.22,
+			ash: 0.18,
+			hue: 18,
+			hue_sp: 18,
+			sat: 0.78,
+			lmin: 0.08,
+			lmax: 0.88,
+			eruption_p: 0,
+			smolder_p: 0,
+			flare_p: 0,
+			eruption_dur: 42,
+			eruption_mult: 2.2,
+			smolder_dur: 72,
+			smolder_mult: 1.6,
+			flare_dur: 28,
+			flare_mult: 1.9,
+		},
 		starfield: {
 			intro_dur: 50,
 			intro_density: 0.08,
@@ -2267,6 +2295,32 @@
 				if (c.calm_dur <= 0) c.calm_dur = base.calm_dur;
 				if (c.calm_mult <= 0) c.calm_mult = base.calm_mult;
 				break;
+			case 'volcano':
+				if (c.intro_dur <= 0) c.intro_dur = base.intro_dur;
+				c.intro_glow = clamp01(c.intro_glow);
+				if (c.ending_dur <= 0) c.ending_dur = base.ending_dur;
+				if (c.ending_linger < 0) c.ending_linger = 0;
+				c.ending_embers = clamp01(c.ending_embers);
+				if (c.horizon <= 0) c.horizon = base.horizon;
+				if (c.cone_height <= 0) c.cone_height = base.cone_height;
+				if (c.cone_width <= 0) c.cone_width = base.cone_width;
+				if (c.crater_width <= 0) c.crater_width = base.crater_width;
+				if (c.glow <= 0) c.glow = base.glow;
+				if (c.smoke <= 0) c.smoke = base.smoke;
+				if (c.ash <= 0) c.ash = base.ash;
+				if (c.hue === 0) c.hue = base.hue;
+				if (c.hue_sp < 0) c.hue_sp = 0;
+				if (c.sat <= 0) c.sat = base.sat;
+				if (c.lmin <= 0) c.lmin = base.lmin;
+				if (c.lmax <= 0) c.lmax = base.lmax;
+				if (c.lmax < c.lmin) [c.lmin, c.lmax] = [c.lmax, c.lmin];
+				if (c.eruption_dur <= 0) c.eruption_dur = base.eruption_dur;
+				if (c.eruption_mult <= 0) c.eruption_mult = base.eruption_mult;
+				if (c.smolder_dur <= 0) c.smolder_dur = base.smolder_dur;
+				if (c.smolder_mult <= 0) c.smolder_mult = base.smolder_mult;
+				if (c.flare_dur <= 0) c.flare_dur = base.flare_dur;
+				if (c.flare_mult <= 0) c.flare_mult = base.flare_mult;
+				break;
 			case 'aurora':
 				if (c.intro_dur <= 0) c.intro_dur = base.intro_dur;
 				c.intro_glow = clamp01(c.intro_glow);
@@ -2416,6 +2470,8 @@
 					return this._triggerRowboat(name);
 				case 'underwater':
 					return this._triggerUnderwater(name);
+				case 'volcano':
+					return this._triggerVolcano(name);
 				case 'aurora':
 					return this._triggerAurora(name);
 				case 'starfield':
@@ -2488,6 +2544,20 @@
 					this.values.current_push = 0;
 				}
 			}
+			if (this.kind === 'volcano') {
+				if (!this.timers.eruption || this.timers.eruption <= 0) {
+					this.values.eruption_gain = 1;
+					this.values.eruption_total = 0;
+					this.values.eruption_seed = 0;
+					this.values.eruption_dir = 0;
+				}
+				if (!this.timers.smolder || this.timers.smolder <= 0) {
+					this.values.smolder_gain = 1;
+				}
+				if (!this.timers.flare || this.timers.flare <= 0) {
+					this.values.flare_gain = 1;
+				}
+			}
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
@@ -2506,6 +2576,8 @@
 					return this._renderRowboat(ctx, canvasW, canvasH, opts);
 				case 'underwater':
 					return this._renderUnderwater(ctx, canvasW, canvasH, opts);
+				case 'volcano':
+					return this._renderVolcano(ctx, canvasW, canvasH, opts);
 				case 'aurora':
 					return this._renderAurora(ctx, canvasW, canvasH, opts);
 				case 'starfield':
@@ -2857,6 +2929,56 @@
 			return false;
 		}
 
+		_triggerVolcano(name) {
+			const rng = this._eventRng(name.length + 97);
+			switch (name) {
+				case 'eruption':
+					this.timers.eruption = jitterInt(rng, this.cfg.eruption_dur, 0.3);
+					this.values.eruption_gain = this.cfg.eruption_mult * (0.8 + rng() * 0.45);
+					this.values.eruption_total = this.timers.eruption;
+					this.values.eruption_seed = rng() * 1000;
+					this.values.eruption_dir = rng() < 0.5 ? -1 : 1;
+					return true;
+				case 'smolder':
+					this.timers.smolder = jitterInt(rng, this.cfg.smolder_dur, 0.3);
+					this.values.smolder_gain = this.cfg.smolder_mult * (0.8 + rng() * 0.4);
+					return true;
+				case 'flare':
+					this.timers.flare = jitterInt(rng, this.cfg.flare_dur, 0.3);
+					this.values.flare_gain = this.cfg.flare_mult * (0.85 + rng() * 0.35);
+					return true;
+				case 'intro':
+					this.timers.eruption = 0;
+					this.timers.smolder = 0;
+					this.timers.flare = 0;
+					this.timers.ending = 0;
+					this.values.eruption_gain = 1;
+					this.values.smolder_gain = 1;
+					this.values.flare_gain = 1;
+					this.values.eruption_total = 0;
+					this.values.eruption_seed = 0;
+					this.values.eruption_dir = 0;
+					this.timers.intro = Math.max(1, Math.round(this.cfg.intro_dur));
+					this.values.intro_total = this.timers.intro;
+					return true;
+				case 'ending':
+					this.timers.intro = 0;
+					this.timers.eruption = 0;
+					this.timers.smolder = 0;
+					this.timers.flare = 0;
+					this.values.eruption_gain = 1;
+					this.values.smolder_gain = 1;
+					this.values.flare_gain = 1;
+					this.values.eruption_total = 0;
+					this.values.eruption_seed = 0;
+					this.values.eruption_dir = 0;
+					this.timers.ending = Math.max(1, Math.round(this.cfg.ending_dur + Math.max(0, this.cfg.ending_linger)));
+					this.values.ending_total = this.timers.ending;
+					return true;
+			}
+			return false;
+		}
+
 		_triggerAurora(name) {
 			const rng = this._eventRng(name.length + 53);
 			switch (name) {
@@ -3114,6 +3236,24 @@
 			}
 			if (this.timers['current-shift'] > 0) {
 				level *= 1 + Math.abs(this.values.current_push || this.cfg.current_shift_push) * 0.18;
+			}
+			return Math.max(0.04, level);
+		}
+
+		_heatLevelVolcano() {
+			let level = 1;
+			if (this.timers.smolder > 0) level *= this.values.smolder_gain || this.cfg.smolder_mult;
+			if (this.timers.flare > 0) level *= this.values.flare_gain || this.cfg.flare_mult;
+			if (this.timers.eruption > 0) level *= 1 + Math.max(0, (this.values.eruption_gain || this.cfg.eruption_mult) - 1) * 0.45;
+			if (this.timers.intro > 0) {
+				const total = this.values.intro_total || this.cfg.intro_dur;
+				const progress = this._phaseProgress(total, this.timers.intro);
+				level *= this.cfg.intro_glow + (1 - this.cfg.intro_glow) * progress;
+			}
+			if (this.timers.ending > 0) {
+				const total = this.values.ending_total || (this.cfg.ending_dur + this.cfg.ending_linger);
+				const progress = this._phaseProgress(total, this.timers.ending);
+				level *= 1 - (1 - this.cfg.ending_embers) * progress;
 			}
 			return Math.max(0.04, level);
 		}
@@ -4214,6 +4354,171 @@
 			}
 		}
 
+		_renderVolcano(ctx, canvasW, canvasH, opts) {
+			opts = opts || {};
+			if (opts.transparent) {
+				ctx.clearRect(0, 0, canvasW, canvasH);
+			} else {
+				const skyTop = hslToRGB(228, 0.26, clamp01(this.cfg.lmin * 0.55));
+				const skyMid = hslToRGB(250, 0.22, clamp01(this.cfg.lmin * 0.82));
+				const skyLow = hslToRGB((this.cfg.hue + 10) % 360, clamp01(this.cfg.sat * 0.34), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.18));
+				const sky = ctx.createLinearGradient(0, 0, 0, canvasH);
+				sky.addColorStop(0, `rgb(${skyTop.r},${skyTop.g},${skyTop.b})`);
+				sky.addColorStop(0.62, `rgb(${skyMid.r},${skyMid.g},${skyMid.b})`);
+				sky.addColorStop(1, `rgb(${skyLow.r},${skyLow.g},${skyLow.b})`);
+				ctx.fillStyle = sky;
+				ctx.fillRect(0, 0, canvasW, canvasH);
+			}
+
+			const sx = canvasW / this.w;
+			const sy = canvasH / this.h;
+			const ceilSx = Math.ceil(sx);
+			const ceilSy = Math.ceil(sy);
+			const horizon = Math.max(12, Math.min(this.h - 6, Math.floor(this.h * this.cfg.horizon)));
+			const centerX = Math.floor(this.w * 0.38);
+			const coneWidth = Math.max(20, Math.round(this.cfg.cone_width));
+			const coneHeight = Math.max(10, Math.round(this.cfg.cone_height));
+			const craterWidth = Math.max(3, Math.round(this.cfg.crater_width));
+			const leftBase = Math.max(0, centerX - Math.floor(coneWidth / 2));
+			const rightBase = Math.min(this.w - 1, centerX + Math.floor(coneWidth / 2));
+			const peakY = Math.max(4, horizon - coneHeight);
+			const craterY = peakY + 2;
+			const heat = this._heatLevelVolcano();
+			const smolderGain = this.timers.smolder > 0 ? (this.values.smolder_gain || this.cfg.smolder_mult) : 1;
+			const flareGain = this.timers.flare > 0 ? (this.values.flare_gain || this.cfg.flare_mult) : 1;
+			const eruptionGain = this.timers.eruption > 0 ? (this.values.eruption_gain || this.cfg.eruption_mult) : 1;
+
+			const horizonGlow = ctx.createLinearGradient(0, Math.floor((horizon - 10) * sy), 0, Math.floor((horizon + 8) * sy));
+			horizonGlow.addColorStop(0, 'rgba(255, 120, 46, 0)');
+			horizonGlow.addColorStop(1, `rgba(255, 120, 46, ${clamp01(0.1 + this.cfg.glow * heat * 0.18)})`);
+			ctx.fillStyle = horizonGlow;
+			ctx.fillRect(0, Math.floor((horizon - 10) * sy), canvasW, Math.ceil(20 * sy));
+
+			const smokeBand = ctx.createLinearGradient(0, 0, 0, Math.floor(horizon * sy));
+			smokeBand.addColorStop(0, 'rgba(120, 92, 112, 0)');
+			smokeBand.addColorStop(1, `rgba(120, 92, 112, ${clamp01(0.08 + this.cfg.smoke * 0.12 * heat)})`);
+			ctx.fillStyle = smokeBand;
+			ctx.fillRect(0, 0, canvasW, Math.floor(horizon * sy));
+
+			const groundColor = hslToRGB(26, 0.1, 0.1);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, horizon, this.w, this.h - horizon, `rgb(${groundColor.r},${groundColor.g},${groundColor.b})`, 1);
+
+			const mountainColor = hslToRGB(262, 0.12, 0.14);
+			const mountainShadow = hslToRGB(266, 0.16, 0.09);
+			ctx.fillStyle = `rgb(${mountainColor.r},${mountainColor.g},${mountainColor.b})`;
+			ctx.beginPath();
+			ctx.moveTo(Math.floor(leftBase * sx), Math.floor(horizon * sy));
+			ctx.lineTo(Math.floor((centerX - craterWidth) * sx), Math.floor((peakY + 2) * sy));
+			ctx.lineTo(Math.floor(centerX * sx), Math.floor((peakY + 5) * sy));
+			ctx.lineTo(Math.floor((centerX + craterWidth) * sx), Math.floor((peakY + 2) * sy));
+			ctx.lineTo(Math.floor(rightBase * sx), Math.floor(horizon * sy));
+			ctx.closePath();
+			ctx.fill();
+
+			ctx.fillStyle = `rgb(${mountainShadow.r},${mountainShadow.g},${mountainShadow.b})`;
+			ctx.beginPath();
+			ctx.moveTo(Math.floor(centerX * sx), Math.floor((peakY + 4) * sy));
+			ctx.lineTo(Math.floor(rightBase * sx), Math.floor(horizon * sy));
+			ctx.lineTo(Math.floor((centerX + Math.floor(coneWidth * 0.18)) * sx), Math.floor(horizon * sy));
+			ctx.closePath();
+			ctx.fill();
+
+			const foregroundRidge = hslToRGB(260, 0.18, 0.08);
+			const ridgePoints = [];
+			for (let i = 0; i <= 7; i++) {
+				ridgePoints.push(Math.round(horizon + 1 + this._hash(32100 + i) * 3 + Math.sin(i * 1.1 + this._hash(32200 + i) * 2) * 1.4));
+			}
+			ctx.fillStyle = `rgb(${foregroundRidge.r},${foregroundRidge.g},${foregroundRidge.b})`;
+			ctx.beginPath();
+			ctx.moveTo(0, canvasH);
+			for (let x = 0; x < this.w; x++) {
+				const pos = (x / Math.max(1, this.w - 1)) * 7;
+				const idx = Math.min(6, Math.floor(pos));
+				const frac = pos - idx;
+				const eased = frac * frac * (3 - 2 * frac);
+				const row = ridgePoints[idx] + (ridgePoints[idx + 1] - ridgePoints[idx]) * eased;
+				ctx.lineTo(Math.floor(x * sx), Math.floor(row * sy));
+			}
+			ctx.lineTo(canvasW, canvasH);
+			ctx.closePath();
+			ctx.fill();
+
+			const glowHue = this.cfg.hue;
+			const craterGlow = ctx.createRadialGradient(centerX * sx, craterY * sy, 0, centerX * sx, craterY * sy, Math.max(14, craterWidth * sx * 2.8));
+			craterGlow.addColorStop(0, `rgba(255, 190, 96, ${clamp01(0.22 + this.cfg.glow * heat * flareGain * 0.32)})`);
+			craterGlow.addColorStop(0.45, `rgba(255, 104, 48, ${clamp01(0.14 + this.cfg.glow * heat * 0.24)})`);
+			craterGlow.addColorStop(1, 'rgba(255, 104, 48, 0)');
+			ctx.fillStyle = craterGlow;
+			ctx.fillRect(Math.floor((centerX - craterWidth * 3) * sx), Math.floor((peakY - 3) * sy), Math.ceil(craterWidth * 6 * sx), Math.ceil(12 * sy));
+
+			const lavaCore = hslToRGB(glowHue, this.cfg.sat, clamp01(this.cfg.lmax * Math.min(1, 0.88 + (flareGain - 1) * 0.2)));
+			const lavaLip = hslToRGB((glowHue + this.cfg.hue_sp * 0.4) % 360, clamp01(this.cfg.sat * 0.92), clamp01(this.cfg.lmax * 0.84));
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, centerX - Math.floor(craterWidth / 2), craterY, craterWidth, 1, `rgb(${lavaCore.r},${lavaCore.g},${lavaCore.b})`, clamp01(0.72 + this.cfg.glow * 0.24 * heat));
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, centerX - Math.floor(craterWidth / 2) - 1, craterY + 1, craterWidth + 2, 1, `rgb(${lavaLip.r},${lavaLip.g},${lavaLip.b})`, clamp01(0.28 + this.cfg.glow * 0.14 * heat));
+
+			const smokeColor = hslToRGB(266, 0.1, 0.36);
+			const smokeCount = Math.max(8, Math.round((4 + this.cfg.smoke * 20) * Math.max(0.5, heat)));
+			for (let i = 0; i < smokeCount; i++) {
+				const life = 32 + Math.floor(this._hash(32300 + i) * 36);
+				const age = positiveMod(this.tick + i * 9, life);
+				const progress = age / Math.max(1, life - 1);
+				const rise = (6 + this.cfg.smoke * 20 + Math.max(0, smolderGain - 1) * 10) * progress;
+				const spread = (this._hash(32400 + i) * 2 - 1) * (1.5 + progress * 4.5) + Math.sin(progress * Math.PI * 2 + i) * this.cfg.smoke * 1.2;
+				const x = Math.round(centerX + spread);
+				const y = Math.round(craterY - rise);
+				const width = 1 + Math.floor(this._hash(32500 + i) * (1 + progress * 3));
+				const alpha = clamp01((0.05 + this.cfg.smoke * 0.12 * smolderGain) * (1 - progress) * heat);
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, width, 1 + (progress > 0.4 ? 1 : 0), `rgb(${smokeColor.r},${smokeColor.g},${smokeColor.b})`, alpha);
+			}
+
+			const emberBase = hslToRGB((glowHue + 6) % 360, clamp01(this.cfg.sat * 0.96), clamp01(this.cfg.lmax * 0.92));
+			const emberAccent = hslToRGB((glowHue + 16) % 360, clamp01(this.cfg.sat * 0.84), clamp01(this.cfg.lmax));
+			const emberCount = Math.max(8, Math.round((4 + this.cfg.ash * 18) * Math.max(0.55, heat)));
+			for (let i = 0; i < emberCount; i++) {
+				const life = 24 + Math.floor(this._hash(32600 + i) * 28);
+				const age = positiveMod(this.tick + i * 7, life);
+				const progress = age / Math.max(1, life - 1);
+				const drift = (this._hash(32700 + i) * 2 - 1) * (1 + progress * 4) + Math.sin(this.tick * 0.03 + i) * 0.6;
+				const x = Math.round(centerX + drift);
+				const y = Math.round(craterY - progress * (3 + this.cfg.ash * 10) + progress * progress * (2 + this.cfg.ash * 6));
+				const alpha = clamp01((0.1 + this.cfg.ash * 0.22) * (1 - progress) * heat);
+				const color = (i + this.tick) % 3 === 0 ? emberAccent : emberBase;
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, 1, 1, `rgb(${color.r},${color.g},${color.b})`, alpha);
+			}
+
+			if (this.timers.eruption > 0) {
+				const total = Math.max(1, this.values.eruption_total || this.cfg.eruption_dur);
+				const progressBase = 1 - this.timers.eruption / total;
+				const seed = Math.floor((this.values.eruption_seed || 0) * 10);
+				const dir = this.values.eruption_dir || 1;
+				const sparkCount = 22 + Math.round(this.cfg.ash * 24 + Math.max(0, eruptionGain - 1) * 14);
+				for (let i = 0; i < sparkCount; i++) {
+					const launch = this._hash(32800 + seed + i) * 0.22;
+					const t = clamp01((progressBase - launch) / (0.46 + this._hash(32900 + seed + i) * 0.28));
+					if (t <= 0 || t >= 1) continue;
+					const spread = (this._hash(33000 + seed + i) * 2 - 1) * (2.5 + this._hash(33100 + seed + i) * 5.5);
+					const height = (7 + this._hash(33200 + seed + i) * 12) * eruptionGain * 0.72;
+					const gravity = 6 + this._hash(33300 + seed + i) * 5;
+					const x = centerX + spread * t + dir * t * (2 + this._hash(33400 + seed + i) * 4);
+					const y = craterY - height * t + gravity * t * t;
+					const alpha = clamp01((1 - t) * (0.68 + this._hash(33500 + seed + i) * 0.28));
+					const color = this._hash(33600 + seed + i) > 0.35 ? emberAccent : lavaCore;
+					const size = this._hash(33700 + seed + i) > 0.72 ? 2 : 1;
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, Math.round(x), Math.round(y), size, size, `rgb(${color.r},${color.g},${color.b})`, alpha);
+				}
+
+				const ventFlash = hslToRGB((glowHue + 8) % 360, clamp01(this.cfg.sat * 0.96), clamp01(this.cfg.lmax));
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, centerX - Math.floor(craterWidth / 2) - 1, craterY - 1, craterWidth + 2, 2,
+					`rgb(${ventFlash.r},${ventFlash.g},${ventFlash.b})`, clamp01(0.22 + (eruptionGain - 1) * 0.18));
+
+				const burstGlow = ctx.createRadialGradient(centerX * sx, (craterY - 2) * sy, 0, centerX * sx, (craterY - 2) * sy, Math.max(24, craterWidth * sx * 2.8));
+				burstGlow.addColorStop(0, `rgba(255, 174, 82, ${clamp01(0.26 + (eruptionGain - 1) * 0.22)})`);
+				burstGlow.addColorStop(1, 'rgba(255, 174, 82, 0)');
+				ctx.fillStyle = burstGlow;
+				ctx.fillRect(Math.floor((centerX - craterWidth * 3.4) * sx), Math.floor((craterY - 12) * sy), Math.ceil(craterWidth * 6.8 * sx), Math.ceil(20 * sy));
+			}
+		}
+
 		_renderAurora(ctx, canvasW, canvasH, opts) {
 			opts = opts || {};
 			if (opts.transparent) {
@@ -4384,6 +4689,12 @@
 		}
 	}
 
+	class Volcano extends ProceduralScene {
+		constructor(w, h, cfg, seed) {
+			super('volcano', w, h, cfg, seed);
+		}
+	}
+
 	class Aurora extends ProceduralScene {
 		constructor(w, h, cfg, seed) {
 			super('aurora', w, h, cfg, seed);
@@ -4442,7 +4753,7 @@
 	// server's snapshot payload — the client looks up the constructor here
 	// by name so new effects just register themselves and work without
 	// client-side changes.
-	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, beach: Beach, campfire: Campfire, windmill: Windmill, lighthouse: Lighthouse, rowboat: Rowboat, underwater: Underwater, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield };
+	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, beach: Beach, campfire: Campfire, windmill: Windmill, lighthouse: Lighthouse, rowboat: Rowboat, underwater: Underwater, volcano: Volcano, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield };
 	const presets = {
 		'wheat-field': [
 			{
@@ -5039,6 +5350,91 @@
 				},
 			},
 		],
+		volcano: [
+			{
+				key: 'sleeping-cone',
+				label: 'sleeping cone',
+				config: {
+					intro_glow: 0.1,
+					ending_embers: 0.12,
+					horizon: 0.82,
+					cone_height: 24,
+					cone_width: 42,
+					crater_width: 7,
+					glow: 0.18,
+					smoke: 0.12,
+					ash: 0.08,
+					hue: 16,
+					hue_sp: 12,
+					sat: 0.62,
+					lmin: 0.07,
+					lmax: 0.78,
+				},
+			},
+			{
+				key: 'smoldering-crater',
+				label: 'smoldering crater',
+				config: {
+					horizon: 0.8,
+					cone_height: 26,
+					cone_width: 44,
+					crater_width: 8,
+					glow: 0.28,
+					smoke: 0.24,
+					ash: 0.12,
+					hue: 18,
+					hue_sp: 18,
+					sat: 0.78,
+					lmin: 0.08,
+					lmax: 0.86,
+					smolder_p: 0.0012,
+				},
+			},
+			{
+				key: 'active-vent',
+				label: 'active vent',
+				config: {
+					horizon: 0.79,
+					cone_height: 27,
+					cone_width: 46,
+					crater_width: 9,
+					glow: 0.34,
+					smoke: 0.3,
+					ash: 0.22,
+					hue: 20,
+					hue_sp: 20,
+					sat: 0.84,
+					lmin: 0.08,
+					lmax: 0.9,
+					eruption_p: 0.001,
+					smolder_p: 0.0008,
+				},
+			},
+			{
+				key: 'ember-burst',
+				label: 'ember burst',
+				config: {
+					intro_glow: 0.14,
+					ending_embers: 0.1,
+					horizon: 0.78,
+					cone_height: 25,
+					cone_width: 40,
+					crater_width: 8,
+					glow: 0.4,
+					smoke: 0.2,
+					ash: 0.3,
+					hue: 14,
+					hue_sp: 22,
+					sat: 0.88,
+					lmin: 0.08,
+					lmax: 0.92,
+					eruption_p: 0.0014,
+					flare_p: 0.0013,
+					eruption_mult: 2.45,
+					flare_mult: 2.2,
+				},
+			},
+		],
 		aurora: [
 			{
 				key: 'green-veil',
@@ -5550,5 +5946,5 @@
 		],
 	};
 
-	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Aurora, AutumnLeaves, Snow, Starfield, subscribe, applyDefaults, hslToRGB, effects, presets };
+	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Volcano, Aurora, AutumnLeaves, Snow, Starfield, subscribe, applyDefaults, hslToRGB, effects, presets };
 })(window);

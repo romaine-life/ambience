@@ -112,6 +112,16 @@ func TestUnderwaterSchema(t *testing.T) {
 	}
 }
 
+func TestVolcanoSchema(t *testing.T) {
+	schema := VolcanoSchema()
+	if schema.Name != "volcano" {
+		t.Fatalf("schema name = %q, want volcano", schema.Name)
+	}
+	if len(schema.Knobs) == 0 {
+		t.Fatal("expected volcano schema knobs")
+	}
+}
+
 func TestProceduralSnowSnapshotRestore(t *testing.T) {
 	p := NewProcedural("snow", 160, 80, 42, nil)
 	if !p.TriggerEvent("gust") {
@@ -455,5 +465,52 @@ func TestProceduralUnderwaterSnapshotRestore(t *testing.T) {
 	}
 	if again.Values["current_push"] != snap.Values["current_push"] {
 		t.Fatalf("restored current push = %f, want %f", again.Values["current_push"], snap.Values["current_push"])
+	}
+}
+
+func TestProceduralVolcanoSnapshotRestore(t *testing.T) {
+	p := NewProcedural("volcano", 160, 80, 88, nil)
+	if !p.TriggerEvent("eruption") {
+		t.Fatal("expected eruption trigger to succeed")
+	}
+	if !p.TriggerEvent("flare") {
+		t.Fatal("expected flare trigger to succeed")
+	}
+	p.Step()
+
+	snap := p.Snapshot()
+	if snap.Timers["eruption"] <= 0 {
+		t.Fatal("expected eruption timer in snapshot")
+	}
+	if snap.Timers["flare"] <= 0 {
+		t.Fatal("expected flare timer in snapshot")
+	}
+	if snap.Values["eruption_gain"] <= 1 {
+		t.Fatal("expected eruption gain value in snapshot")
+	}
+	if snap.Values["eruption_seed"] == 0 {
+		t.Fatal("expected eruption seed in snapshot")
+	}
+	if snap.Values["flare_gain"] <= 1 {
+		t.Fatal("expected flare gain value in snapshot")
+	}
+
+	restored := NewProcedural("volcano", 160, 80, 7, nil)
+	restored.RestoreSnapshot(snap)
+	again := restored.Snapshot()
+	if again.Timers["eruption"] != snap.Timers["eruption"] {
+		t.Fatalf("restored eruption timer = %d, want %d", again.Timers["eruption"], snap.Timers["eruption"])
+	}
+	if again.Timers["flare"] != snap.Timers["flare"] {
+		t.Fatalf("restored flare timer = %d, want %d", again.Timers["flare"], snap.Timers["flare"])
+	}
+	if again.Values["eruption_gain"] != snap.Values["eruption_gain"] {
+		t.Fatalf("restored eruption gain = %f, want %f", again.Values["eruption_gain"], snap.Values["eruption_gain"])
+	}
+	if again.Values["eruption_seed"] != snap.Values["eruption_seed"] {
+		t.Fatalf("restored eruption seed = %f, want %f", again.Values["eruption_seed"], snap.Values["eruption_seed"])
+	}
+	if again.Values["flare_gain"] != snap.Values["flare_gain"] {
+		t.Fatalf("restored flare gain = %f, want %f", again.Values["flare_gain"], snap.Values["flare_gain"])
 	}
 }
