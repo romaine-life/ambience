@@ -2187,6 +2187,33 @@
 			dry_up_dur: 50,
 			dry_up_mult: 0.35,
 		},
+		tetris: {
+			intro_dur: 60,
+			intro_stack: 0,
+			intro_cadence: 0.55,
+			ending_dur: 70,
+			ending_linger: 28,
+			ending_fill: 0.84,
+			well_x: 0.18,
+			well_y: 0.13,
+			cell_size: 3,
+			spawn_every: 42,
+			fall_every: 8,
+			lock_delay: 4,
+			glow: 0.18,
+			ghost: 0.14,
+			hue: 208,
+			hue_sp: 24,
+			sat: 0.56,
+			lmin: 0.10,
+			lmax: 0.92,
+			new_piece_p: 0,
+			lull_p: 0,
+			new_piece_dur: 14,
+			new_piece_cut: 0.25,
+			lull_dur: 80,
+			lull_mult: 1.8,
+		},
 		starfield: {
 			intro_dur: 50,
 			intro_density: 0.08,
@@ -2611,6 +2638,35 @@
 				if (c.dry_up_dur <= 0) c.dry_up_dur = base.dry_up_dur;
 				if (c.dry_up_mult <= 0) c.dry_up_mult = base.dry_up_mult;
 				break;
+			case 'tetris':
+				if (c.intro_dur <= 0) c.intro_dur = base.intro_dur;
+				if (c.intro_stack < 0) c.intro_stack = 0;
+				if (c.intro_stack > 8) c.intro_stack = 8;
+				c.intro_cadence = clamp01(c.intro_cadence);
+				if (c.intro_cadence < 0.2) c.intro_cadence = base.intro_cadence;
+				if (c.ending_dur <= 0) c.ending_dur = base.ending_dur;
+				if (c.ending_linger < 0) c.ending_linger = 0;
+				c.ending_fill = clamp01(c.ending_fill);
+				if (c.ending_fill < 0.6) c.ending_fill = base.ending_fill;
+				if (c.well_x <= 0) c.well_x = base.well_x;
+				if (c.well_y <= 0) c.well_y = base.well_y;
+				if (c.cell_size <= 0) c.cell_size = base.cell_size;
+				if (c.spawn_every <= 0) c.spawn_every = base.spawn_every;
+				if (c.fall_every <= 0) c.fall_every = base.fall_every;
+				if (c.lock_delay < 1) c.lock_delay = base.lock_delay;
+				if (c.glow <= 0) c.glow = base.glow;
+				if (c.ghost < 0) c.ghost = 0;
+				if (c.hue <= 0) c.hue = base.hue;
+				if (c.hue_sp < 0) c.hue_sp = 0;
+				if (c.sat <= 0) c.sat = base.sat;
+				if (c.lmin <= 0) c.lmin = base.lmin;
+				if (c.lmax <= 0) c.lmax = base.lmax;
+				if (c.lmax < c.lmin) [c.lmin, c.lmax] = [c.lmax, c.lmin];
+				if (c.new_piece_dur <= 0) c.new_piece_dur = base.new_piece_dur;
+				if (c.new_piece_cut <= 0) c.new_piece_cut = base.new_piece_cut;
+				if (c.lull_dur <= 0) c.lull_dur = base.lull_dur;
+				if (c.lull_mult <= 1) c.lull_mult = base.lull_mult;
+				break;
 			case 'aurora':
 				if (c.intro_dur <= 0) c.intro_dur = base.intro_dur;
 				c.intro_glow = clamp01(c.intro_glow);
@@ -2711,6 +2767,53 @@
 		return ((value % mod) + mod) % mod;
 	}
 
+	const TETRIS_COLS = 10;
+	const TETRIS_ROWS = 20;
+	const TETRIS_PIECES = [
+		[
+			[{ x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }],
+			[{ x: 2, y: 0 }, { x: 2, y: 1 }, { x: 2, y: 2 }, { x: 2, y: 3 }],
+			[{ x: 0, y: 2 }, { x: 1, y: 2 }, { x: 2, y: 2 }, { x: 3, y: 2 }],
+			[{ x: 1, y: 0 }, { x: 1, y: 1 }, { x: 1, y: 2 }, { x: 1, y: 3 }],
+		],
+		[
+			[{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+			[{ x: 1, y: 0 }, { x: 2, y: 0 }, { x: 1, y: 1 }, { x: 1, y: 2 }],
+			[{ x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }],
+			[{ x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 2 }, { x: 1, y: 2 }],
+		],
+		[
+			[{ x: 2, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+			[{ x: 1, y: 0 }, { x: 1, y: 1 }, { x: 1, y: 2 }, { x: 2, y: 2 }],
+			[{ x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 0, y: 2 }],
+			[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 1, y: 2 }],
+		],
+		[
+			[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }],
+			[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }],
+			[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }],
+			[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }],
+		],
+		[
+			[{ x: 1, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }],
+			[{ x: 1, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }],
+			[{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 0, y: 2 }, { x: 1, y: 2 }],
+			[{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 1, y: 2 }],
+		],
+		[
+			[{ x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+			[{ x: 1, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 1, y: 2 }],
+			[{ x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 1, y: 2 }],
+			[{ x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 1, y: 2 }],
+		],
+		[
+			[{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+			[{ x: 2, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 1, y: 2 }],
+			[{ x: 0, y: 1 }, { x: 1, y: 1 }, { x: 1, y: 2 }, { x: 2, y: 2 }],
+			[{ x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 0, y: 2 }],
+		],
+	];
+
 	class ProceduralScene {
 		constructor(kind, w, h, cfg, seed) {
 			this.kind = kind;
@@ -2772,6 +2875,8 @@
 					return this._triggerSand(name);
 				case 'water-pipe':
 					return this._triggerWaterPipe(name);
+				case 'tetris':
+					return this._triggerTetris(name);
 				case 'aurora':
 					return this._triggerAurora(name);
 				case 'starfield':
@@ -2933,6 +3038,9 @@
 				if (!this.timers.intro || this.timers.intro <= 0) delete this.values.intro_total;
 				if (!this.timers.ending || this.timers.ending <= 0) delete this.values.ending_total;
 			}
+			if (this.kind === 'tetris') {
+				this._stepTetrisState();
+			}
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
@@ -2963,6 +3071,8 @@
 					return this._renderSand(ctx, canvasW, canvasH, opts);
 				case 'water-pipe':
 					return this._renderWaterPipe(ctx, canvasW, canvasH, opts);
+				case 'tetris':
+					return this._renderTetris(ctx, canvasW, canvasH, opts);
 				case 'aurora':
 					return this._renderAurora(ctx, canvasW, canvasH, opts);
 				case 'starfield':
@@ -3656,6 +3766,44 @@
 			return false;
 		}
 
+		_triggerTetris(name) {
+			const rng = this._eventRng(name.length + 173);
+			switch (name) {
+				case 'new-piece':
+					this.timers.lull = 0;
+					this.timers['new-piece'] = jitterInt(rng, this.cfg.new_piece_dur, 0.25);
+					this.values.lull_gain = 1;
+					this.values.new_piece_cut = Math.max(0.05, this.cfg.new_piece_cut * (0.8 + rng() * 0.35));
+					if ((this.values.piece_alive || 0) > 0.5) {
+						if ((this.values.fall_cd || 0) > 1) this.values.fall_cd = 1;
+						if ((this.values.lock_cd || 0) > 1) this.values.lock_cd = 1;
+					} else {
+						const spawn = Math.round(this.values.spawn_cd || 0);
+						if (spawn > 1) this.values.spawn_cd = Math.max(1, Math.round(spawn * this.values.new_piece_cut));
+					}
+					return true;
+				case 'lull':
+					this.timers['new-piece'] = 0;
+					this.timers.lull = jitterInt(rng, this.cfg.lull_dur, 0.25);
+					this.values.new_piece_cut = this.cfg.new_piece_cut;
+					this.values.lull_gain = Math.max(1.05, this.cfg.lull_mult * (0.9 + rng() * 0.3));
+					if ((this.values.piece_alive || 0) <= 0.5) {
+						let delay = Math.round(this.values.spawn_cd || 0);
+						if (delay < 1) delay = Math.round(this.cfg.spawn_every);
+						const target = Math.round(delay * this.values.lull_gain);
+						if (target > delay) this.values.spawn_cd = target;
+					}
+					return true;
+				case 'intro':
+					this._startTetrisIntro();
+					return true;
+				case 'ending':
+					this._startTetrisEnding();
+					return true;
+			}
+			return false;
+		}
+
 		_triggerAurora(name) {
 			const rng = this._eventRng(name.length + 53);
 			switch (name) {
@@ -4126,6 +4274,247 @@
 			this.values.spill_level = clamp01(spill);
 			this.values.surface_bias = bias;
 			this.values.ripple_phase = ripplePhase;
+		}
+
+		_tetrisRng(key) {
+			return makeRNG(((this.seed >>> 0) ^ (((key >>> 0) * 2654435761) >>> 0)) >>> 0);
+		}
+
+		_tetrisCellKey(row, col) {
+			return `cell_${String(row).padStart(2, '0')}_${String(col).padStart(2, '0')}`;
+		}
+
+		_tetrisGetCell(row, col) {
+			if (row < 0 || row >= TETRIS_ROWS || col < 0 || col >= TETRIS_COLS) return 0;
+			return Math.round(this.values[this._tetrisCellKey(row, col)] || 0);
+		}
+
+		_tetrisSetCell(row, col, value) {
+			if (row < 0 || row >= TETRIS_ROWS || col < 0 || col >= TETRIS_COLS) return;
+			const key = this._tetrisCellKey(row, col);
+			if (value <= 0) {
+				delete this.values[key];
+				return;
+			}
+			this.values[key] = value;
+		}
+
+		_tetrisClearBoard() {
+			for (let row = 0; row < TETRIS_ROWS; row++) {
+				for (let col = 0; col < TETRIS_COLS; col++) {
+					delete this.values[this._tetrisCellKey(row, col)];
+				}
+			}
+		}
+
+		_tetrisSeedIntroStack() {
+			const rows = Math.max(0, Math.round(this.cfg.intro_stack || 0));
+			if (rows <= 0) return;
+			for (let col = 0; col < TETRIS_COLS; col++) {
+				const rng = this._tetrisRng(400 + col * 7);
+				let height = rows - 1 + Math.floor(rng() * 3);
+				height = Math.max(0, Math.min(rows, height));
+				for (let depth = 0; depth < height; depth++) {
+					const row = TETRIS_ROWS - 1 - depth;
+					const kind = 1 + (col + depth + Math.floor(rng() * TETRIS_PIECES.length)) % TETRIS_PIECES.length;
+					this._tetrisSetCell(row, col, kind);
+				}
+			}
+		}
+
+		_tetrisClearCurrentPiece() {
+			this.values.piece_alive = 0;
+			delete this.values.piece_kind;
+			delete this.values.piece_rot;
+			delete this.values.piece_x;
+			delete this.values.piece_y;
+			delete this.values.fall_cd;
+			delete this.values.lock_cd;
+		}
+
+		_tetrisCurrentPiece() {
+			const alive = (this.values.piece_alive || 0) > 0.5;
+			if (!alive) return { alive: false, kind: 0, rot: 0, x: 0, y: 0 };
+			return {
+				alive: true,
+				kind: Math.round(this.values.piece_kind || 0),
+				rot: Math.round(this.values.piece_rot || 0),
+				x: Math.round(this.values.piece_x || 0),
+				y: Math.round(this.values.piece_y || 0),
+			};
+		}
+
+		_tetrisSetCurrentPiece(kind, rot, x, y) {
+			this.values.piece_alive = 1;
+			this.values.piece_kind = kind;
+			this.values.piece_rot = rot;
+			this.values.piece_x = x;
+			this.values.piece_y = y;
+		}
+
+		_tetrisPiecePoints(kind, rot) {
+			const rotations = TETRIS_PIECES[Math.round(kind) - 1] || [];
+			if (!rotations.length) return [];
+			return rotations[positiveMod(Math.round(rot), rotations.length)];
+		}
+
+		_tetrisCollision(kind, rot, x, y) {
+			for (const pt of this._tetrisPiecePoints(kind, rot)) {
+				const col = x + pt.x;
+				const row = y + pt.y;
+				if (col < 0 || col >= TETRIS_COLS || row < 0 || row >= TETRIS_ROWS) return true;
+				if (this._tetrisGetCell(row, col) > 0) return true;
+			}
+			return false;
+		}
+
+		_tetrisLockPiece(kind, rot, x, y) {
+			for (const pt of this._tetrisPiecePoints(kind, rot)) {
+				this._tetrisSetCell(y + pt.y, x + pt.x, kind);
+			}
+		}
+
+		_tetrisUpdateBoardStats() {
+			let filled = 0;
+			let top = TETRIS_ROWS;
+			for (let row = 0; row < TETRIS_ROWS; row++) {
+				for (let col = 0; col < TETRIS_COLS; col++) {
+					if (this._tetrisGetCell(row, col) <= 0) continue;
+					filled++;
+					if (row < top) top = row;
+				}
+			}
+			this.values.fill_ratio = filled / (TETRIS_COLS * TETRIS_ROWS);
+			this.values.stack_height = filled > 0 ? (TETRIS_ROWS - top) : 0;
+		}
+
+		_tetrisSpawnDelay() {
+			let delay = Math.max(1, Math.round(this.cfg.spawn_every));
+			if (this.timers.intro > 0) {
+				const total = this.values.intro_total || this.cfg.intro_dur;
+				const progress = this._phaseProgress(total, this.timers.intro);
+				const cadence = this.cfg.intro_cadence + (1 - this.cfg.intro_cadence) * progress;
+				delay = Math.max(1, Math.round(delay * Math.max(0.2, cadence)));
+			}
+			if (this.timers.lull > 0) {
+				const gain = (this.values.lull_gain || 0) > 1 ? this.values.lull_gain : this.cfg.lull_mult;
+				delay = Math.max(1, Math.round(delay * Math.max(1.05, gain)));
+			}
+			if (this.timers['new-piece'] > 0) {
+				const cut = (this.values.new_piece_cut || 0) > 0 ? this.values.new_piece_cut : this.cfg.new_piece_cut;
+				delay = Math.max(1, Math.round(delay * Math.max(0.05, cut)));
+			}
+			return delay;
+		}
+
+		_tetrisFallDelay() {
+			let delay = Math.max(1, Math.round(this.cfg.fall_every));
+			if (this.timers['new-piece'] > 0) delay = Math.max(1, Math.round(delay * 0.6));
+			return delay;
+		}
+
+		_startTetrisIntro() {
+			this.timers['new-piece'] = 0;
+			this.timers.lull = 0;
+			this.timers.ending = 0;
+			this.values.lull_gain = 1;
+			this.values.new_piece_cut = this.cfg.new_piece_cut;
+			delete this.values.ended;
+			delete this.values.ending_total;
+			this._tetrisClearCurrentPiece();
+			this._tetrisClearBoard();
+			this._tetrisSeedIntroStack();
+			this.values.piece_counter = 0;
+			this.timers.intro = Math.max(1, Math.round(this.cfg.intro_dur));
+			this.values.intro_total = this.timers.intro;
+			this.values.spawn_cd = Math.max(1, Math.round(this.cfg.spawn_every * Math.max(0.2, this.cfg.intro_cadence)));
+			this._tetrisUpdateBoardStats();
+		}
+
+		_startTetrisEnding() {
+			this.timers.intro = 0;
+			this.timers['new-piece'] = 0;
+			this.timers.lull = 0;
+			this.values.lull_gain = 1;
+			delete this.values.intro_total;
+			this._tetrisClearCurrentPiece();
+			this.timers.ending = Math.max(1, Math.round(this.cfg.ending_dur + Math.max(0, this.cfg.ending_linger)));
+			this.values.ending_total = this.timers.ending;
+			this.values.ended = 1;
+			this._tetrisUpdateBoardStats();
+		}
+
+		_spawnTetrisPiece() {
+			const counter = Math.round(this.values.piece_counter || 0);
+			const rng = this._tetrisRng(800 + counter * 17);
+			const kind = 1 + Math.floor(rng() * TETRIS_PIECES.length);
+			const rot = Math.floor(rng() * 4);
+			const x = 3;
+			const y = 0;
+			if (this._tetrisCollision(kind, rot, x, y)) {
+				this._startTetrisEnding();
+				return false;
+			}
+			this.values.piece_counter = counter + 1;
+			this._tetrisSetCurrentPiece(kind, rot, x, y);
+			this.values.fall_cd = this._tetrisFallDelay();
+			this.values.lock_cd = Math.max(1, Math.round(this.cfg.lock_delay));
+			this.values.spawn_cd = 0;
+			if (this.timers['new-piece'] > 0) this.timers['new-piece'] = 0;
+			return true;
+		}
+
+		_stepTetrisState() {
+			if (!this.timers.lull || this.timers.lull <= 0) this.values.lull_gain = 1;
+			if (!this.timers['new-piece'] || this.timers['new-piece'] <= 0) delete this.values.new_piece_cut;
+			if (!this.timers.intro || this.timers.intro <= 0) delete this.values.intro_total;
+			if (!this.timers.ending || this.timers.ending <= 0) {
+				delete this.values.ending_total;
+				if ((this.values.ended || 0) > 0.5) {
+					this._startTetrisIntro();
+					return;
+				}
+			}
+			if (this.timers.ending > 0) {
+				this._tetrisUpdateBoardStats();
+				return;
+			}
+
+			const piece = this._tetrisCurrentPiece();
+			if (!piece.alive) {
+				let spawnCD = Math.round(this.values.spawn_cd || 0);
+				if (spawnCD > 0) {
+					spawnCD--;
+					this.values.spawn_cd = spawnCD;
+				}
+				if (spawnCD <= 0) this._spawnTetrisPiece();
+			} else {
+				let fallCD = Math.round(this.values.fall_cd || 0);
+				let lockCD = Math.round(this.values.lock_cd || 0);
+				if (this.timers['new-piece'] > 0 && fallCD > 1) fallCD = 1;
+				if (fallCD > 0) {
+					fallCD--;
+					this.values.fall_cd = fallCD;
+				} else if (!this._tetrisCollision(piece.kind, piece.rot, piece.x, piece.y + 1)) {
+					this.values.piece_y = piece.y + 1;
+					this.values.fall_cd = this._tetrisFallDelay();
+					this.values.lock_cd = Math.max(1, Math.round(this.cfg.lock_delay));
+				} else if (lockCD > 0) {
+					lockCD--;
+					this.values.lock_cd = lockCD;
+				} else {
+					this._tetrisLockPiece(piece.kind, piece.rot, piece.x, piece.y);
+					this._tetrisClearCurrentPiece();
+					this.values.spawn_cd = this._tetrisSpawnDelay();
+					this._tetrisUpdateBoardStats();
+					if ((this.values.fill_ratio || 0) >= Math.max(0.6, this.cfg.ending_fill)) {
+						this._startTetrisEnding();
+						return;
+					}
+				}
+			}
+
+			this._tetrisUpdateBoardStats();
 		}
 
 		_renderSnow(ctx, canvasW, canvasH, opts) {
@@ -6231,6 +6620,132 @@
 			}
 		}
 
+		_renderTetris(ctx, canvasW, canvasH, opts) {
+			opts = opts || {};
+			if (opts.transparent) {
+				ctx.clearRect(0, 0, canvasW, canvasH);
+			} else {
+				const skyTop = hslToRGB((this.cfg.hue - 24 + 360) % 360, clamp01(this.cfg.sat * 0.24), clamp01(this.cfg.lmin * 0.35));
+				const skyMid = hslToRGB((this.cfg.hue - 8 + 360) % 360, clamp01(this.cfg.sat * 0.18), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.06));
+				const skyLow = hslToRGB(this.cfg.hue % 360, clamp01(this.cfg.sat * 0.24), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.14));
+				const bg = ctx.createLinearGradient(0, 0, 0, canvasH);
+				bg.addColorStop(0, `rgb(${skyTop.r},${skyTop.g},${skyTop.b})`);
+				bg.addColorStop(0.62, `rgb(${skyMid.r},${skyMid.g},${skyMid.b})`);
+				bg.addColorStop(1, `rgb(${skyLow.r},${skyLow.g},${skyLow.b})`);
+				ctx.fillStyle = bg;
+				ctx.fillRect(0, 0, canvasW, canvasH);
+			}
+
+			const sx = canvasW / this.w;
+			const sy = canvasH / this.h;
+			const ceilSx = Math.ceil(sx);
+			const ceilSy = Math.ceil(sy);
+			const cell = Math.max(2, Math.round(this.cfg.cell_size));
+			const boardW = TETRIS_COLS * cell;
+			const boardH = TETRIS_ROWS * cell;
+			const left = Math.max(4, Math.min(this.w - boardW - 6, Math.round(this.w * this.cfg.well_x)));
+			const top = Math.max(4, Math.min(this.h - boardH - 6, Math.round(this.h * this.cfg.well_y)));
+			const right = left + boardW;
+			const bottom = top + boardH;
+			const fillRatio = clamp01(this.values.fill_ratio || 0);
+			const stackHeight = clamp01((this.values.stack_height || 0) / TETRIS_ROWS);
+			let sceneLevel = 1;
+			if (this.timers.intro > 0) {
+				const total = this.values.intro_total || this.cfg.intro_dur;
+				const progress = this._phaseProgress(total, this.timers.intro);
+				sceneLevel *= 0.35 + 0.65 * progress;
+			}
+			if (this.timers.ending > 0) {
+				const total = this.values.ending_total || (this.cfg.ending_dur + this.cfg.ending_linger);
+				const progress = this._phaseProgress(total, this.timers.ending);
+				sceneLevel *= 1 - 0.55 * progress;
+			}
+
+			const floorColor = hslToRGB((this.cfg.hue + 10) % 360, clamp01(this.cfg.sat * 0.14), clamp01(this.cfg.lmin * 0.72));
+			const frameColor = hslToRGB((this.cfg.hue + 14) % 360, clamp01(this.cfg.sat * 0.16), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.26));
+			const innerColor = hslToRGB((this.cfg.hue + 4) % 360, clamp01(this.cfg.sat * 0.1), clamp01(this.cfg.lmin * 0.42));
+			const lineColor = hslToRGB((this.cfg.hue + 20) % 360, clamp01(this.cfg.sat * 0.08), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.18));
+			const capColor = hslToRGB((this.cfg.hue + 34) % 360, clamp01(this.cfg.sat * 0.22), clamp01(this.cfg.lmax * 0.94));
+
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, bottom - 2, this.w, this.h - bottom + 2, `rgb(${floorColor.r},${floorColor.g},${floorColor.b})`, 1);
+
+			const glow = ctx.createRadialGradient((left + boardW * 0.5) * sx, (top + boardH * 0.58) * sy, 0, (left + boardW * 0.5) * sx, (top + boardH * 0.58) * sy, Math.max(30, boardW * sx * 0.8));
+			glow.addColorStop(0, `rgba(110, 196, 255, ${clamp01((this.cfg.glow * 0.65 + fillRatio * 0.14) * sceneLevel)})`);
+			glow.addColorStop(1, 'rgba(110, 196, 255, 0)');
+			ctx.fillStyle = glow;
+			ctx.fillRect(Math.floor((left - 8) * sx), Math.floor((top - 6) * sy), Math.ceil((boardW + 16) * sx), Math.ceil((boardH + 12) * sy));
+
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, left - 2, top - 2, boardW + 4, boardH + 4, `rgb(${frameColor.r},${frameColor.g},${frameColor.b})`, 0.96);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, left, top, boardW, boardH, `rgb(${innerColor.r},${innerColor.g},${innerColor.b})`, 1);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, left, top - 1, boardW, 1, `rgb(${capColor.r},${capColor.g},${capColor.b})`, clamp01((0.18 + fillRatio * 0.26) * sceneLevel));
+
+			for (let c = 1; c < TETRIS_COLS; c++) {
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, left + c * cell, top, 1, boardH, `rgb(${lineColor.r},${lineColor.g},${lineColor.b})`, 0.14 * sceneLevel);
+			}
+			for (let r = 1; r < TETRIS_ROWS; r++) {
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, left, top + r * cell, boardW, 1, `rgb(${lineColor.r},${lineColor.g},${lineColor.b})`, 0.12 * sceneLevel);
+			}
+
+			const hueOffsets = [0, 18, 36, 62, 118, 156, 196];
+			const hueScale = Math.max(0.4, this.cfg.hue_sp / 24);
+			const blockPalette = (kind, active) => {
+				const offset = hueOffsets[Math.max(0, Math.min(hueOffsets.length - 1, Math.round(kind) - 1))] || 0;
+				const hue = positiveMod(this.cfg.hue + offset * hueScale, 360);
+				const base = hslToRGB(hue, clamp01(this.cfg.sat * (active ? 1.04 : 0.92)), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * (active ? 0.72 : 0.6)));
+				const hi = hslToRGB(positiveMod(hue - 6, 360), clamp01(this.cfg.sat * 0.42), clamp01(Math.min(1, this.cfg.lmax * (active ? 1 : 0.96))));
+				const shade = hslToRGB(positiveMod(hue + 10, 360), clamp01(this.cfg.sat * 0.72), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.18));
+				return { base, hi, shade };
+			};
+
+			const drawBlock = (col, row, kind, active, alpha) => {
+				const x = left + col * cell;
+				const y = top + row * cell;
+				const palette = blockPalette(kind, active);
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, cell, cell, `rgb(${palette.base.r},${palette.base.g},${palette.base.b})`, alpha);
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, cell, 1, `rgb(${palette.hi.r},${palette.hi.g},${palette.hi.b})`, alpha * 0.48);
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, 1, cell, `rgb(${palette.hi.r},${palette.hi.g},${palette.hi.b})`, alpha * 0.22);
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y + cell - 1, cell, 1, `rgb(${palette.shade.r},${palette.shade.g},${palette.shade.b})`, alpha * 0.34);
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x + cell - 1, y, 1, cell, `rgb(${palette.shade.r},${palette.shade.g},${palette.shade.b})`, alpha * 0.2);
+			};
+
+			for (let row = 0; row < TETRIS_ROWS; row++) {
+				for (let col = 0; col < TETRIS_COLS; col++) {
+					const kind = this._tetrisGetCell(row, col);
+					if (kind <= 0) continue;
+					const alpha = clamp01((0.86 + (1 - row / TETRIS_ROWS) * 0.08) * sceneLevel);
+					drawBlock(col, row, kind, false, alpha);
+				}
+			}
+
+			const piece = this._tetrisCurrentPiece();
+			if (piece.alive) {
+				let ghostY = piece.y;
+				while (!this._tetrisCollision(piece.kind, piece.rot, piece.x, ghostY + 1)) ghostY++;
+				if (ghostY > piece.y && this.cfg.ghost > 0) {
+					for (const pt of this._tetrisPiecePoints(piece.kind, piece.rot)) {
+						drawBlock(piece.x + pt.x, ghostY + pt.y, piece.kind, false, clamp01(this.cfg.ghost * sceneLevel));
+					}
+				}
+				for (const pt of this._tetrisPiecePoints(piece.kind, piece.rot)) {
+					drawBlock(piece.x + pt.x, piece.y + pt.y, piece.kind, true, clamp01(0.98 * sceneLevel));
+				}
+			}
+
+			if ((this.values.ended || 0) > 0.5 || this.timers.ending > 0) {
+				const shade = ctx.createLinearGradient(0, top * sy, 0, bottom * sy);
+				shade.addColorStop(0, `rgba(8, 10, 14, ${clamp01(0.08 + (1 - sceneLevel) * 0.32)})`);
+				shade.addColorStop(1, `rgba(8, 10, 14, ${clamp01(0.22 + (1 - sceneLevel) * 0.28)})`);
+				ctx.fillStyle = shade;
+				ctx.fillRect(Math.floor(left * sx), Math.floor(top * sy), Math.ceil(boardW * sx), Math.ceil(boardH * sy));
+			}
+
+			const dangerAlpha = clamp01((stackHeight - 0.6) * 1.8);
+			if (dangerAlpha > 0.02) {
+				const danger = hslToRGB(8, 0.78, 0.64);
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, left, top + cell, boardW, 1, `rgb(${danger.r},${danger.g},${danger.b})`, dangerAlpha * 0.5);
+			}
+		}
+
 		_renderAurora(ctx, canvasW, canvasH, opts) {
 			opts = opts || {};
 			if (opts.transparent) {
@@ -6437,6 +6952,12 @@
 		}
 	}
 
+	class Tetris extends ProceduralScene {
+		constructor(w, h, cfg, seed) {
+			super('tetris', w, h, cfg, seed);
+		}
+	}
+
 	class Aurora extends ProceduralScene {
 		constructor(w, h, cfg, seed) {
 			super('aurora', w, h, cfg, seed);
@@ -6495,7 +7016,7 @@
 	// server's snapshot payload — the client looks up the constructor here
 	// by name so new effects just register themselves and work without
 	// client-side changes.
-	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, beach: Beach, campfire: Campfire, windmill: Windmill, lighthouse: Lighthouse, rowboat: Rowboat, underwater: Underwater, volcano: Volcano, train: Train, 'mysterious-man': MysteriousMan, 'burning-trees': BurningTrees, sand: Sand, 'water-pipe': WaterPipe, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield };
+	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, beach: Beach, campfire: Campfire, windmill: Windmill, lighthouse: Lighthouse, rowboat: Rowboat, underwater: Underwater, volcano: Volcano, train: Train, 'mysterious-man': MysteriousMan, 'burning-trees': BurningTrees, sand: Sand, 'water-pipe': WaterPipe, tetris: Tetris, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield };
 	const presets = {
 		'wheat-field': [
 			{
@@ -7764,6 +8285,126 @@
 				},
 			},
 		],
+		tetris: [
+			{
+				key: 'museum-pace',
+				label: 'museum pace',
+				config: {
+					intro_dur: 72,
+					intro_stack: 0,
+					intro_cadence: 0.48,
+					ending_dur: 88,
+					ending_linger: 34,
+					ending_fill: 0.8,
+					well_x: 0.17,
+					well_y: 0.12,
+					cell_size: 3,
+					spawn_every: 56,
+					fall_every: 10,
+					lock_delay: 5,
+					glow: 0.14,
+					ghost: 0.1,
+					hue: 220,
+					hue_sp: 18,
+					sat: 0.42,
+					lmin: 0.08,
+					lmax: 0.84,
+					lull_p: 0.0012,
+					lull_dur: 104,
+					lull_mult: 2.35,
+				},
+			},
+			{
+				key: 'steady-build',
+				label: 'steady build',
+				config: {
+					intro_dur: 60,
+					intro_stack: 1,
+					intro_cadence: 0.58,
+					ending_dur: 74,
+					ending_linger: 28,
+					ending_fill: 0.84,
+					well_x: 0.18,
+					well_y: 0.12,
+					cell_size: 3,
+					spawn_every: 42,
+					fall_every: 8,
+					lock_delay: 4,
+					glow: 0.18,
+					ghost: 0.14,
+					hue: 208,
+					hue_sp: 24,
+					sat: 0.56,
+					lmin: 0.1,
+					lmax: 0.92,
+					new_piece_p: 0.0008,
+					new_piece_dur: 16,
+					new_piece_cut: 0.22,
+					lull_p: 0.0005,
+					lull_dur: 76,
+					lull_mult: 1.75,
+				},
+			},
+			{
+				key: 'dense-stack',
+				label: 'dense stack',
+				config: {
+					intro_dur: 46,
+					intro_stack: 4,
+					intro_cadence: 0.72,
+					ending_dur: 66,
+					ending_linger: 24,
+					ending_fill: 0.76,
+					well_x: 0.18,
+					well_y: 0.11,
+					cell_size: 3,
+					spawn_every: 34,
+					fall_every: 7,
+					lock_delay: 4,
+					glow: 0.2,
+					ghost: 0.12,
+					hue: 198,
+					hue_sp: 28,
+					sat: 0.6,
+					lmin: 0.1,
+					lmax: 0.9,
+					new_piece_p: 0.0009,
+					new_piece_dur: 15,
+					new_piece_cut: 0.2,
+					lull_p: 0.0003,
+				},
+			},
+			{
+				key: 'late-game',
+				label: 'late game',
+				config: {
+					intro_dur: 34,
+					intro_stack: 6,
+					intro_cadence: 0.84,
+					ending_dur: 58,
+					ending_linger: 22,
+					ending_fill: 0.9,
+					well_x: 0.18,
+					well_y: 0.1,
+					cell_size: 3,
+					spawn_every: 26,
+					fall_every: 5,
+					lock_delay: 3,
+					glow: 0.24,
+					ghost: 0.16,
+					hue: 192,
+					hue_sp: 30,
+					sat: 0.66,
+					lmin: 0.12,
+					lmax: 0.94,
+					new_piece_p: 0.0012,
+					new_piece_dur: 18,
+					new_piece_cut: 0.18,
+					lull_p: 0.0002,
+					lull_mult: 1.5,
+				},
+			},
+		],
 		starfield: [
 			{
 				key: 'still-night',
@@ -8190,5 +8831,5 @@
 		],
 	};
 
-	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Volcano, Train, MysteriousMan, BurningTrees, Sand, WaterPipe, Aurora, AutumnLeaves, Snow, Starfield, subscribe, applyDefaults, hslToRGB, effects, presets };
+	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Volcano, Train, MysteriousMan, BurningTrees, Sand, WaterPipe, Tetris, Aurora, AutumnLeaves, Snow, Starfield, subscribe, applyDefaults, hslToRGB, effects, presets };
 })(window);

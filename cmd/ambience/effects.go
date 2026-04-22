@@ -156,6 +156,11 @@ var effectRegistry = map[string]effectDefinition{
 		Schema:     sim.WaterPipeSchema,
 		NewRuntime: newWaterPipeRuntime,
 	},
+	"tetris": {
+		Type:       "tetris",
+		Schema:     sim.TetrisSchema,
+		NewRuntime: newTetrisRuntime,
+	},
 }
 
 func lookupEffectDefinition(effectType string) (effectDefinition, bool) {
@@ -362,6 +367,10 @@ func newSandRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, e
 
 func newWaterPipeRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
 	return newProceduralRuntime("water-pipe", w, h, seed, cfg)
+}
+
+func newTetrisRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
+	return newProceduralRuntime("tetris", w, h, seed, cfg)
 }
 
 func (r *rainRuntime) Type() string { return "rain" }
@@ -806,6 +815,8 @@ func (p *proceduralRuntime) Schema() sim.EffectSchema {
 		return sim.SandSchema()
 	case "water-pipe":
 		return sim.WaterPipeSchema()
+	case "tetris":
+		return sim.TetrisSchema()
 	default:
 		return sim.EffectSchema{}
 	}

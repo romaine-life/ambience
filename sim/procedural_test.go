@@ -172,6 +172,16 @@ func TestWaterPipeSchema(t *testing.T) {
 	}
 }
 
+func TestTetrisSchema(t *testing.T) {
+	schema := TetrisSchema()
+	if schema.Name != "tetris" {
+		t.Fatalf("schema name = %q, want tetris", schema.Name)
+	}
+	if len(schema.Knobs) == 0 {
+		t.Fatal("expected tetris schema knobs")
+	}
+}
+
 func TestProceduralSnowSnapshotRestore(t *testing.T) {
 	p := NewProcedural("snow", 160, 80, 42, nil)
 	if !p.TriggerEvent("gust") {
@@ -776,5 +786,45 @@ func TestProceduralWaterPipeSnapshotRestore(t *testing.T) {
 	}
 	if again.Values["ripple_phase"] != snap.Values["ripple_phase"] {
 		t.Fatalf("restored ripple phase = %f, want %f", again.Values["ripple_phase"], snap.Values["ripple_phase"])
+	}
+}
+
+func TestProceduralTetrisSnapshotRestore(t *testing.T) {
+	p := NewProcedural("tetris", 160, 80, 95, nil)
+	if !p.TriggerEvent("intro") {
+		t.Fatal("expected intro trigger to succeed")
+	}
+	if !p.TriggerEvent("new-piece") {
+		t.Fatal("expected new-piece trigger to succeed")
+	}
+	for i := 0; i < 18; i++ {
+		p.Step()
+	}
+
+	snap := p.Snapshot()
+	if snap.Timers["intro"] <= 0 {
+		t.Fatal("expected intro timer in snapshot")
+	}
+	if snap.Values["piece_kind"] <= 0 && snap.Values["fill_ratio"] <= 0 {
+		t.Fatal("expected either an active piece or a settled stack in snapshot")
+	}
+	if snap.Values["fill_ratio"] < 0 {
+		t.Fatal("expected fill ratio value in snapshot")
+	}
+
+	restored := NewProcedural("tetris", 160, 80, 7, nil)
+	restored.RestoreSnapshot(snap)
+	again := restored.Snapshot()
+	if again.Timers["intro"] != snap.Timers["intro"] {
+		t.Fatalf("restored intro timer = %d, want %d", again.Timers["intro"], snap.Timers["intro"])
+	}
+	if again.Values["fill_ratio"] != snap.Values["fill_ratio"] {
+		t.Fatalf("restored fill ratio = %f, want %f", again.Values["fill_ratio"], snap.Values["fill_ratio"])
+	}
+	if again.Values["stack_height"] != snap.Values["stack_height"] {
+		t.Fatalf("restored stack height = %f, want %f", again.Values["stack_height"], snap.Values["stack_height"])
+	}
+	if again.Values["piece_kind"] != snap.Values["piece_kind"] {
+		t.Fatalf("restored piece kind = %f, want %f", again.Values["piece_kind"], snap.Values["piece_kind"])
 	}
 }

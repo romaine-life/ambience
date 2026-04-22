@@ -38,6 +38,7 @@ type Procedural struct {
 	W, H int
 	Grid [][]Pixel
 
+	seed   int64
 	rng    *rngutil.RNG
 	cfg    ProceduralConfig
 	tick   int
@@ -1630,6 +1631,8 @@ func proceduralDefaults(kind string) ProceduralConfig {
 		return cloneProceduralConfig(sandDefaults)
 	case "water-pipe":
 		return cloneProceduralConfig(waterPipeDefaults)
+	case "tetris":
+		return cloneProceduralConfig(tetrisDefaults)
 	default:
 		return ProceduralConfig{}
 	}
@@ -2785,6 +2788,8 @@ func mergeProceduralDefaults(kind string, cfg ProceduralConfig) ProceduralConfig
 		if out["dry_up_mult"] <= 0 {
 			out["dry_up_mult"] = waterPipeDefaults["dry_up_mult"]
 		}
+	case "tetris":
+		out = mergeTetrisDefaults(out)
 	}
 	return out
 }
@@ -2799,6 +2804,7 @@ func NewProcedural(kind string, w, h int, seed int64, cfg ProceduralConfig) *Pro
 		W:      w,
 		H:      h,
 		Grid:   grid,
+		seed:   seed,
 		rng:    rngutil.New(seed),
 		cfg:    mergeProceduralDefaults(kind, cfg),
 		timers: make(map[string]int),
@@ -3209,6 +3215,21 @@ func (p *Procedural) TriggerEvent(name string) bool {
 			return false
 		}
 		return true
+	case "tetris":
+		switch name {
+		case "new-piece":
+			p.startTetrisNewPieceLocked("triggered")
+		case "lull":
+			p.startTetrisLullLocked("triggered")
+		case "intro":
+			p.startTetrisIntroLocked()
+			p.appendLog("intro", fmt.Sprintf("started (dur=%d, stack=%.0f)", p.timers["intro"], p.cfg["intro_stack"]))
+		case "ending":
+			p.startTetrisEndingLocked(fmt.Sprintf("started (fade=%d, linger=%d)", p.intCfg("ending_dur"), p.intCfg("ending_linger")))
+		default:
+			return false
+		}
+		return true
 	default:
 		return false
 	}
@@ -3278,6 +3299,8 @@ func (p *Procedural) Step() {
 		p.stepSandLocked()
 	case "water-pipe":
 		p.stepWaterPipeLocked()
+	case "tetris":
+		p.stepTetrisLocked()
 	}
 }
 
