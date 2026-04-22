@@ -72,16 +72,24 @@ chart/ambience/  Helm chart used by ArgoCD for both prod and dev.
                  direct session-driven image rolls are not immediately
                  reconciled away.
 scripts/dev-deploy.ps1
-                 Local k8s-first dev helper that builds, pushes, and
-                 patches just `edge`, just `authority`, or `all` in the
-                 live dev namespace. Prefers local Docker when available,
-                 but can fall back to `az acr build` so a local Docker
-                 daemon is not required for the dev loop.
+                  Local k8s-first dev helper that builds, pushes, and
+                  patches just `edge`, just `authority`, or `all` in the
+                  live dev namespace. Prefers local Docker when available,
+                  but can fall back to `az acr build` so a local Docker
+                  daemon is not required for the dev loop. When rolling
+                  `all`, it updates authority before edge so edge
+                  readiness does not wait on a simultaneously replacing
+                  authority pod.
+scripts/dev-effect-loop.ps1
+                 Fast effect-work helper for the common "authority Go +
+                 browser sim" path. Rolls `authority`, then syncs
+                 `cmd/ambience/web` into the live edge override pod so
+                 new effects avoid an unnecessary edge image rollout.
 scripts/dev-loop.ps1
-                 Fast static-web dev helper for the dev environment.
-                 Syncs `cmd/ambience/web` straight into the live edge
-                 pod's override directory so `/dev` changes can be
-                 tested on `ambience.dev.romaine.life` without a local
+                  Fast static-web dev helper for the dev environment.
+                  Syncs `cmd/ambience/web` straight into the live edge
+                  pod's override directory so `/dev` changes can be
+                  tested on `ambience.dev.romaine.life` without a local
                  runtime or a full image rebuild.
 ```
 
@@ -216,12 +224,19 @@ Use the dev helpers like this:
    to sync the web files into the live dev edge pod without a Docker
    build. Do not run the background watcher form unless you explicitly
    want it.
-2. Go/runtime changes that need a new binary or image:
+2. Effect work that changes authority-side Go together with
+   `cmd/ambience/web/`:
+   run `powershell -ExecutionPolicy Bypass -File scripts/dev-effect-loop.ps1`.
+   That rolls `authority`, then syncs the web files into the live dev
+   edge pod so new or updated effects avoid an unnecessary edge image
+   rollout.
+3. True Go/runtime changes that need a new image on edge, authority, or
+   both:
    run `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component edge`
    or swap `edge` for `authority` / `all`. The script builds and pushes a
    temporary image tag, then patches the live `ambience-edge` and/or
    `ambience-authority` image fields with `kubectl set image`.
-3. If local Docker is unavailable, `scripts/dev-deploy.ps1` automatically
+4. If local Docker is unavailable, `scripts/dev-deploy.ps1` automatically
    falls back to `az acr build` and verifies the tag exists in ACR before
    patching, so the session can stay k8s-first without relying on a local
    Docker daemon.
@@ -243,10 +258,10 @@ The recommended feature-iteration loop is:
    the task explicitly needs a local-only repro.
 4. Use `scripts/dev-loop.ps1 -Once` for browser-only static work in
    `cmd/ambience/web/`; do not default to the long-lived watcher form.
-5. Use `scripts/dev-deploy.ps1 -Component all` for changes that touch both
-   browser assets and authority/runtime code, which is the common case for
-   new effects. Use `edge` or `authority` only when the change is truly
-   one-sided.
+5. Use `scripts/dev-effect-loop.ps1` for the common new-effect path that
+   touches authority-side Go together with browser assets. Use
+   `scripts/dev-deploy.ps1 -Component all` only when the change truly
+   needs a new edge image as well.
 6. Verify the result on `/dev/<effect>` or the relevant dev route before
    promoting it.
 
