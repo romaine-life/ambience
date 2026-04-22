@@ -2036,6 +2036,35 @@
 			flare_dur: 28,
 			flare_mult: 1.9,
 		},
+		train: {
+			intro_dur: 50,
+			intro_cue: 0.12,
+			ending_dur: 70,
+			ending_linger: 18,
+			ending_clear: 0.08,
+			horizon: 0.74,
+			track_row: 0.82,
+			train_height: 4.5,
+			car_count: 6,
+			car_gap: 1,
+			speed: 1.05,
+			smoke: 0.18,
+			headlight: 0.24,
+			hue: 220,
+			hue_sp: 20,
+			sat: 0.34,
+			lmin: 0.08,
+			lmax: 0.86,
+			pass_p: 0,
+			express_p: 0,
+			quiet_gap_p: 0,
+			pass_dur: 72,
+			pass_mult: 1.15,
+			express_dur: 46,
+			express_mult: 1.9,
+			quiet_gap_dur: 90,
+			quiet_gap_mult: 0.45,
+		},
 		starfield: {
 			intro_dur: 50,
 			intro_density: 0.08,
@@ -2321,6 +2350,33 @@
 				if (c.flare_dur <= 0) c.flare_dur = base.flare_dur;
 				if (c.flare_mult <= 0) c.flare_mult = base.flare_mult;
 				break;
+			case 'train':
+				if (c.intro_dur <= 0) c.intro_dur = base.intro_dur;
+				c.intro_cue = clamp01(c.intro_cue);
+				if (c.ending_dur <= 0) c.ending_dur = base.ending_dur;
+				if (c.ending_linger < 0) c.ending_linger = 0;
+				c.ending_clear = clamp01(c.ending_clear);
+				if (c.horizon <= 0) c.horizon = base.horizon;
+				if (c.track_row <= 0) c.track_row = base.track_row;
+				if (c.train_height <= 0) c.train_height = base.train_height;
+				if (c.car_count < 3) c.car_count = base.car_count;
+				if (c.car_gap <= 0) c.car_gap = base.car_gap;
+				if (c.speed <= 0) c.speed = base.speed;
+				if (c.smoke <= 0) c.smoke = base.smoke;
+				if (c.headlight <= 0) c.headlight = base.headlight;
+				if (c.hue <= 0) c.hue = base.hue;
+				if (c.hue_sp < 0) c.hue_sp = 0;
+				if (c.sat <= 0) c.sat = base.sat;
+				if (c.lmin <= 0) c.lmin = base.lmin;
+				if (c.lmax <= 0) c.lmax = base.lmax;
+				if (c.lmax < c.lmin) [c.lmin, c.lmax] = [c.lmax, c.lmin];
+				if (c.pass_dur <= 0) c.pass_dur = base.pass_dur;
+				if (c.pass_mult <= 0) c.pass_mult = base.pass_mult;
+				if (c.express_dur <= 0) c.express_dur = base.express_dur;
+				if (c.express_mult <= 0) c.express_mult = base.express_mult;
+				if (c.quiet_gap_dur <= 0) c.quiet_gap_dur = base.quiet_gap_dur;
+				if (c.quiet_gap_mult <= 0) c.quiet_gap_mult = base.quiet_gap_mult;
+				break;
 			case 'aurora':
 				if (c.intro_dur <= 0) c.intro_dur = base.intro_dur;
 				c.intro_glow = clamp01(c.intro_glow);
@@ -2472,6 +2528,8 @@
 					return this._triggerUnderwater(name);
 				case 'volcano':
 					return this._triggerVolcano(name);
+				case 'train':
+					return this._triggerTrain(name);
 				case 'aurora':
 					return this._triggerAurora(name);
 				case 'starfield':
@@ -2558,6 +2616,20 @@
 					this.values.flare_gain = 1;
 				}
 			}
+			if (this.kind === 'train') {
+				if ((!this.timers.pass || this.timers.pass <= 0) && (!this.timers.express || this.timers.express <= 0)) {
+					this.values.pass_gain = 1;
+					this.values.express_gain = 1;
+					this.values.train_total = 0;
+					this.values.train_speed = 0;
+					this.values.train_dir = 0;
+					this.values.train_cars = 0;
+					this.values.train_gap = 0;
+					this.values.train_seed = 0;
+					this.values.smoke_gain = 0;
+					this.values.headlight_gain = 0;
+				}
+			}
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
@@ -2578,6 +2650,8 @@
 					return this._renderUnderwater(ctx, canvasW, canvasH, opts);
 				case 'volcano':
 					return this._renderVolcano(ctx, canvasW, canvasH, opts);
+				case 'train':
+					return this._renderTrain(ctx, canvasW, canvasH, opts);
 				case 'aurora':
 					return this._renderAurora(ctx, canvasW, canvasH, opts);
 				case 'starfield':
@@ -2979,6 +3053,82 @@
 			return false;
 		}
 
+		_triggerTrain(name) {
+			const rng = this._eventRng(name.length + 109);
+			switch (name) {
+				case 'pass':
+					this.timers.express = 0;
+					this.timers['quiet-gap'] = 0;
+					this.timers.pass = jitterInt(rng, this.cfg.pass_dur, 0.3);
+					this.values.pass_gain = this.cfg.pass_mult * (0.9 + rng() * 0.3);
+					this.values.express_gain = 1;
+					this.values.train_total = this.timers.pass;
+					this.values.train_speed = this.cfg.speed * this.values.pass_gain;
+					this.values.train_dir = rng() < 0.5 ? -1 : 1;
+					this.values.train_cars = Math.max(3, Math.round(this.cfg.car_count) - 1 + Math.floor(rng() * 3));
+					this.values.train_gap = Math.max(0.5, this.cfg.car_gap * (0.9 + rng() * 0.25));
+					this.values.train_seed = rng() * 1000;
+					this.values.smoke_gain = this.cfg.smoke * (0.8 + rng() * 0.5);
+					this.values.headlight_gain = this.cfg.headlight * (0.9 + rng() * 0.35);
+					return true;
+				case 'express':
+					this.timers.pass = 0;
+					this.timers['quiet-gap'] = 0;
+					this.timers.express = jitterInt(rng, this.cfg.express_dur, 0.3);
+					this.values.pass_gain = 1;
+					this.values.express_gain = this.cfg.express_mult * (0.95 + rng() * 0.35);
+					this.values.train_total = this.timers.express;
+					this.values.train_speed = this.cfg.speed * this.values.express_gain;
+					this.values.train_dir = rng() < 0.5 ? -1 : 1;
+					this.values.train_cars = Math.max(3, Math.round(this.cfg.car_count) - 2 + Math.floor(rng() * 3));
+					this.values.train_gap = Math.max(0.5, this.cfg.car_gap * (0.75 + rng() * 0.15));
+					this.values.train_seed = rng() * 1000;
+					this.values.smoke_gain = this.cfg.smoke * (0.7 + rng() * 0.35);
+					this.values.headlight_gain = this.cfg.headlight * (1.15 + rng() * 0.55);
+					return true;
+				case 'quiet-gap':
+					this.timers['quiet-gap'] = jitterInt(rng, this.cfg.quiet_gap_dur, 0.3);
+					return true;
+				case 'intro':
+					this.timers.pass = 0;
+					this.timers.express = 0;
+					this.timers['quiet-gap'] = 0;
+					this.timers.ending = 0;
+					this.values.pass_gain = 1;
+					this.values.express_gain = 1;
+					this.values.train_total = 0;
+					this.values.train_speed = 0;
+					this.values.train_dir = 0;
+					this.values.train_cars = 0;
+					this.values.train_gap = 0;
+					this.values.train_seed = 0;
+					this.values.smoke_gain = 0;
+					this.values.headlight_gain = 0;
+					this.timers.intro = Math.max(1, Math.round(this.cfg.intro_dur));
+					this.values.intro_total = this.timers.intro;
+					return true;
+				case 'ending':
+					this.timers.intro = 0;
+					this.timers.pass = 0;
+					this.timers.express = 0;
+					this.timers['quiet-gap'] = 0;
+					this.values.pass_gain = 1;
+					this.values.express_gain = 1;
+					this.values.train_total = 0;
+					this.values.train_speed = 0;
+					this.values.train_dir = 0;
+					this.values.train_cars = 0;
+					this.values.train_gap = 0;
+					this.values.train_seed = 0;
+					this.values.smoke_gain = 0;
+					this.values.headlight_gain = 0;
+					this.timers.ending = Math.max(1, Math.round(this.cfg.ending_dur + Math.max(0, this.cfg.ending_linger)));
+					this.values.ending_total = this.timers.ending;
+					return true;
+			}
+			return false;
+		}
+
 		_triggerAurora(name) {
 			const rng = this._eventRng(name.length + 53);
 			switch (name) {
@@ -3254,6 +3404,24 @@
 				const total = this.values.ending_total || (this.cfg.ending_dur + this.cfg.ending_linger);
 				const progress = this._phaseProgress(total, this.timers.ending);
 				level *= 1 - (1 - this.cfg.ending_embers) * progress;
+			}
+			return Math.max(0.04, level);
+		}
+
+		_sceneLevelTrain() {
+			let level = 1;
+			if (this.timers.pass > 0) level *= this.values.pass_gain || this.cfg.pass_mult;
+			if (this.timers.express > 0) level *= this.values.express_gain || this.cfg.express_mult;
+			if (this.timers['quiet-gap'] > 0) level *= this.cfg.quiet_gap_mult;
+			if (this.timers.intro > 0) {
+				const total = this.values.intro_total || this.cfg.intro_dur;
+				const progress = this._phaseProgress(total, this.timers.intro);
+				level *= this.cfg.intro_cue + (1 - this.cfg.intro_cue) * progress;
+			}
+			if (this.timers.ending > 0) {
+				const total = this.values.ending_total || (this.cfg.ending_dur + this.cfg.ending_linger);
+				const progress = this._phaseProgress(total, this.timers.ending);
+				level *= 1 - (1 - this.cfg.ending_clear) * progress;
 			}
 			return Math.max(0.04, level);
 		}
@@ -4519,6 +4687,172 @@
 			}
 		}
 
+		_renderTrain(ctx, canvasW, canvasH, opts) {
+			opts = opts || {};
+			if (opts.transparent) {
+				ctx.clearRect(0, 0, canvasW, canvasH);
+			} else {
+				const skyTop = hslToRGB(this.cfg.hue, clamp01(this.cfg.sat * 0.55), clamp01(this.cfg.lmin * 0.75));
+				const skyMid = hslToRGB((this.cfg.hue + this.cfg.hue_sp * 0.35) % 360, clamp01(this.cfg.sat * 0.38), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.16));
+				const skyLow = hslToRGB((this.cfg.hue + this.cfg.hue_sp * 0.9) % 360, clamp01(this.cfg.sat * 0.24), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.3));
+				const sky = ctx.createLinearGradient(0, 0, 0, canvasH);
+				sky.addColorStop(0, `rgb(${skyTop.r},${skyTop.g},${skyTop.b})`);
+				sky.addColorStop(0.58, `rgb(${skyMid.r},${skyMid.g},${skyMid.b})`);
+				sky.addColorStop(1, `rgb(${skyLow.r},${skyLow.g},${skyLow.b})`);
+				ctx.fillStyle = sky;
+				ctx.fillRect(0, 0, canvasW, canvasH);
+			}
+
+			const sx = canvasW / this.w;
+			const sy = canvasH / this.h;
+			const ceilSx = Math.ceil(sx);
+			const ceilSy = Math.ceil(sy);
+			const horizon = Math.max(8, Math.min(this.h - 12, Math.floor(this.h * this.cfg.horizon)));
+			const railRow = Math.max(horizon + 6, Math.min(this.h - 6, Math.floor(this.h * this.cfg.track_row)));
+			const sceneLevel = this._sceneLevelTrain();
+			const headlightGain = this.values.headlight_gain || this.cfg.headlight;
+
+			const horizonGlow = ctx.createLinearGradient(0, Math.floor((horizon - 8) * sy), 0, Math.floor((horizon + 8) * sy));
+			horizonGlow.addColorStop(0, 'rgba(255, 184, 112, 0)');
+			horizonGlow.addColorStop(1, `rgba(255, 184, 112, ${clamp01(0.08 + headlightGain * 0.16 * sceneLevel)})`);
+			ctx.fillStyle = horizonGlow;
+			ctx.fillRect(0, Math.floor((horizon - 8) * sy), canvasW, Math.ceil(18 * sy));
+
+			const ridgeColor = hslToRGB((this.cfg.hue + 8) % 360, clamp01(this.cfg.sat * 0.22), clamp01(this.cfg.lmin * 1.45));
+			const ridgePoints = [];
+			const ridgeSegments = 6;
+			for (let i = 0; i <= ridgeSegments; i++) {
+				ridgePoints.push(horizon - 1 - Math.floor(this._hash(33800 + i) * 5) - Math.floor((0.5 + 0.5 * Math.sin(i * 1.15 + this._hash(33900 + i) * 4)) * 3));
+			}
+			ctx.fillStyle = `rgb(${ridgeColor.r},${ridgeColor.g},${ridgeColor.b})`;
+			ctx.beginPath();
+			ctx.moveTo(0, canvasH);
+			for (let x = 0; x < this.w; x++) {
+				const pos = (x / Math.max(1, this.w - 1)) * ridgeSegments;
+				const idx = Math.min(ridgeSegments - 1, Math.floor(pos));
+				const frac = pos - idx;
+				const eased = frac * frac * (3 - 2 * frac);
+				const row = ridgePoints[idx] + (ridgePoints[idx + 1] - ridgePoints[idx]) * eased;
+				ctx.lineTo(Math.floor(x * sx), Math.floor(row * sy));
+			}
+			ctx.lineTo(canvasW, canvasH);
+			ctx.closePath();
+			ctx.fill();
+
+			const embankment = hslToRGB((this.cfg.hue + 18) % 360, clamp01(this.cfg.sat * 0.16), clamp01(this.cfg.lmin * 1.15));
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, railRow + 2, this.w, this.h - railRow - 2, `rgb(${embankment.r},${embankment.g},${embankment.b})`, 1);
+
+			const ballast = hslToRGB((this.cfg.hue + 24) % 360, clamp01(this.cfg.sat * 0.12), clamp01(this.cfg.lmin * 0.95));
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, railRow, this.w, 3, `rgb(${ballast.r},${ballast.g},${ballast.b})`, 1);
+
+			const railColor = hslToRGB((this.cfg.hue + this.cfg.hue_sp * 0.25) % 360, clamp01(this.cfg.sat * 0.12), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.34));
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, railRow, this.w, 1, `rgb(${railColor.r},${railColor.g},${railColor.b})`, 0.95);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, railRow + 2, this.w, 1, `rgb(${railColor.r},${railColor.g},${railColor.b})`, 0.75);
+
+			const tieColor = hslToRGB((this.cfg.hue + 22) % 360, clamp01(this.cfg.sat * 0.16), clamp01(this.cfg.lmin * 0.78));
+			for (let x = 0; x < this.w; x += 5) {
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, railRow + 1, 3, 1, `rgb(${tieColor.r},${tieColor.g},${tieColor.b})`, 0.82);
+			}
+
+			const poleColor = hslToRGB((this.cfg.hue + 18) % 360, clamp01(this.cfg.sat * 0.08), clamp01(this.cfg.lmin * 1.18));
+			for (let i = 0; i < 5; i++) {
+				const col = Math.round((i + 0.8) * this.w / 5 + (this._hash(34000 + i) - 0.5) * 4);
+				const poleTop = horizon - 5 - Math.floor(this._hash(34100 + i) * 4);
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col, poleTop, 1, railRow - poleTop, `rgb(${poleColor.r},${poleColor.g},${poleColor.b})`, 0.8);
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col - 1, poleTop + 2, 3, 1, `rgb(${poleColor.r},${poleColor.g},${poleColor.b})`, 0.55);
+			}
+
+			const activeTimer = this.timers.express > 0 ? this.timers.express : (this.timers.pass > 0 ? this.timers.pass : 0);
+			if (activeTimer > 0) {
+				const total = Math.max(1, this.values.train_total || activeTimer);
+				const progress = clamp01((1 - activeTimer / total) * Math.max(0.35, this.values.train_speed || this.cfg.speed));
+				const dir = this.values.train_dir || 1;
+				const cars = Math.max(3, Math.round(this.values.train_cars || this.cfg.car_count));
+				const gap = Math.max(0.5, this.values.train_gap || this.cfg.car_gap);
+				const trainHeight = Math.max(3, Math.round(this.cfg.train_height));
+				const carW = Math.max(5, Math.round(trainHeight * 1.7));
+				const locoW = carW + 3;
+				const totalLen = locoW + cars * (carW + gap) + 6;
+				const front = dir > 0
+					? -2 + progress * (this.w + totalLen + 4)
+					: this.w + 1 - progress * (this.w + totalLen + 4);
+				const bodyRow = railRow - 1;
+				const bodyTop = bodyRow - trainHeight + 1;
+				const bodyColor = hslToRGB((this.cfg.hue + this.cfg.hue_sp * 0.15) % 360, clamp01(this.cfg.sat * 0.2), clamp01(this.cfg.lmin * 1.28));
+				const accentColor = hslToRGB((this.cfg.hue + this.cfg.hue_sp * 0.5) % 360, clamp01(this.cfg.sat * 0.34), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.22));
+				const windowColor = hslToRGB((this.cfg.hue + this.cfg.hue_sp) % 360, clamp01(this.cfg.sat * 0.42), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.7));
+				const smokeGain = this.values.smoke_gain || this.cfg.smoke;
+				const seed = Math.floor((this.values.train_seed || 0) * 10);
+				const segmentStart = (offset, len) => dir > 0 ? Math.round(front - offset - len + 1) : Math.round(front + offset);
+				const engineX = segmentStart(0, locoW);
+
+				const headlightX = dir > 0 ? engineX + locoW - 1 : engineX;
+				const beamWidth = 18 + Math.max(0, (this.values.express_gain || 1) - 1) * 6;
+				const beam = ctx.createLinearGradient(
+					Math.floor(headlightX * sx), Math.floor((bodyTop + 1) * sy),
+					Math.floor((headlightX + dir * beamWidth) * sx), Math.floor((bodyTop + 1) * sy),
+				);
+				const beamAlpha = clamp01(0.12 + headlightGain * 0.22 * sceneLevel);
+				if (dir > 0) {
+					beam.addColorStop(0, `rgba(255, 232, 188, ${beamAlpha})`);
+					beam.addColorStop(1, 'rgba(255, 232, 188, 0)');
+				} else {
+					beam.addColorStop(0, 'rgba(255, 232, 188, 0)');
+					beam.addColorStop(1, `rgba(255, 232, 188, ${beamAlpha})`);
+				}
+				ctx.fillStyle = beam;
+				ctx.fillRect(
+					Math.floor((Math.min(headlightX, headlightX + dir * beamWidth) - 1) * sx),
+					Math.floor((bodyTop - 1) * sy),
+					Math.ceil((Math.abs(beamWidth) + 3) * sx),
+					Math.ceil((trainHeight + 4) * sy),
+				);
+
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, engineX, bodyTop, locoW, trainHeight, `rgb(${bodyColor.r},${bodyColor.g},${bodyColor.b})`, 1);
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, engineX + (dir > 0 ? 2 : 1), bodyTop + 1, 3, Math.max(1, trainHeight - 2), `rgb(${accentColor.r},${accentColor.g},${accentColor.b})`, 0.95);
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, headlightX, bodyTop + 1, 1, 1, `rgb(${windowColor.r},${windowColor.g},${windowColor.b})`, 1);
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, engineX + Math.floor(locoW * 0.45), bodyTop - 1, 1, 2, `rgb(${bodyColor.r},${bodyColor.g},${bodyColor.b})`, 1);
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, engineX + Math.floor(locoW * 0.45) - 1, bodyTop + 1, 2, 1, `rgb(${windowColor.r},${windowColor.g},${windowColor.b})`, 0.75);
+
+				for (let i = 0; i < cars; i++) {
+					const offset = locoW + 1 + i * (carW + gap);
+					const carX = segmentStart(offset, carW);
+					const lift = (i % 2 === 0) ? 0 : 1;
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, carX, bodyTop + lift, carW, trainHeight - lift, `rgb(${bodyColor.r},${bodyColor.g},${bodyColor.b})`, 0.94);
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, carX, bodyTop + trainHeight - 1, carW, 1, `rgb(${accentColor.r},${accentColor.g},${accentColor.b})`, 0.8);
+					const windowCount = Math.max(2, Math.floor((carW - 1) / 3));
+					for (let w = 0; w < windowCount; w++) {
+						const wx = carX + 1 + w * 3;
+						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, wx, bodyTop + 1 + lift, 1, 1, `rgb(${windowColor.r},${windowColor.g},${windowColor.b})`, 0.65);
+					}
+				}
+
+				const wheelColor = hslToRGB((this.cfg.hue + 18) % 360, clamp01(this.cfg.sat * 0.06), clamp01(this.cfg.lmin * 0.5));
+				for (let i = 0; i <= cars; i++) {
+					const len = i === 0 ? locoW : carW;
+					const offset = i === 0 ? 0 : locoW + 1 + (i - 1) * (carW + gap);
+					const start = segmentStart(offset, len);
+					for (let x = start + 1; x < start + len - 1; x += 3) {
+						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, railRow - 1, 1, 1, `rgb(${wheelColor.r},${wheelColor.g},${wheelColor.b})`, 1);
+					}
+				}
+
+				const puffCount = Math.max(6, Math.round(4 + smokeGain * 16));
+				for (let i = 0; i < puffCount; i++) {
+					const life = 26 + Math.floor(this._hash(34200 + seed + i) * 28);
+					const age = positiveMod(this.tick + i * 7, life);
+					const t = age / Math.max(1, life - 1);
+					const drift = dir * t * (4 + (this.values.train_speed || this.cfg.speed) * 2) + (this._hash(34300 + seed + i) * 2 - 1) * (1 + t * 4);
+					const rise = t * (4 + smokeGain * 12);
+					const x = Math.round(engineX + Math.floor(locoW * 0.45) - drift);
+					const y = Math.round(bodyTop - 1 - rise);
+					const alpha = clamp01((0.04 + smokeGain * 0.14) * (1 - t) * sceneLevel);
+					const width = 1 + Math.floor(this._hash(34400 + seed + i) * (1 + t * 3));
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, width, 1 + (t > 0.45 ? 1 : 0), `rgb(${railColor.r},${railColor.g},${railColor.b})`, alpha);
+				}
+			}
+		}
+
 		_renderAurora(ctx, canvasW, canvasH, opts) {
 			opts = opts || {};
 			if (opts.transparent) {
@@ -4695,6 +5029,12 @@
 		}
 	}
 
+	class Train extends ProceduralScene {
+		constructor(w, h, cfg, seed) {
+			super('train', w, h, cfg, seed);
+		}
+	}
+
 	class Aurora extends ProceduralScene {
 		constructor(w, h, cfg, seed) {
 			super('aurora', w, h, cfg, seed);
@@ -4753,7 +5093,7 @@
 	// server's snapshot payload — the client looks up the constructor here
 	// by name so new effects just register themselves and work without
 	// client-side changes.
-	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, beach: Beach, campfire: Campfire, windmill: Windmill, lighthouse: Lighthouse, rowboat: Rowboat, underwater: Underwater, volcano: Volcano, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield };
+	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, beach: Beach, campfire: Campfire, windmill: Windmill, lighthouse: Lighthouse, rowboat: Rowboat, underwater: Underwater, volcano: Volcano, train: Train, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield };
 	const presets = {
 		'wheat-field': [
 			{
@@ -5435,6 +5775,100 @@
 				},
 			},
 		],
+		train: [
+			{
+				key: 'distant-freight',
+				label: 'distant freight',
+				config: {
+					intro_cue: 0.1,
+					ending_clear: 0.12,
+					horizon: 0.76,
+					track_row: 0.83,
+					train_height: 4,
+					car_count: 8,
+					car_gap: 1.2,
+					speed: 0.92,
+					smoke: 0.24,
+					headlight: 0.18,
+					hue: 226,
+					hue_sp: 14,
+					sat: 0.28,
+					lmin: 0.07,
+					lmax: 0.74,
+					pass_p: 0.001,
+					quiet_gap_p: 0.0012,
+				},
+			},
+			{
+				key: 'night-local',
+				label: 'night local',
+				config: {
+					intro_cue: 0.14,
+					ending_clear: 0.09,
+					horizon: 0.74,
+					track_row: 0.82,
+					train_height: 4.5,
+					car_count: 6,
+					car_gap: 1,
+					speed: 1.05,
+					smoke: 0.16,
+					headlight: 0.26,
+					hue: 218,
+					hue_sp: 18,
+					sat: 0.34,
+					lmin: 0.08,
+					lmax: 0.84,
+					pass_p: 0.0013,
+				},
+			},
+			{
+				key: 'steady-passing',
+				label: 'steady passing',
+				config: {
+					intro_cue: 0.12,
+					ending_clear: 0.08,
+					horizon: 0.73,
+					track_row: 0.81,
+					train_height: 5,
+					car_count: 7,
+					car_gap: 0.9,
+					speed: 1.18,
+					smoke: 0.2,
+					headlight: 0.3,
+					hue: 214,
+					hue_sp: 20,
+					sat: 0.38,
+					lmin: 0.08,
+					lmax: 0.88,
+					pass_p: 0.0018,
+					pass_mult: 1.25,
+				},
+			},
+			{
+				key: 'express-line',
+				label: 'express line',
+				config: {
+					intro_cue: 0.16,
+					ending_clear: 0.06,
+					horizon: 0.72,
+					track_row: 0.8,
+					train_height: 4.5,
+					car_count: 5,
+					car_gap: 0.8,
+					speed: 1.35,
+					smoke: 0.12,
+					headlight: 0.42,
+					hue: 208,
+					hue_sp: 24,
+					sat: 0.42,
+					lmin: 0.08,
+					lmax: 0.92,
+					express_p: 0.0017,
+					express_mult: 2.15,
+					quiet_gap_p: 0.0008,
+				},
+			},
+		],
 		aurora: [
 			{
 				key: 'green-veil',
@@ -5946,5 +6380,5 @@
 		],
 	};
 
-	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Volcano, Aurora, AutumnLeaves, Snow, Starfield, subscribe, applyDefaults, hslToRGB, effects, presets };
+	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Volcano, Train, Aurora, AutumnLeaves, Snow, Starfield, subscribe, applyDefaults, hslToRGB, effects, presets };
 })(window);

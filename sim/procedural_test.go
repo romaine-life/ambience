@@ -122,6 +122,16 @@ func TestVolcanoSchema(t *testing.T) {
 	}
 }
 
+func TestTrainSchema(t *testing.T) {
+	schema := TrainSchema()
+	if schema.Name != "train" {
+		t.Fatalf("schema name = %q, want train", schema.Name)
+	}
+	if len(schema.Knobs) == 0 {
+		t.Fatal("expected train schema knobs")
+	}
+}
+
 func TestProceduralSnowSnapshotRestore(t *testing.T) {
 	p := NewProcedural("snow", 160, 80, 42, nil)
 	if !p.TriggerEvent("gust") {
@@ -512,5 +522,40 @@ func TestProceduralVolcanoSnapshotRestore(t *testing.T) {
 	}
 	if again.Values["flare_gain"] != snap.Values["flare_gain"] {
 		t.Fatalf("restored flare gain = %f, want %f", again.Values["flare_gain"], snap.Values["flare_gain"])
+	}
+}
+
+func TestProceduralTrainSnapshotRestore(t *testing.T) {
+	p := NewProcedural("train", 160, 80, 29, nil)
+	if !p.TriggerEvent("pass") {
+		t.Fatal("expected pass trigger to succeed")
+	}
+	if !p.TriggerEvent("quiet-gap") {
+		t.Fatal("expected quiet-gap trigger to succeed")
+	}
+	p.Step()
+
+	snap := p.Snapshot()
+	if snap.Timers["pass"] <= 0 {
+		t.Fatal("expected pass timer in snapshot")
+	}
+	if snap.Values["train_speed"] <= 0 {
+		t.Fatal("expected train speed value in snapshot")
+	}
+	if snap.Values["train_cars"] <= 0 {
+		t.Fatal("expected train cars value in snapshot")
+	}
+
+	restored := NewProcedural("train", 160, 80, 7, nil)
+	restored.RestoreSnapshot(snap)
+	again := restored.Snapshot()
+	if again.Timers["pass"] != snap.Timers["pass"] {
+		t.Fatalf("restored pass timer = %d, want %d", again.Timers["pass"], snap.Timers["pass"])
+	}
+	if again.Values["train_speed"] != snap.Values["train_speed"] {
+		t.Fatalf("restored train speed = %f, want %f", again.Values["train_speed"], snap.Values["train_speed"])
+	}
+	if again.Values["train_cars"] != snap.Values["train_cars"] {
+		t.Fatalf("restored train cars = %f, want %f", again.Values["train_cars"], snap.Values["train_cars"])
 	}
 }

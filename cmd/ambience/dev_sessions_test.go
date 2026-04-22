@@ -24,6 +24,7 @@ func TestDevPageEffectFromPath(t *testing.T) {
 		{path: "/dev/snow", want: "snow", wantOK: true},
 		{path: "/dev/starfield", want: "starfield", wantOK: true},
 		{path: "/dev/underwater", want: "underwater", wantOK: true},
+		{path: "/dev/train", want: "train", wantOK: true},
 		{path: "/dev/volcano", want: "volcano", wantOK: true},
 		{path: "/dev/waterfall", want: "waterfall", wantOK: true},
 		{path: "/dev/windmill", want: "windmill", wantOK: true},
@@ -60,6 +61,7 @@ func TestEffectFromSchemaPath(t *testing.T) {
 		{path: "/effects/snow/schema", want: "snow", wantOK: true},
 		{path: "/effects/starfield/schema", want: "starfield", wantOK: true},
 		{path: "/effects/underwater/schema", want: "underwater", wantOK: true},
+		{path: "/effects/train/schema", want: "train", wantOK: true},
 		{path: "/effects/volcano/schema", want: "volcano", wantOK: true},
 		{path: "/effects/waterfall/schema", want: "waterfall", wantOK: true},
 		{path: "/effects/windmill/schema", want: "windmill", wantOK: true},
@@ -207,6 +209,17 @@ func TestNewDevSessionVolcanoSnapshotType(t *testing.T) {
 	snap := session.snapshot()
 	if snap.Type != "volcano" {
 		t.Fatalf("snapshot type = %q, want volcano", snap.Type)
+	}
+}
+
+func TestNewDevSessionTrainSnapshotType(t *testing.T) {
+	session, err := newDevSession("train")
+	if err != nil {
+		t.Fatalf("newDevSession: %v", err)
+	}
+	snap := session.snapshot()
+	if snap.Type != "train" {
+		t.Fatalf("snapshot type = %q, want train", snap.Type)
 	}
 }
 

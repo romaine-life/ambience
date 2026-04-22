@@ -382,6 +382,36 @@ var volcanoDefaults = ProceduralConfig{
 	"flare_mult":    1.90,
 }
 
+var trainDefaults = ProceduralConfig{
+	"intro_dur":      50,
+	"intro_cue":      0.12,
+	"ending_dur":     70,
+	"ending_linger":  18,
+	"ending_clear":   0.08,
+	"horizon":        0.74,
+	"track_row":      0.82,
+	"train_height":   4.5,
+	"car_count":      6.0,
+	"car_gap":        1.0,
+	"speed":          1.05,
+	"smoke":          0.18,
+	"headlight":      0.24,
+	"hue":            220,
+	"hue_sp":         20,
+	"sat":            0.34,
+	"lmin":           0.08,
+	"lmax":           0.86,
+	"pass_p":         0.0,
+	"express_p":      0.0,
+	"quiet_gap_p":    0.0,
+	"pass_dur":       72,
+	"pass_mult":      1.15,
+	"express_dur":    46,
+	"express_mult":   1.90,
+	"quiet_gap_dur":  90,
+	"quiet_gap_mult": 0.45,
+}
+
 func SnowSchema() EffectSchema {
 	return EffectSchema{
 		Name: "snow",
@@ -1078,6 +1108,68 @@ func VolcanoSchema() EffectSchema {
 	}
 }
 
+func TrainSchema() EffectSchema {
+	return EffectSchema{
+		Name: "train",
+		Knobs: []Knob{
+			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 50, Trigger: "intro",
+				Description: "Ticks spent building the distant cue lights and horizon before the first full pass."},
+			{Key: "intro_cue", Label: "intro cue", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0.04, Max: 0.5, Step: 0.01, Default: 0.12,
+				Description: "Starting fraction of the final headlight and horizon presence during the intro."},
+			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 70, Trigger: "ending",
+				Description: "Ticks spent clearing the line after the final cars have passed."},
+			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 160, Step: 5, Default: 18,
+				Description: "Extra quiet ticks for residual smoke, glow, and rail haze to fade."},
+			{Key: "ending_clear", Label: "ending clear", Slot: SlotEnd, Group: "ending", Type: KnobFloat, Min: 0.02, Max: 0.4, Step: 0.01, Default: 0.08,
+				Description: "How much dim horizon light remains near the end of the outro."},
+			{Key: "horizon", Label: "horizon", Slot: SlotLever, Group: "scene", Type: KnobFloat, Min: 0.58, Max: 0.86, Step: 0.01, Default: 0.74,
+				Description: "Height of the far horizon behind the track."},
+			{Key: "track_row", Label: "track row", Slot: SlotLever, Group: "scene", Type: KnobFloat, Min: 0.68, Max: 0.92, Step: 0.01, Default: 0.82,
+				Description: "Vertical placement of the rails and train body."},
+			{Key: "train_height", Label: "train height", Slot: SlotLever, Group: "scene", Type: KnobFloat, Min: 3, Max: 8, Step: 0.5, Default: 4.5,
+				Description: "Overall locomotive and carriage height in grid cells."},
+			{Key: "car_count", Label: "car count", Slot: SlotLever, Group: "scene", Type: KnobInt, Min: 3, Max: 12, Step: 1, Default: 6,
+				Description: "Baseline number of train cars trailing the locomotive."},
+			{Key: "car_gap", Label: "car gap", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0.5, Max: 3, Step: 0.1, Default: 1,
+				Description: "Spacing between the locomotive and successive cars."},
+			{Key: "speed", Label: "speed", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0.5, Max: 2.5, Step: 0.05, Default: 1.05,
+				Description: "Baseline traversal speed of the train across the scene."},
+			{Key: "smoke", Label: "smoke", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0.02, Max: 0.7, Step: 0.01, Default: 0.18,
+				Description: "Amount of exhaust haze or steam trailing above the locomotive."},
+			{Key: "headlight", Label: "headlight", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0.02, Max: 0.8, Step: 0.01, Default: 0.24,
+				Description: "Strength of the lead light glow during a pass."},
+			{Key: "hue", Label: "hue", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 180, Max: 260, Step: 1, Default: 220,
+				Description: "Base scene hue. Lower values warm toward dusk; higher values cool toward midnight blue."},
+			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 40, Step: 1, Default: 20,
+				Description: "Variation between sky, headlight haze, and rail highlights."},
+			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.08, Max: 0.8, Step: 0.01, Default: 0.34,
+				Description: "Overall scene saturation."},
+			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.03, Max: 0.4, Step: 0.01, Default: 0.08,
+				Description: "Minimum lightness used for the ground, train body, and deep sky."},
+			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.3, Max: 1, Step: 0.01, Default: 0.86,
+				Description: "Maximum lightness used for headlight bloom and window glints."},
+			{Key: "pass_p", Label: "pass", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "pass",
+				Description: "Per-tick chance of a standard train pass starting."},
+			{Key: "express_p", Label: "express", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "express",
+				Description: "Per-tick chance of a faster brighter express pass."},
+			{Key: "quiet_gap_p", Label: "quiet gap", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "quiet-gap",
+				Description: "Per-tick chance of a quieter interval before the next passing train."},
+			{Key: "pass_dur", Label: "pass dur", Slot: SlotEventMod, Group: "pass", Type: KnobInt, Min: 20, Max: 220, Step: 5, Default: 72,
+				Description: "Duration of the standard pass window, including any lingering smoke."},
+			{Key: "pass_mult", Label: "pass x", Slot: SlotEventMod, Group: "pass", Type: KnobFloat, Min: 1.0, Max: 2.5, Step: 0.05, Default: 1.15,
+				Description: "Speed and presence multiplier applied during a standard pass."},
+			{Key: "express_dur", Label: "express dur", Slot: SlotEventMod, Group: "express", Type: KnobInt, Min: 15, Max: 180, Step: 5, Default: 46,
+				Description: "Duration of the faster express pass window."},
+			{Key: "express_mult", Label: "express x", Slot: SlotEventMod, Group: "express", Type: KnobFloat, Min: 1.1, Max: 3, Step: 0.05, Default: 1.9,
+				Description: "Speed and brightness multiplier applied during an express pass."},
+			{Key: "quiet_gap_dur", Label: "quiet dur", Slot: SlotEventMod, Group: "quiet-gap", Type: KnobInt, Min: 20, Max: 260, Step: 5, Default: 90,
+				Description: "Duration of the quieter interval between passes."},
+			{Key: "quiet_gap_mult", Label: "quiet x", Slot: SlotEventMod, Group: "quiet-gap", Type: KnobFloat, Min: 0.1, Max: 1, Step: 0.05, Default: 0.45,
+				Description: "Ambient haze and motion multiplier applied while quiet-gap is active."},
+		},
+	}
+}
+
 func cloneProceduralConfig(src ProceduralConfig) ProceduralConfig {
 	if src == nil {
 		return ProceduralConfig{}
@@ -1142,6 +1234,8 @@ func proceduralDefaults(kind string) ProceduralConfig {
 		return cloneProceduralConfig(underwaterDefaults)
 	case "volcano":
 		return cloneProceduralConfig(volcanoDefaults)
+	case "train":
+		return cloneProceduralConfig(trainDefaults)
 	default:
 		return ProceduralConfig{}
 	}
@@ -1933,6 +2027,78 @@ func mergeProceduralDefaults(kind string, cfg ProceduralConfig) ProceduralConfig
 		if out["flare_mult"] <= 0 {
 			out["flare_mult"] = volcanoDefaults["flare_mult"]
 		}
+	case "train":
+		if out["intro_dur"] <= 0 {
+			out["intro_dur"] = trainDefaults["intro_dur"]
+		}
+		out["intro_cue"] = clamp01(out["intro_cue"])
+		if out["ending_dur"] <= 0 {
+			out["ending_dur"] = trainDefaults["ending_dur"]
+		}
+		if out["ending_linger"] < 0 {
+			out["ending_linger"] = 0
+		}
+		out["ending_clear"] = clamp01(out["ending_clear"])
+		if out["horizon"] <= 0 {
+			out["horizon"] = trainDefaults["horizon"]
+		}
+		if out["track_row"] <= 0 {
+			out["track_row"] = trainDefaults["track_row"]
+		}
+		if out["train_height"] <= 0 {
+			out["train_height"] = trainDefaults["train_height"]
+		}
+		if out["car_count"] < 3 {
+			out["car_count"] = trainDefaults["car_count"]
+		}
+		if out["car_gap"] <= 0 {
+			out["car_gap"] = trainDefaults["car_gap"]
+		}
+		if out["speed"] <= 0 {
+			out["speed"] = trainDefaults["speed"]
+		}
+		if out["smoke"] <= 0 {
+			out["smoke"] = trainDefaults["smoke"]
+		}
+		if out["headlight"] <= 0 {
+			out["headlight"] = trainDefaults["headlight"]
+		}
+		if out["hue"] <= 0 {
+			out["hue"] = trainDefaults["hue"]
+		}
+		if out["hue_sp"] < 0 {
+			out["hue_sp"] = 0
+		}
+		if out["sat"] <= 0 {
+			out["sat"] = trainDefaults["sat"]
+		}
+		if out["lmin"] <= 0 {
+			out["lmin"] = trainDefaults["lmin"]
+		}
+		if out["lmax"] <= 0 {
+			out["lmax"] = trainDefaults["lmax"]
+		}
+		if out["lmax"] < out["lmin"] {
+			out["lmin"], out["lmax"] = out["lmax"], out["lmin"]
+		}
+		if out["pass_dur"] <= 0 {
+			out["pass_dur"] = trainDefaults["pass_dur"]
+		}
+		if out["pass_mult"] <= 0 {
+			out["pass_mult"] = trainDefaults["pass_mult"]
+		}
+		if out["express_dur"] <= 0 {
+			out["express_dur"] = trainDefaults["express_dur"]
+		}
+		if out["express_mult"] <= 0 {
+			out["express_mult"] = trainDefaults["express_mult"]
+		}
+		if out["quiet_gap_dur"] <= 0 {
+			out["quiet_gap_dur"] = trainDefaults["quiet_gap_dur"]
+		}
+		if out["quiet_gap_mult"] <= 0 {
+			out["quiet_gap_mult"] = trainDefaults["quiet_gap_mult"]
+		}
 	}
 	return out
 }
@@ -2269,6 +2435,24 @@ func (p *Procedural) TriggerEvent(name string) bool {
 			return false
 		}
 		return true
+	case "train":
+		switch name {
+		case "pass":
+			p.startTrainPassLocked("triggered")
+		case "express":
+			p.startTrainExpressLocked("triggered")
+		case "quiet-gap":
+			p.startTrainQuietGapLocked("triggered")
+		case "intro":
+			p.startTrainIntroLocked()
+			p.appendLog("intro", fmt.Sprintf("started (dur=%d, cue=%.2f)", p.timers["intro"], p.cfg["intro_cue"]))
+		case "ending":
+			p.startTrainEndingLocked()
+			p.appendLog("ending", fmt.Sprintf("started (fade=%d, linger=%d)", p.intCfg("ending_dur"), p.intCfg("ending_linger")))
+		default:
+			return false
+		}
+		return true
 	default:
 		return false
 	}
@@ -2328,6 +2512,8 @@ func (p *Procedural) Step() {
 		p.stepUnderwaterLocked()
 	case "volcano":
 		p.stepVolcanoLocked()
+	case "train":
+		p.stepTrainLocked()
 	}
 }
 
@@ -3157,5 +3343,132 @@ func (p *Procedural) stepVolcanoLocked() {
 	}
 	if p.timers["flare"] <= 0 && p.cfg["flare_p"] > 0 && p.rng.Float64() < p.cfg["flare_p"] {
 		p.startVolcanoFlareLocked("started")
+	}
+}
+
+func (p *Procedural) startTrainPassLocked(verb string) {
+	p.timers["express"] = 0
+	p.timers["quiet-gap"] = 0
+	p.timers["pass"] = jitterInt(p.rng, p.intCfg("pass_dur"), 0.3)
+	p.values["pass_gain"] = p.cfg["pass_mult"] * (0.9 + p.rng.Float64()*0.3)
+	p.values["express_gain"] = 1
+	p.values["train_total"] = float64(p.timers["pass"])
+	p.values["train_speed"] = p.cfg["speed"] * p.values["pass_gain"]
+	p.values["train_dir"] = 1
+	if p.rng.Float64() < 0.5 {
+		p.values["train_dir"] = -1
+	}
+	baseCars := p.intCfg("car_count")
+	p.values["train_cars"] = float64(max(3, baseCars-1+p.rng.Intn(3)))
+	p.values["train_gap"] = math.Max(0.5, p.cfg["car_gap"]*(0.9+p.rng.Float64()*0.25))
+	p.values["train_seed"] = p.rng.Float64() * 1000
+	p.values["smoke_gain"] = p.cfg["smoke"] * (0.8 + p.rng.Float64()*0.5)
+	p.values["headlight_gain"] = p.cfg["headlight"] * (0.9 + p.rng.Float64()*0.35)
+	p.appendLog("pass", fmt.Sprintf("%s (dur=%d, dir=%+.0f, cars=%d)", verb, p.timers["pass"], p.values["train_dir"], int(p.values["train_cars"])))
+}
+
+func (p *Procedural) startTrainExpressLocked(verb string) {
+	p.timers["pass"] = 0
+	p.timers["quiet-gap"] = 0
+	p.timers["express"] = jitterInt(p.rng, p.intCfg("express_dur"), 0.3)
+	p.values["pass_gain"] = 1
+	p.values["express_gain"] = p.cfg["express_mult"] * (0.95 + p.rng.Float64()*0.35)
+	p.values["train_total"] = float64(p.timers["express"])
+	p.values["train_speed"] = p.cfg["speed"] * p.values["express_gain"]
+	p.values["train_dir"] = 1
+	if p.rng.Float64() < 0.5 {
+		p.values["train_dir"] = -1
+	}
+	baseCars := p.intCfg("car_count")
+	p.values["train_cars"] = float64(max(3, baseCars-2+p.rng.Intn(3)))
+	p.values["train_gap"] = math.Max(0.5, p.cfg["car_gap"]*(0.75+p.rng.Float64()*0.15))
+	p.values["train_seed"] = p.rng.Float64() * 1000
+	p.values["smoke_gain"] = p.cfg["smoke"] * (0.7 + p.rng.Float64()*0.35)
+	p.values["headlight_gain"] = p.cfg["headlight"] * (1.15 + p.rng.Float64()*0.55)
+	p.appendLog("express", fmt.Sprintf("%s (dur=%d, dir=%+.0f, cars=%d)", verb, p.timers["express"], p.values["train_dir"], int(p.values["train_cars"])))
+}
+
+func (p *Procedural) startTrainQuietGapLocked(verb string) {
+	p.timers["quiet-gap"] = jitterInt(p.rng, p.intCfg("quiet_gap_dur"), 0.3)
+	p.appendLog("quiet-gap", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["quiet-gap"], p.cfg["quiet_gap_mult"]))
+}
+
+func (p *Procedural) startTrainIntroLocked() {
+	p.timers["pass"] = 0
+	p.timers["express"] = 0
+	p.timers["quiet-gap"] = 0
+	p.timers["ending"] = 0
+	p.values["pass_gain"] = 1
+	p.values["express_gain"] = 1
+	p.values["train_total"] = 0
+	p.values["train_speed"] = 0
+	p.values["train_dir"] = 0
+	p.values["train_cars"] = 0
+	p.values["train_gap"] = 0
+	p.values["train_seed"] = 0
+	p.values["smoke_gain"] = 0
+	p.values["headlight_gain"] = 0
+	p.timers["intro"] = p.intCfg("intro_dur")
+	p.values["intro_total"] = float64(p.timers["intro"])
+}
+
+func (p *Procedural) startTrainEndingLocked() {
+	p.timers["intro"] = 0
+	p.timers["pass"] = 0
+	p.timers["express"] = 0
+	p.timers["quiet-gap"] = 0
+	p.values["pass_gain"] = 1
+	p.values["express_gain"] = 1
+	p.values["train_total"] = 0
+	p.values["train_speed"] = 0
+	p.values["train_dir"] = 0
+	p.values["train_cars"] = 0
+	p.values["train_gap"] = 0
+	p.values["train_seed"] = 0
+	p.values["smoke_gain"] = 0
+	p.values["headlight_gain"] = 0
+	endingTotal := p.intCfg("ending_dur") + max(0, p.intCfg("ending_linger"))
+	if endingTotal < 1 {
+		endingTotal = max(1, p.intCfg("ending_dur"))
+	}
+	p.timers["ending"] = endingTotal
+	p.values["ending_total"] = float64(endingTotal)
+}
+
+func (p *Procedural) stepTrainLocked() {
+	if p.timers["pass"] <= 0 && p.timers["express"] <= 0 {
+		p.values["pass_gain"] = 1
+		p.values["express_gain"] = 1
+		p.values["train_total"] = 0
+		p.values["train_speed"] = 0
+		p.values["train_dir"] = 0
+		p.values["train_cars"] = 0
+		p.values["train_gap"] = 0
+		p.values["train_seed"] = 0
+		p.values["smoke_gain"] = 0
+		p.values["headlight_gain"] = 0
+	}
+	if p.timers["intro"] <= 0 {
+		delete(p.values, "intro_total")
+	}
+	if p.timers["ending"] <= 0 {
+		delete(p.values, "ending_total")
+	}
+	if p.timers["intro"] > 0 || p.timers["ending"] > 0 {
+		return
+	}
+	if p.timers["quiet-gap"] > 0 {
+		return
+	}
+	if p.timers["pass"] <= 0 && p.timers["express"] <= 0 && p.cfg["express_p"] > 0 && p.rng.Float64() < p.cfg["express_p"] {
+		p.startTrainExpressLocked("started")
+		return
+	}
+	if p.timers["pass"] <= 0 && p.timers["express"] <= 0 && p.cfg["pass_p"] > 0 && p.rng.Float64() < p.cfg["pass_p"] {
+		p.startTrainPassLocked("started")
+		return
+	}
+	if p.timers["pass"] <= 0 && p.timers["express"] <= 0 && p.timers["quiet-gap"] <= 0 && p.cfg["quiet_gap_p"] > 0 && p.rng.Float64() < p.cfg["quiet_gap_p"] {
+		p.startTrainQuietGapLocked("started")
 	}
 }

@@ -26,6 +26,7 @@ func TestRandomizedDevConfigStaysWithinSchemaBounds(t *testing.T) {
 		sim.RowboatSchema(),
 		sim.UnderwaterSchema(),
 		sim.VolcanoSchema(),
+		sim.TrainSchema(),
 	}
 
 	for i, schema := range schemas {
@@ -72,6 +73,7 @@ func TestRandomizedDevConfigChangesAtLeastOneKnob(t *testing.T) {
 		sim.RowboatSchema(),
 		sim.UnderwaterSchema(),
 		sim.VolcanoSchema(),
+		sim.TrainSchema(),
 	}
 
 	for i, schema := range schemas {
