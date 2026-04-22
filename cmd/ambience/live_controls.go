@@ -49,6 +49,24 @@ func serveSharedConfig(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func serveSharedEffect(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	rawEffect := strings.TrimSpace(req.URL.Query().Get("effect"))
+	if rawEffect == "" {
+		http.Error(w, "effect param required", http.StatusBadRequest)
+		return
+	}
+	effectType := normalizeDevEffect(rawEffect)
+	if err := shared.switchEffect(effectType); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func serveSharedTrigger(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)

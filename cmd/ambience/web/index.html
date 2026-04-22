@@ -476,8 +476,13 @@
     return new ctor(GRID_W, GRID_H, {});
   }
 
+  function availableEffects() {
+    return Object.keys(AmbienceSim.effects || {}).sort((a, b) => a.localeCompare(b));
+  }
+
   let effectType = 'rain';
   let effect = newEffectInstance(effectType);
+  let transition = AmbienceSim.createTransitionController(effect, { durationMs: 1800 });
   let latestConfig = null;
   let ready = false;
   let schemaLoadToken = 0;
@@ -505,13 +510,14 @@
   const controls = AmbienceControls.create({
     root: el.controlBody,
     effect: effectType,
-    effectOptions: (current) => [current],
+    effectOptions: () => availableEffects(),
     effectSelect: el.effectSelect,
     presetSelect: el.presetSelect,
     toggleAll: el.toggleAll,
     storagePrefix: 'ambience.live.section.',
     locked: true,
-    canSwitchEffect: false,
+    canSwitchEffect: true,
+    onEffectChange: (nextEffect) => switchSharedEffect(nextEffect),
     onConfigChange: () => scheduleSharedConfigPush(),
     onTrigger: (eventName) => triggerSharedEvent(eventName),
   });
@@ -653,13 +659,28 @@
     }
   }
 
+  async function switchSharedEffect(nextEffect) {
+    if (controls.isLocked()) return;
+    try {
+      const resp = await fetch('/effect?effect=' + encodeURIComponent(nextEffect), { method: 'POST' });
+      if (!resp.ok) throw new Error('effect returned ' + resp.status);
+      log('switching to ' + nextEffect, 'scene');
+    } catch (err) {
+      console.error('shared effect switch', err);
+      log('effect switch failed: ' + nextEffect, 'system');
+      controls.setEffect(effectType);
+    }
+  }
+
   function applySnapshot(snap) {
     const nextType = (snap && snap.type) || 'rain';
     const typeChanged = nextType !== effectType;
     if (typeChanged) {
       effectType = nextType;
       controls.setEffect(effectType);
-      effect = newEffectInstance(effectType);
+      const nextEffect = newEffectInstance(effectType);
+      effect = nextEffect;
+      transition.setEffect(nextEffect);
       loadSchema(effectType);
     }
     try {
@@ -740,11 +761,11 @@
   };
 
   setInterval(() => {
-    if (ready) effect.step();
+    if (ready) transition.step();
   }, 100);
 
   (function draw() {
-    effect.render(ctx, canvas.width, canvas.height);
+    transition.render(ctx, canvas.width, canvas.height);
     requestAnimationFrame(draw);
   })();
 

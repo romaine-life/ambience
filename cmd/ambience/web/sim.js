@@ -8831,5 +8831,113 @@
 		],
 	};
 
-	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Volcano, Train, MysteriousMan, BurningTrees, Sand, WaterPipe, Tetris, Aurora, AutumnLeaves, Snow, Starfield, subscribe, applyDefaults, hslToRGB, effects, presets };
+	class EffectTransitionController {
+		constructor(effect, options) {
+			options = options || {};
+			this.current = effect || null;
+			this.outgoing = null;
+			this.startedAt = 0;
+			this.durationMs = Math.max(100, Math.round(options.durationMs || 1600));
+			this.buffers = [];
+		}
+
+		_now() {
+			return (global.performance && typeof global.performance.now === 'function')
+				? global.performance.now()
+				: Date.now();
+		}
+
+		_progress() {
+			if (!this.outgoing || this.startedAt <= 0) return 1;
+			return clamp01((this._now() - this.startedAt) / this.durationMs);
+		}
+
+		_buffer(index, width, height) {
+			let canvas = this.buffers[index];
+			if (!canvas) {
+				canvas = global.document && typeof global.document.createElement === 'function'
+					? global.document.createElement('canvas')
+					: null;
+				this.buffers[index] = canvas;
+			}
+			if (!canvas) return null;
+			if (canvas.width !== width) canvas.width = width;
+			if (canvas.height !== height) canvas.height = height;
+			return canvas;
+		}
+
+		currentEffect() {
+			return this.current;
+		}
+
+		isTransitioning() {
+			return !!this.outgoing;
+		}
+
+		setEffect(nextEffect) {
+			if (!nextEffect) return;
+			if (!this.current) {
+				this.current = nextEffect;
+				this.outgoing = null;
+				this.startedAt = 0;
+				return;
+			}
+			this.outgoing = this.current;
+			this.current = nextEffect;
+			this.startedAt = this._now();
+		}
+
+		step() {
+			if (this.outgoing) this.outgoing.step();
+			if (this.current) this.current.step();
+			if (this.outgoing && this._progress() >= 1) {
+				this.outgoing = null;
+				this.startedAt = 0;
+			}
+		}
+
+		render(ctx, canvasW, canvasH, opts) {
+			if (!this.current) return;
+			if (!this.outgoing) {
+				this.current.render(ctx, canvasW, canvasH, opts);
+				return;
+			}
+
+			const fromCanvas = this._buffer(0, canvasW, canvasH);
+			const toCanvas = this._buffer(1, canvasW, canvasH);
+			if (!fromCanvas || !toCanvas) {
+				this.current.render(ctx, canvasW, canvasH, opts);
+				return;
+			}
+
+			const fromCtx = fromCanvas.getContext('2d');
+			const toCtx = toCanvas.getContext('2d');
+			fromCtx.clearRect(0, 0, canvasW, canvasH);
+			toCtx.clearRect(0, 0, canvasW, canvasH);
+			this.outgoing.render(fromCtx, canvasW, canvasH, opts);
+			this.current.render(toCtx, canvasW, canvasH, opts);
+
+			const progress = this._progress();
+			ctx.clearRect(0, 0, canvasW, canvasH);
+			ctx.save();
+			ctx.globalAlpha = 1 - progress;
+			ctx.drawImage(fromCanvas, 0, 0);
+			ctx.restore();
+			ctx.save();
+			ctx.globalAlpha = progress;
+			ctx.drawImage(toCanvas, 0, 0);
+			ctx.restore();
+
+			if (progress >= 1) {
+				this.outgoing = null;
+				this.startedAt = 0;
+			}
+		}
+	}
+
+	function createTransitionController(effect, options) {
+		return new EffectTransitionController(effect, options);
+	}
+
+	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Volcano, Train, MysteriousMan, BurningTrees, Sand, WaterPipe, Tetris, Aurora, AutumnLeaves, Snow, Starfield, subscribe, applyDefaults, hslToRGB, effects, presets, createTransitionController };
 })(window);

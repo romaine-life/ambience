@@ -10,12 +10,14 @@
 //	GET  /controls.js           — shared schema-driven control panel helper
 //	GET  /snapshot              — shared atmosphere init payload (JSON)
 //	GET  /events                — shared atmosphere SSE command stream
+//	POST /effect?effect=        — switch the shared atmosphere to another effect
 //	POST /config?effect=&...    — mutate the shared atmosphere config
 //	POST /trigger/:event        — fire a discrete event on the shared atmosphere
 //	GET  /dev                   — dev page with knob controls (defaults to rain)
 //	GET  /dev/<effect>          — effect-specific dev page (e.g. /dev/fireflies)
 //	GET  /dev/snapshot?session=&effect=
 //	GET  /dev/events?session=&effect=
+//	POST /dev/effect?session=&effect=
 //	POST /dev/config?session=&effect=
 //	POST /dev/randomize?session=&effect=
 //	POST /dev/trigger/:session/:event?effect=
@@ -232,6 +234,7 @@ func registerAuthorityRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/events", cors(serveSharedEvents))
 	// Shared live controls stay same-origin only. They intentionally do not
 	// opt into permissive CORS because they mutate the shared atmosphere.
+	mux.HandleFunc("/effect", serveSharedEffect)
 	mux.HandleFunc("/config", serveSharedConfig)
 	mux.HandleFunc("/trigger/", serveSharedTrigger)
 	// Entropy intake — clients POST keystroke-derived bytes here; bytes
@@ -243,6 +246,7 @@ func registerDevRoutes(mux *http.ServeMux) {
 	// Dev atmospheres (per-session)
 	mux.HandleFunc("/dev/snapshot", serveDevSessionSnapshot)
 	mux.HandleFunc("/dev/events", serveDevSessionEvents)
+	mux.HandleFunc("/dev/effect", serveDevSessionEffect)
 	mux.HandleFunc("/dev/config", serveDevSessionConfig)
 	mux.HandleFunc("/dev/randomize", serveDevSessionRandomize)
 	mux.HandleFunc("/dev/trigger/", serveDevSessionTrigger)

@@ -338,3 +338,39 @@ func TestDevSessionRandomizeConfigChangesSnapshotConfig(t *testing.T) {
 		t.Fatal("expected randomized config to differ from previous session config")
 	}
 }
+
+func TestGetOrCreateDevSessionReusesSessionIDAcrossEffects(t *testing.T) {
+	sessionID := "session-1"
+
+	first, err := getOrCreateDevSession("rain", sessionID)
+	if err != nil {
+		t.Fatalf("getOrCreateDevSession rain: %v", err)
+	}
+	second, err := getOrCreateDevSession("dust", sessionID)
+	if err != nil {
+		t.Fatalf("getOrCreateDevSession dust: %v", err)
+	}
+	if first != second {
+		t.Fatal("expected same session instance for identical session id")
+	}
+	if snap := second.snapshot(); snap.Type != "rain" {
+		t.Fatalf("snapshot type = %q, want rain before explicit switch", snap.Type)
+	}
+}
+
+func TestDevSessionSwitchEffectChangesSnapshotType(t *testing.T) {
+	session, err := newDevSession("rain")
+	if err != nil {
+		t.Fatalf("newDevSession: %v", err)
+	}
+	if err := session.switchEffect("dust"); err != nil {
+		t.Fatalf("switchEffect: %v", err)
+	}
+	snap := session.snapshot()
+	if snap.Type != "dust" {
+		t.Fatalf("snapshot type = %q, want dust", snap.Type)
+	}
+	if snap.GridW != gridW || snap.GridH != gridH {
+		t.Fatalf("grid = %dx%d, want %dx%d", snap.GridW, snap.GridH, gridW, gridH)
+	}
+}

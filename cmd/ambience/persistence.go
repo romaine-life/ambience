@@ -151,7 +151,7 @@ func restoreSharedAtmosphere(ctx context.Context, store persistenceStore) *atmos
 
 	sceneRNGState := state.SceneRNGState
 	if sceneRNGState == 0 {
-		sceneRNGState = uint64(state.Seed ^ 0x6d0f27bd0b5a3c11)
+		sceneRNGState = uint64(state.Seed ^ sceneSeedMix)
 	}
 
 	rt, err := newEffectRuntime(state.Type, state.Effect.GridW, state.Effect.GridH, state.Seed, state.Effect.Config)
@@ -161,15 +161,16 @@ func restoreSharedAtmosphere(ctx context.Context, store persistenceStore) *atmos
 	}
 
 	a := &atmosphere{
-		effect:     rt,
-		cfg:        state.Config,
-		seed:       state.Seed,
-		sceneRNG:   rngutil.NewFromState(sceneRNGState),
-		commandSeq: state.CommandSeq,
-		current:    state.CurrentScene,
-		next:       state.NextScene,
-		listeners:  make(map[chan Command]struct{}),
-		lastSeen:   time.Now(),
+		effect:        rt,
+		effectVersion: 1,
+		cfg:           state.Config,
+		seed:          state.Seed,
+		sceneRNG:      rngutil.NewFromState(sceneRNGState),
+		commandSeq:    state.CommandSeq,
+		current:       state.CurrentScene,
+		next:          state.NextScene,
+		listeners:     make(map[chan Command]struct{}),
+		lastSeen:      time.Now(),
 	}
 	if err := a.effect.RestorePersisted(state.Effect); err != nil {
 		log.Printf("restore %s state: %v; starting fresh", state.Type, err)

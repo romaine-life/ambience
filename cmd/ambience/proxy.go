@@ -64,10 +64,12 @@ func registerEdgeRoutes(mux *http.ServeMux, proxy *authorityProxy) {
 	mux.HandleFunc("/snapshot", cors(proxy.serveSnapshot))
 	mux.HandleFunc("/events", cors(proxy.serveEvents))
 	mux.HandleFunc("/entropy", cors(proxy.serveEntropy))
+	mux.HandleFunc("/effect", proxy.serveHTTP)
 	mux.HandleFunc("/config", proxy.serveHTTP)
 	mux.HandleFunc("/trigger/", proxy.serveHTTP)
 	mux.HandleFunc("/dev/snapshot", proxy.serveHTTP)
 	mux.HandleFunc("/dev/events", proxy.serveHTTP)
+	mux.HandleFunc("/dev/effect", proxy.serveHTTP)
 	mux.HandleFunc("/dev/config", proxy.serveHTTP)
 	mux.HandleFunc("/dev/randomize", proxy.serveHTTP)
 	mux.HandleFunc("/dev/trigger/", proxy.serveHTTP)
@@ -442,6 +444,9 @@ func (m *authorityMirror) handleEventPayload(id string, payload []byte) error {
 			return err
 		}
 		m.setSnapshot(snap, cmd.ID)
+		m.mu.Lock()
+		m.broadcastLocked(cmd)
+		m.mu.Unlock()
 		return nil
 	}
 	m.applyCommand(cmd)

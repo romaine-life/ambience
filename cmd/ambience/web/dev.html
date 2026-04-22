@@ -170,6 +170,7 @@
 	let currentSchema = null;
 	let effect = effectFromLocation();
 	let sim = newEffectInstance(effect);
+	let transition = AmbienceSim.createTransitionController(sim, { durationMs: 1800 });
 	let ready = false;
 
 	function effectFromLocation() {
@@ -534,7 +535,7 @@
 	effectSelect.addEventListener('change', () => {
 		const next = effectSelect.value;
 		if (!next || next === effect) return;
-		window.location.assign(effectPath(next));
+		switchEffect(next);
 	});
 	presetSelect.addEventListener('change', () => {
 		if (presetSelect.value === CUSTOM_PRESET) return;
@@ -551,9 +552,9 @@
 	});
 
 	// Local tick + render loops
-	setInterval(() => { if (ready) sim.step(); }, 100);
+	setInterval(() => { if (ready) transition.step(); }, 100);
 	(function draw() {
-		sim.render(ctx, canvas.width, canvas.height);
+		transition.render(ctx, canvas.width, canvas.height);
 		requestAnimationFrame(draw);
 	})();
 
@@ -571,8 +572,12 @@
 					const snapType = (snap && snap.type) || effect;
 					if (snapType !== effect) {
 						effect = snapType;
-						sim = newEffectInstance(effect);
+						const nextSim = newEffectInstance(effect);
+						sim = nextSim;
+						transition.setEffect(nextSim);
 						loadSchema(effect);
+						syncEffectSwitcher();
+						window.history.replaceState(null, '', effectPath(effect));
 					}
 					sim.restoreSnapshot(snap);
 					ready = true;
@@ -599,6 +604,18 @@
 			.then(r => r.json())
 			.then(schema => { renderPanel(schema); updateReadouts(); })
 			.catch(err => console.error('schema', err));
+	}
+
+	async function switchEffect(nextEffect) {
+		try {
+			const resp = await fetch('/dev/effect?session=' + encodeURIComponent(SESSION_ID) +
+				'&effect=' + encodeURIComponent(nextEffect), { method: 'POST' });
+			if (!resp.ok) throw new Error('effect switch failed: ' + resp.status);
+			window.history.replaceState(null, '', effectPath(nextEffect));
+		} catch (err) {
+			console.error('effect switch', err);
+			syncEffectSwitcher();
+		}
 	}
 
 	// Boot: fetch schema, render panel; SSE will deliver the initial snapshot

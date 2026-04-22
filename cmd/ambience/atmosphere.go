@@ -78,13 +78,14 @@ type atmosphere struct {
 	mu sync.Mutex
 	// Sim + explicit scene RNG. Entropy POSTs flow into both so future event
 	// rolls and future generated scenes survive restarts coherently.
-	effect       effectRuntime
-	cfg          sim.Config
-	seed         int64
-	sceneRNG     *rngutil.RNG
-	current      Scene
-	next         Scene
-	entropyBytes int64 // cumulative entropy bytes received since boot
+	effect        effectRuntime
+	effectVersion int64
+	cfg           sim.Config
+	seed          int64
+	sceneRNG      *rngutil.RNG
+	current       Scene
+	next          Scene
+	entropyBytes  int64 // cumulative entropy bytes received since boot
 	// Transition state: when a scene rotates, we don't apply the new config
 	// instantly. Instead we LERP from transitionFrom to transitionTo over
 	// transitionDur ticks starting at transitionStart. transitionDur == 0
@@ -105,21 +106,22 @@ func newAtmosphere(_ sim.Config) *atmosphere {
 	// generated scene, so the argument is ignored. Kept in the signature to
 	// avoid a cascading change in callers (dev atmospheres, tests).
 	seed := time.Now().UnixNano()
-	sceneRNG := rngutil.New(seed ^ 0x6d0f27bd0b5a3c11)
+	sceneRNG := rngutil.New(seed ^ sceneSeedMix)
 	first := generateScene(sceneRNG, 0)
 	// Pre-generate the next scene too — the "single-slot lookahead" model.
 	// StartedAtTick is set when it's promoted to current.
 	nxt := generateScene(sceneRNG, 0)
 	cfgData, _ := json.Marshal(first.Config)
 	return &atmosphere{
-		effect:    mustNewEffectRuntime("rain", gridW, gridH, seed, cfgData),
-		cfg:       first.Config,
-		seed:      seed,
-		sceneRNG:  sceneRNG,
-		current:   first,
-		next:      nxt,
-		listeners: make(map[chan Command]struct{}),
-		lastSeen:  time.Now(),
+		effect:        mustNewEffectRuntime("rain", gridW, gridH, seed, cfgData),
+		effectVersion: 1,
+		cfg:           first.Config,
+		seed:          seed,
+		sceneRNG:      sceneRNG,
+		current:       first,
+		next:          nxt,
+		listeners:     make(map[chan Command]struct{}),
+		lastSeen:      time.Now(),
 	}
 }
 
@@ -141,22 +143,35 @@ func (a *atmosphere) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			a.effect.Step()
-			cur := a.effect.CurrentTick()
+			effect, version := a.currentEffectRuntime()
+			effect.Step()
+			if !a.effectVersionIs(version) {
+				continue
+			}
+			cur := effect.CurrentTick()
 
 			a.applyTransition(cur)
+			if !a.effectVersionIs(version) {
+				continue
+			}
 
 			a.mu.Lock()
-			expired := cur >= a.current.StartedAtTick+a.current.DurationTicks
+			expired := a.current.DurationTicks > 0 && cur >= a.current.StartedAtTick+a.current.DurationTicks
 			a.mu.Unlock()
 			if expired {
 				a.rotateScene(cur)
+				if !a.effectVersionIs(version) {
+					continue
+				}
 			}
 			if cur%metricBroadcastEvery == 0 {
 				a.broadcastMetric(cur)
 			}
 
-			for _, e := range a.effect.DrainLog() {
+			for _, e := range effect.DrainLog() {
+				if !a.effectVersionIs(version) {
+					break
+				}
 				a.broadcast(Command{
 					Kind:  "trigger",
 					Tick:  e.Tick,
@@ -179,6 +194,7 @@ func (a *atmosphere) applyTransition(cur int) {
 		a.mu.Unlock()
 		return
 	}
+	effect := a.effect
 	elapsed := cur - a.transitionStart
 	if elapsed >= a.transitionDur {
 		final := a.transitionTo
@@ -187,7 +203,7 @@ func (a *atmosphere) applyTransition(cur int) {
 		a.cfg = final
 		a.mu.Unlock()
 		data, _ := json.Marshal(final)
-		_ = a.effect.ApplyConfig(data)
+		_ = effect.ApplyConfig(data)
 		a.broadcast(Command{Kind: "config", Tick: cur, Data: data})
 		return
 	}
@@ -199,7 +215,7 @@ func (a *atmosphere) applyTransition(cur int) {
 	progress := easeInOutCubic(float64(elapsed) / float64(dur))
 	lerped := lerpConfig(from, to, progress)
 	data, _ := json.Marshal(lerped)
-	_ = a.effect.ApplyConfig(data)
+	_ = effect.ApplyConfig(data)
 	if elapsed%transitionBroadcastEvery == 0 {
 		a.broadcast(Command{Kind: "config", Tick: cur, Data: data})
 	}
@@ -378,17 +394,30 @@ func (a *atmosphere) currentCommandID() string {
 	return strconv.FormatInt(a.commandSeq, 10)
 }
 
+func (a *atmosphere) currentEffectRuntime() (effectRuntime, int64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.effect, a.effectVersion
+}
+
+func (a *atmosphere) effectVersionIs(version int64) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.effectVersion == version
+}
+
 func (a *atmosphere) snapshot() snapshotData {
 	a.mu.Lock()
+	effect := a.effect
 	seed := a.seed
 	current := a.current
 	next := a.next
 	entropyBytes := a.entropyBytes
 	a.mu.Unlock()
-	effectSnap, err := a.effect.Snapshot()
+	effectSnap, err := effect.Snapshot()
 	if err != nil {
 		return snapshotData{
-			Type:           a.effect.Type(),
+			Type:           effect.Type(),
 			Seed:           seed,
 			CurrentScene:   current,
 			NextScene:      next,
@@ -428,8 +457,9 @@ func (a *atmosphere) AddEntropy(b []byte) {
 	a.seed ^= acc
 	a.entropyBytes += int64(len(b))
 	a.sceneRNG.Mix(acc)
+	effect := a.effect
 	a.mu.Unlock()
-	a.effect.AddEntropy(acc)
+	effect.AddEntropy(acc)
 	// Push a metric broadcast on every entropy event so the / live monitor's
 	// counter updates immediately (no 30 s polling cadence needed). Sub-
 	// second latency matches the client-side entropy buffer flush (2 s).
@@ -437,10 +467,11 @@ func (a *atmosphere) AddEntropy(b []byte) {
 }
 
 func (a *atmosphere) setConfigRaw(data json.RawMessage) error {
-	if err := a.effect.ApplyConfig(data); err != nil {
+	effect, _ := a.currentEffectRuntime()
+	if err := effect.ApplyConfig(data); err != nil {
 		return err
 	}
-	effectType := a.effect.Type()
+	effectType := effect.Type()
 	var cfg sim.Config
 	hasRainConfig := effectType == "rain" && json.Unmarshal(data, &cfg) == nil
 	if hasRainConfig {
@@ -458,7 +489,7 @@ func (a *atmosphere) setConfigRaw(data json.RawMessage) error {
 	a.mu.Unlock()
 	a.broadcast(Command{
 		Kind: "config",
-		Tick: a.effect.CurrentTick(),
+		Tick: effect.CurrentTick(),
 		Data: cloneRaw(data),
 	})
 	return nil
@@ -466,5 +497,6 @@ func (a *atmosphere) setConfigRaw(data json.RawMessage) error {
 
 func (a *atmosphere) triggerEvent(event string) bool {
 	// TriggerEvent writes to the log; the run loop picks it up and broadcasts.
-	return a.effect.Trigger(event)
+	effect, _ := a.currentEffectRuntime()
+	return effect.Trigger(event)
 }

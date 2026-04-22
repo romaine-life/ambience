@@ -62,6 +62,7 @@
 	// connection window.
 	let effectType = 'rain';
 	let sim = new AmbienceSim.effects[effectType](GRID_W, GRID_H, {});
+	let transition = AmbienceSim.createTransitionController(sim, { durationMs: 1800 });
 	let ready = false;
 
 	// Patch the subscribe snapshot handler so we can detect effect-type
@@ -82,7 +83,12 @@
 						break;
 					}
 					effectType = newType;
-					sim = new ctor(GRID_W, GRID_H, {});
+					const nextSim = new ctor(GRID_W, GRID_H, {});
+					try { nextSim.restoreSnapshot(data); } catch (err) { console.error('bad snapshot', err); }
+					sim = nextSim;
+					transition.setEffect(nextSim);
+					ready = true;
+					break;
 				}
 				try { sim.restoreSnapshot(data); } catch (err) { console.error('bad snapshot', err); }
 				ready = true;
@@ -101,8 +107,8 @@
 	// in one setInterval — rAF pauses in background tabs and we don't need
 	// 60 Hz for a 10 Hz sim.
 	setInterval(() => {
-		if (ready) sim.step();
-		sim.render(ctx, canvas.width, canvas.height, { transparent: TRANSPARENT });
+		if (ready) transition.step();
+		transition.render(ctx, canvas.width, canvas.height, { transparent: TRANSPARENT });
 	}, 100);
 
 	// ── Entropy ──────────────────────────────────────────────────

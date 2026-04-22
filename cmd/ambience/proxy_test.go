@@ -68,7 +68,7 @@ func TestEntropyForwarderFlushesPendingPayloads(t *testing.T) {
 	}
 }
 
-func TestAuthorityMirrorSnapshotFramesRefreshCacheWithoutBroadcast(t *testing.T) {
+func TestAuthorityMirrorSnapshotFramesRefreshCacheAndBroadcast(t *testing.T) {
 	m := &authorityMirror{
 		ctx:       context.Background(),
 		client:    &http.Client{},
@@ -103,8 +103,14 @@ func TestAuthorityMirrorSnapshotFramesRefreshCacheWithoutBroadcast(t *testing.T)
 
 	select {
 	case cmd := <-ch:
-		t.Fatalf("unexpected downstream broadcast: %+v", cmd)
+		if cmd.Kind != "snapshot" {
+			t.Fatalf("broadcast kind = %q, want snapshot", cmd.Kind)
+		}
+		if cmd.ID != "42" {
+			t.Fatalf("broadcast id = %q, want 42", cmd.ID)
+		}
 	default:
+		t.Fatal("expected snapshot broadcast to downstream listeners")
 	}
 }
 

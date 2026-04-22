@@ -46,11 +46,12 @@ func TestSharedAtmospherePersistenceRoundTrip(t *testing.T) {
 	a := newAtmosphere(sim.Config{})
 	a.broadcast(Command{Kind: "metric", Tick: 1})
 	a.AddEntropy([]byte("hello"))
+	effect, _ := a.currentEffectRuntime()
 	for i := 0; i < 5; i++ {
-		a.effect.Step()
+		effect.Step()
 	}
-	a.rotateScene(a.effect.CurrentTick())
-	a.applyTransition(a.effect.CurrentTick())
+	a.rotateScene(effect.CurrentTick())
+	a.applyTransition(effect.CurrentTick())
 
 	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
 	if err := store.Save(context.Background(), a.persistedState()); err != nil {
@@ -90,5 +91,26 @@ func TestSharedAtmospherePersistenceRoundTrip(t *testing.T) {
 	}
 	if len(gotState.Splashes) != len(wantState.Splashes) {
 		t.Fatalf("splashes = %d, want %d", len(gotState.Splashes), len(wantState.Splashes))
+	}
+}
+
+func TestSharedAtmospherePersistenceRoundTripAfterEffectSwitch(t *testing.T) {
+	a := newAtmosphere(sim.Config{})
+	if err := a.switchEffect("dust"); err != nil {
+		t.Fatalf("switchEffect: %v", err)
+	}
+
+	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
+	if err := store.Save(context.Background(), a.persistedState()); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	restored := restoreSharedAtmosphere(context.Background(), store)
+	got := restored.snapshot()
+	if got.Type != "dust" {
+		t.Fatalf("restored type = %q, want dust", got.Type)
+	}
+	if got.CurrentScene.Name != "dust" {
+		t.Fatalf("restored current scene = %q, want dust", got.CurrentScene.Name)
 	}
 }

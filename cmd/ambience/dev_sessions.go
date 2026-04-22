@@ -26,15 +26,16 @@ type devSnapshotData struct {
 type devSession struct {
 	mu sync.Mutex
 
-	seed       int64
-	effect     effectRuntime
-	commandSeq int64
-	listeners  map[chan Command]struct{}
-	lastSeen   time.Time
-	cancel     context.CancelFunc
+	seed          int64
+	effect        effectRuntime
+	effectVersion int64
+	commandSeq    int64
+	listeners     map[chan Command]struct{}
+	lastSeen      time.Time
+	cancel        context.CancelFunc
 }
 
-var devSessions sync.Map // key "<effect>\n<session>" => *devSession
+var devSessions sync.Map // key "<session>" => *devSession
 
 func normalizeDevEffect(effect string) string {
 	effect = strings.TrimSpace(strings.ToLower(effect))
@@ -96,23 +97,21 @@ func serveEffectSchema(w http.ResponseWriter, req *http.Request) {
 
 func newDevSession(effectType string) (*devSession, error) {
 	effectType = normalizeDevEffect(effectType)
-	seed := time.Now().UnixNano()
-	effect, err := newEffectRuntime(effectType, gridW, gridH, seed, nil)
+	seed := deriveEffectSeed(time.Now().UnixNano(), 0, effectType)
+	cfg, err := randomizedEffectConfig(effectType, seed)
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := randomizedDevConfig(effect.Schema(), seed)
+	effect, err := newEffectRuntime(effectType, gridW, gridH, seed, cfg)
 	if err != nil {
-		return nil, err
-	}
-	if err := effect.ApplyConfig(cfg); err != nil {
 		return nil, err
 	}
 	return &devSession{
-		seed:      seed,
-		effect:    effect,
-		listeners: make(map[chan Command]struct{}),
-		lastSeen:  time.Now(),
+		seed:          seed,
+		effect:        effect,
+		effectVersion: 1,
+		listeners:     make(map[chan Command]struct{}),
+		lastSeen:      time.Now(),
 	}, nil
 }
 
@@ -129,7 +128,8 @@ func configsEqualJSON(left, right json.RawMessage) bool {
 }
 
 func devSessionKey(effectType, sessionID string) string {
-	return normalizeDevEffect(effectType) + "\n" + sessionID
+	_ = effectType
+	return strings.TrimSpace(sessionID)
 }
 
 func getOrCreateDevSession(effectType, sessionID string) (*devSession, error) {
@@ -190,8 +190,15 @@ func (s *devSession) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.effect.Step()
-			for _, entry := range s.effect.DrainLog() {
+			effect, version := s.currentEffectRuntime()
+			effect.Step()
+			if !s.effectVersionIs(version) {
+				continue
+			}
+			for _, entry := range effect.DrainLog() {
+				if !s.effectVersionIs(version) {
+					break
+				}
 				s.broadcast(Command{
 					Kind:  "trigger",
 					Tick:  entry.Tick,
@@ -241,20 +248,33 @@ func (s *devSession) currentCommandID() string {
 	return strconv.FormatInt(s.commandSeq, 10)
 }
 
+func (s *devSession) currentEffectRuntime() (effectRuntime, int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.effect, s.effectVersion
+}
+
+func (s *devSession) effectVersionIs(version int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.effectVersion == version
+}
+
 func (s *devSession) snapshot() devSnapshotData {
 	s.mu.Lock()
 	seed := s.seed
+	effect := s.effect
 	s.mu.Unlock()
 
-	effectSnap, err := s.effect.Snapshot()
+	effectSnap, err := effect.Snapshot()
 	if err != nil {
 		return devSnapshotData{
-			Type: s.effect.Type(),
+			Type: effect.Type(),
 			Seed: seed,
 		}
 	}
 	return devSnapshotData{
-		Type:   s.effect.Type(),
+		Type:   effect.Type(),
 		Tick:   effectSnap.Tick,
 		Config: cloneRaw(effectSnap.Config),
 		State:  cloneRaw(effectSnap.State),
@@ -273,24 +293,26 @@ func (s *devSession) setConfigQuery(values url.Values) error {
 }
 
 func (s *devSession) applyConfig(data json.RawMessage) error {
-	if err := s.effect.ApplyConfig(data); err != nil {
+	effect, _ := s.currentEffectRuntime()
+	if err := effect.ApplyConfig(data); err != nil {
 		return err
 	}
 	s.broadcast(Command{
 		Kind: "config",
-		Tick: s.effect.CurrentTick(),
+		Tick: effect.CurrentTick(),
 		Data: cloneRaw(data),
 	})
 	return nil
 }
 
 func (s *devSession) randomizeConfig(seed int64) (json.RawMessage, error) {
-	current, err := s.effect.Snapshot()
+	effect, _ := s.currentEffectRuntime()
+	current, err := effect.Snapshot()
 	if err != nil {
 		return nil, err
 	}
 	for attempt := range 6 {
-		cfg, err := randomizedDevConfig(s.effect.Schema(), seed+int64(attempt)*7919)
+		cfg, err := randomizedDevConfig(effect.Schema(), seed+int64(attempt)*7919)
 		if err != nil {
 			return nil, err
 		}
@@ -305,15 +327,17 @@ func (s *devSession) randomizeConfig(seed int64) (json.RawMessage, error) {
 }
 
 func (s *devSession) triggerEvent(event string) bool {
-	return s.effect.Trigger(event)
+	effect, _ := s.currentEffectRuntime()
+	return effect.Trigger(event)
 }
 
 func writeDevSnapshotFrame(w http.ResponseWriter, flusher http.Flusher, s *devSession) error {
 	data, _ := json.Marshal(s.snapshot())
+	effect, _ := s.currentEffectRuntime()
 	return writeCommand(w, flusher, Command{
 		ID:   s.currentCommandID(),
 		Kind: "snapshot",
-		Tick: s.effect.CurrentTick(),
+		Tick: effect.CurrentTick(),
 		Data: data,
 	})
 }
@@ -440,6 +464,28 @@ func serveDevSessionTrigger(w http.ResponseWriter, req *http.Request) {
 	}
 	if !s.triggerEvent(event) {
 		http.Error(w, "unknown event: "+event, http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func serveDevSessionEffect(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	rawEffect := strings.TrimSpace(req.URL.Query().Get("effect"))
+	if rawEffect == "" {
+		http.Error(w, "effect param required", http.StatusBadRequest)
+		return
+	}
+	s, effectType, _, err := devSessionFromRequest(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.switchEffect(effectType); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
