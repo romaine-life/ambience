@@ -789,6 +789,23 @@ func TestProceduralWaterPipeSnapshotRestore(t *testing.T) {
 	}
 }
 
+func TestProceduralWaterPipeNormalizesBasinUnderOutlet(t *testing.T) {
+	p := NewProcedural("water-pipe", 160, 80, 11, ProceduralConfig{
+		"pipe_x":      0.18,
+		"basin_x":     0.78,
+		"basin_width": 30,
+		"basin_depth": 9,
+	})
+
+	layout := waterPipeLayoutForConfig(p.W, p.H, p.EffectiveConfig())
+	if layout.PipeX < layout.BasinLeft+1 || layout.PipeX > layout.BasinRight-1 {
+		t.Fatalf("outlet x = %d falls outside basin interior [%d, %d]", layout.PipeX, layout.BasinLeft+1, layout.BasinRight-1)
+	}
+	if layout.StreamTargetX < layout.BasinLeft+2 || layout.StreamTargetX > layout.BasinRight-2 {
+		t.Fatalf("stream target x = %d falls outside basin flow band [%d, %d]", layout.StreamTargetX, layout.BasinLeft+2, layout.BasinRight-2)
+	}
+}
+
 func TestProceduralTetrisSnapshotRestore(t *testing.T) {
 	p := NewProcedural("tetris", 160, 80, 95, nil)
 	if !p.TriggerEvent("intro") {

@@ -2290,7 +2290,53 @@
 		},
 	};
 
-	function applyProceduralDefaults(kind, cfg) {
+	function normalizeProceduralConfig(kind, width, cfg) {
+		if (kind !== 'water-pipe') return cfg;
+		const gridW = width > 0 ? width : 160;
+		const basinW = Math.max(18, Math.round(cfg.basin_width || 0));
+		const pipeX = Math.round(gridW * (cfg.pipe_x || 0));
+		let basinCenter = Math.round(gridW * (cfg.basin_x || 0));
+		let maxPipeGap = Math.min(Math.round(gridW * 0.12), Math.max(8, Math.floor(basinW / 2) - 2));
+		if (maxPipeGap < 8) maxPipeGap = 8;
+		if (basinCenter - pipeX > maxPipeGap) basinCenter = pipeX + maxPipeGap;
+		else if (pipeX - basinCenter > maxPipeGap) basinCenter = pipeX - maxPipeGap;
+
+		const sceneRightLimit = Math.max(basinW + 8, Math.floor(gridW * 0.74));
+		const minLeft = 4;
+		const maxLeft = Math.max(minLeft, Math.min(gridW - basinW - 4, sceneRightLimit - basinW));
+		const left = Math.max(minLeft, Math.min(maxLeft, basinCenter - Math.floor(basinW / 2)));
+		cfg.basin_x = (left + Math.floor(basinW / 2)) / gridW;
+		return cfg;
+	}
+
+	function waterPipeLayout(w, h, cfg) {
+		const floorRow = Math.max(10, Math.min(h - 5, Math.floor(h * 0.82)));
+		const pipeX = Math.round(w * cfg.pipe_x);
+		const basinW = Math.max(18, Math.round(cfg.basin_width));
+		const basinD = Math.max(6, Math.round(cfg.basin_depth));
+		const basinCenter = Math.round(w * cfg.basin_x);
+		const sceneRightLimit = Math.max(basinW + 8, Math.floor(w * 0.74));
+		const minLeft = 4;
+		const maxLeft = Math.max(minLeft, Math.min(w - basinW - 4, sceneRightLimit - basinW));
+		const left = Math.max(minLeft, Math.min(maxLeft, basinCenter - Math.floor(basinW / 2)));
+		const right = left + basinW - 1;
+		const center = left + Math.floor(basinW / 2);
+		const streamTargetX = Math.max(left + 2, Math.min(right - 2, Math.round(pipeX * 0.62 + center * 0.38)));
+		return {
+			pipeX,
+			outletY: Math.max(4, floorRow - Math.round(cfg.pipe_drop)),
+			basinW,
+			basinD,
+			basinLeft: left,
+			basinRight: right,
+			basinCenter: center,
+			basinFloor: floorRow - 1,
+			basinTop: floorRow - 1 - basinD,
+			streamTargetX,
+		};
+	}
+
+	function applyProceduralDefaults(kind, width, cfg) {
 		const base = PROCEDURAL_DEFAULTS[kind] || {};
 		const c = Object.assign({}, base, cfg || {});
 		switch (kind) {
@@ -2759,7 +2805,7 @@
 				if (c.calm_mult <= 0) c.calm_mult = base.calm_mult;
 				break;
 		}
-		return c;
+		return normalizeProceduralConfig(kind, width, c);
 	}
 
 	function positiveMod(value, mod) {
@@ -2823,24 +2869,24 @@
 			this.tick = 0;
 			this.timers = {};
 			this.values = {};
-			this.cfg = applyProceduralDefaults(kind, cfg);
+			this.cfg = applyProceduralDefaults(kind, w, cfg);
 		}
 
 		setConfig(cfg) {
-			this.cfg = applyProceduralDefaults(this.kind, Object.assign({}, this.cfg, cfg));
+			this.cfg = applyProceduralDefaults(this.kind, this.w, Object.assign({}, this.cfg, cfg));
 		}
 
 		restoreSnapshot(snap) {
 			const state = snap.state || snap;
-			this.setConfig(snap.config || {});
-			this.tick = state.tick || snap.tick || 0;
-			this.timers = Object.assign({}, state.timers || {});
-			this.values = Object.assign({}, state.values || {});
 			if (typeof snap.seed === 'number') this.seed = snap.seed;
 			if (snap.gridW > 0 && snap.gridH > 0) {
 				this.w = snap.gridW;
 				this.h = snap.gridH;
 			}
+			this.setConfig(snap.config || {});
+			this.tick = state.tick || snap.tick || 0;
+			this.timers = Object.assign({}, state.timers || {});
+			this.values = Object.assign({}, state.values || {});
 		}
 
 		_eventRng(salt) {
@@ -4240,6 +4286,7 @@
 		}
 
 		_stepWaterPipeState() {
+			const layout = waterPipeLayout(this.w, this.h, this.cfg);
 			const flow = this._waterPipeFlowLevel();
 			let fill = clamp01(this.values.fill_level || 0);
 			let spill = clamp01(this.values.spill_level || 0);
@@ -4262,7 +4309,7 @@
 				spill += this.cfg.ending_ripple * 0.004 * (1 - progress);
 			}
 
-			let targetBias = (this.cfg.pipe_x - this.cfg.basin_x) / 0.24;
+			let targetBias = (layout.streamTargetX - layout.basinCenter) / Math.max(2, Math.floor(layout.basinW / 2) - 2);
 			targetBias = Math.max(-1, Math.min(1, targetBias));
 			bias += (targetBias - bias) * (0.03 + flow * 0.05 + this.cfg.ripple * 0.03);
 			bias = Math.max(-1, Math.min(1, bias));
@@ -6472,22 +6519,17 @@
 			const sy = canvasH / this.h;
 			const ceilSx = Math.ceil(sx);
 			const ceilSy = Math.ceil(sy);
-			const floorRow = Math.max(10, Math.min(this.h - 5, Math.floor(this.h * 0.82)));
-			const pipeX = Math.round(this.w * this.cfg.pipe_x);
+			const layout = waterPipeLayout(this.w, this.h, this.cfg);
+			const floorRow = layout.basinFloor + 1;
+			const pipeX = layout.pipeX;
 			const pipeW = Math.max(4, Math.round(this.cfg.pipe_width));
-			const outletY = Math.max(4, floorRow - Math.round(this.cfg.pipe_drop));
-			let basinCenter = Math.round(this.w * this.cfg.basin_x);
-			const maxPipeGap = Math.round(this.w * 0.22);
-			if (Math.abs(basinCenter - pipeX) > maxPipeGap) {
-				basinCenter = pipeX + (basinCenter >= pipeX ? maxPipeGap : -maxPipeGap);
-			}
-			const basinW = Math.max(18, Math.round(this.cfg.basin_width));
-			const basinD = Math.max(6, Math.round(this.cfg.basin_depth));
-			const sceneRightLimit = Math.max(basinW + 8, Math.floor(this.w * 0.74));
-			const left = Math.max(4, Math.min(Math.min(this.w - basinW - 4, sceneRightLimit - basinW), basinCenter - Math.floor(basinW / 2)));
-			const right = left + basinW - 1;
-			const basinFloor = floorRow - 1;
-			const basinTop = basinFloor - basinD;
+			const outletY = layout.outletY;
+			const basinW = layout.basinW;
+			const basinD = layout.basinD;
+			const left = layout.basinLeft;
+			const right = layout.basinRight;
+			const basinFloor = layout.basinFloor;
+			const basinTop = layout.basinTop;
 			const fill = clamp01(this.values.fill_level || 0);
 			const spill = clamp01(this.values.spill_level || 0);
 			const surfaceBias = Math.max(-1, Math.min(1, this.values.surface_bias || 0));
@@ -6551,7 +6593,7 @@
 				}
 			}
 
-			const impactX = Math.max(left + 2, Math.min(right - 2, pipeX + Math.round(surfaceBias * basinW * 0.18)));
+			const impactX = Math.max(left + 2, Math.min(right - 2, layout.streamTargetX + Math.round(surfaceBias * Math.max(1, basinW * 0.04))));
 			const impactIdx = Math.max(0, Math.min(surfaceRows.length - 1, impactX - (left + 1)));
 			const impactY = surfaceRows[impactIdx] || basinFloor - 1;
 
@@ -6584,7 +6626,7 @@
 				for (let y = outletY + 2; y <= impactY; y++) {
 					const t = (y - outletY) / Math.max(1, impactY - outletY);
 					const sway = Math.sin(this.tick * 0.05 + y * 0.16) * this.cfg.stream * 0.12;
-					const centerX = pipeX + surfaceBias * t * basinW * 0.06 + sway;
+					const centerX = pipeX + (impactX - pipeX) * t + sway;
 					for (let dx = -Math.floor(streamW / 2); dx <= Math.floor(streamW / 2); dx++) {
 						const edge = Math.abs(dx) / Math.max(1, streamW / 2);
 						const alpha = clamp01(0.18 + flow * 0.9 - edge * 0.24);

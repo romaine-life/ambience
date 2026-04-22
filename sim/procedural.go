@@ -1638,6 +1638,93 @@ func proceduralDefaults(kind string) ProceduralConfig {
 	}
 }
 
+type waterPipeLayout struct {
+	PipeX         int
+	OutletY       int
+	BasinWidth    int
+	BasinDepth    int
+	BasinLeft     int
+	BasinRight    int
+	BasinCenter   int
+	BasinFloor    int
+	BasinTop      int
+	StreamTargetX int
+}
+
+func normalizeProceduralConfig(kind string, w int, cfg ProceduralConfig) ProceduralConfig {
+	switch kind {
+	case "water-pipe":
+		return normalizeWaterPipeConfigForWidth(w, cfg)
+	default:
+		return cfg
+	}
+}
+
+func normalizeWaterPipeConfigForWidth(w int, cfg ProceduralConfig) ProceduralConfig {
+	if w <= 0 {
+		w = 160
+	}
+	basinW := max(18, int(math.Round(cfg["basin_width"])))
+	pipeX := int(math.Round(float64(w) * cfg["pipe_x"]))
+	basinCenter := int(math.Round(float64(w) * cfg["basin_x"]))
+	maxPipeGap := min(int(math.Round(float64(w)*0.12)), max(8, basinW/2-2))
+	if maxPipeGap < 8 {
+		maxPipeGap = 8
+	}
+	if basinCenter-pipeX > maxPipeGap {
+		basinCenter = pipeX + maxPipeGap
+	} else if pipeX-basinCenter > maxPipeGap {
+		basinCenter = pipeX - maxPipeGap
+	}
+
+	sceneRightLimit := max(basinW+8, int(math.Floor(float64(w)*0.74)))
+	minLeft := 4
+	maxLeft := max(minLeft, min(w-basinW-4, sceneRightLimit-basinW))
+	left := basinCenter - basinW/2
+	if left < minLeft {
+		left = minLeft
+	}
+	if left > maxLeft {
+		left = maxLeft
+	}
+	cfg["basin_x"] = float64(left+basinW/2) / float64(w)
+	return cfg
+}
+
+func waterPipeLayoutForConfig(w, h int, cfg ProceduralConfig) waterPipeLayout {
+	floorRow := max(10, min(h-5, int(math.Floor(float64(h)*0.82))))
+	pipeX := int(math.Round(float64(w) * cfg["pipe_x"]))
+	basinW := max(18, int(math.Round(cfg["basin_width"])))
+	basinD := max(6, int(math.Round(cfg["basin_depth"])))
+	basinCenter := int(math.Round(float64(w) * cfg["basin_x"]))
+	sceneRightLimit := max(basinW+8, int(math.Floor(float64(w)*0.74)))
+	minLeft := 4
+	maxLeft := max(minLeft, min(w-basinW-4, sceneRightLimit-basinW))
+	left := basinCenter - basinW/2
+	if left < minLeft {
+		left = minLeft
+	}
+	if left > maxLeft {
+		left = maxLeft
+	}
+	right := left + basinW - 1
+	center := left + basinW/2
+	streamTarget := int(math.Round(float64(pipeX)*0.62 + float64(center)*0.38))
+	streamTarget = max(left+2, min(right-2, streamTarget))
+	return waterPipeLayout{
+		PipeX:         pipeX,
+		OutletY:       max(4, floorRow-int(math.Round(cfg["pipe_drop"]))),
+		BasinWidth:    basinW,
+		BasinDepth:    basinD,
+		BasinLeft:     left,
+		BasinRight:    right,
+		BasinCenter:   center,
+		BasinFloor:    floorRow - 1,
+		BasinTop:      floorRow - 1 - basinD,
+		StreamTargetX: streamTarget,
+	}
+}
+
 func mergeProceduralDefaults(kind string, cfg ProceduralConfig) ProceduralConfig {
 	out := proceduralDefaults(kind)
 	for k, v := range cfg {
@@ -2806,7 +2893,7 @@ func NewProcedural(kind string, w, h int, seed int64, cfg ProceduralConfig) *Pro
 		Grid:   grid,
 		seed:   seed,
 		rng:    rngutil.New(seed),
-		cfg:    mergeProceduralDefaults(kind, cfg),
+		cfg:    normalizeProceduralConfig(kind, w, mergeProceduralDefaults(kind, cfg)),
 		timers: make(map[string]int),
 		values: make(map[string]float64),
 	}
@@ -2827,12 +2914,13 @@ func (p *Procedural) Resize(w, h int) {
 	for i := range p.Grid {
 		p.Grid[i] = make([]Pixel, w)
 	}
+	p.cfg = normalizeProceduralConfig(p.Kind, p.W, p.cfg)
 }
 
 func (p *Procedural) SetConfig(cfg ProceduralConfig) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.cfg = mergeProceduralDefaults(p.Kind, cfg)
+	p.cfg = normalizeProceduralConfig(p.Kind, p.W, mergeProceduralDefaults(p.Kind, cfg))
 }
 
 func (p *Procedural) EffectiveConfig() ProceduralConfig {
@@ -4783,6 +4871,7 @@ func (p *Procedural) startWaterPipeEndingLocked() {
 }
 
 func (p *Procedural) stepWaterPipeStateLocked() {
+	layout := waterPipeLayoutForConfig(p.W, p.H, p.cfg)
 	flow := p.waterPipeFlowLevelLocked()
 	fill := clamp01(p.values["fill_level"])
 	spill := clamp01(p.values["spill_level"])
@@ -4805,7 +4894,7 @@ func (p *Procedural) stepWaterPipeStateLocked() {
 		spill += p.cfg["ending_ripple"] * 0.004 * (1 - progress)
 	}
 
-	targetBias := (p.cfg["pipe_x"] - p.cfg["basin_x"]) / 0.24
+	targetBias := float64(layout.StreamTargetX-layout.BasinCenter) / float64(max(2, layout.BasinWidth/2-2))
 	if targetBias < -1 {
 		targetBias = -1
 	} else if targetBias > 1 {
