@@ -412,6 +412,40 @@ var trainDefaults = ProceduralConfig{
 	"quiet_gap_mult": 0.45,
 }
 
+var mysteriousManDefaults = ProceduralConfig{
+	"intro_dur":          55,
+	"intro_reveal":       0.08,
+	"ending_dur":         70,
+	"ending_linger":      20,
+	"ending_shadow":      0.08,
+	"figure_x":           0.38,
+	"figure_scale":       1.0,
+	"lean":               0.08,
+	"contrast":           0.24,
+	"ember":              0.24,
+	"hold_angle":         0.22,
+	"smoke":              0.16,
+	"rise_speed":         0.72,
+	"drift":              0.08,
+	"hue":                216,
+	"hue_sp":             18,
+	"sat":                0.18,
+	"lmin":               0.04,
+	"lmax":               0.88,
+	"inhale_p":           0.0,
+	"exhale_p":           0.0,
+	"ash_fall_p":         0.0,
+	"lighter_flick_p":    0.0,
+	"inhale_dur":         34,
+	"inhale_mult":        1.80,
+	"exhale_dur":         46,
+	"exhale_mult":        1.65,
+	"ash_fall_dur":       24,
+	"ash_fall_mult":      1.40,
+	"lighter_flick_dur":  20,
+	"lighter_flick_mult": 2.25,
+}
+
 func SnowSchema() EffectSchema {
 	return EffectSchema{
 		Name: "snow",
@@ -1170,6 +1204,76 @@ func TrainSchema() EffectSchema {
 	}
 }
 
+func MysteriousManSchema() EffectSchema {
+	return EffectSchema{
+		Name: "mysterious-man",
+		Knobs: []Knob{
+			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 55, Trigger: "intro",
+				Description: "Ticks spent revealing the ember and silhouette from near-total darkness."},
+			{Key: "intro_reveal", Label: "intro reveal", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0.05, Max: 0.5, Step: 0.01, Default: 0.08,
+				Description: "Starting fraction of the final ember and silhouette visibility during the intro."},
+			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 70, Trigger: "ending",
+				Description: "Ticks spent dimming the ember and letting the last smoke dissolve."},
+			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 160, Step: 5, Default: 20,
+				Description: "Extra quiet ticks for the final smoke traces and silhouette falloff."},
+			{Key: "ending_shadow", Label: "ending shadow", Slot: SlotEnd, Group: "ending", Type: KnobFloat, Min: 0.02, Max: 0.4, Step: 0.01, Default: 0.08,
+				Description: "How much silhouette and ember residue remains near the end of the outro."},
+			{Key: "figure_x", Label: "figure x", Slot: SlotLever, Group: "figure", Type: KnobFloat, Min: 0.2, Max: 0.7, Step: 0.01, Default: 0.38,
+				Description: "Horizontal placement of the figure in the frame."},
+			{Key: "figure_scale", Label: "scale", Slot: SlotLever, Group: "figure", Type: KnobFloat, Min: 0.85, Max: 1.6, Step: 0.05, Default: 1,
+				Description: "Overall figure size."},
+			{Key: "lean", Label: "lean", Slot: SlotLever, Group: "figure", Type: KnobFloat, Min: -0.4, Max: 0.5, Step: 0.01, Default: 0.08,
+				Description: "Forward or backward lean of the silhouette posture."},
+			{Key: "contrast", Label: "contrast", Slot: SlotLever, Group: "figure", Type: KnobFloat, Min: 0.14, Max: 0.7, Step: 0.01, Default: 0.24,
+				Description: "How strongly the figure silhouette separates from the dark background."},
+			{Key: "ember", Label: "ember", Slot: SlotLever, Group: "cigarette", Type: KnobFloat, Min: 0.12, Max: 0.8, Step: 0.01, Default: 0.24,
+				Description: "Baseline brightness of the cigarette ember."},
+			{Key: "hold_angle", Label: "hold angle", Slot: SlotLever, Group: "cigarette", Type: KnobFloat, Min: -0.8, Max: 0.8, Step: 0.02, Default: 0.22,
+				Description: "Angle of the hand and cigarette near the face."},
+			{Key: "smoke", Label: "smoke", Slot: SlotLever, Group: "smoke", Type: KnobFloat, Min: 0.08, Max: 0.6, Step: 0.01, Default: 0.16,
+				Description: "Amount of smoke visible around the ember and face."},
+			{Key: "rise_speed", Label: "rise speed", Slot: SlotLever, Group: "smoke", Type: KnobFloat, Min: 0.2, Max: 1.6, Step: 0.02, Default: 0.72,
+				Description: "Vertical lift applied to the smoke wisps."},
+			{Key: "drift", Label: "drift", Slot: SlotLever, Group: "smoke", Type: KnobFloat, Min: -0.6, Max: 0.6, Step: 0.01, Default: 0.08,
+				Description: "Sideways drift of the smoke. Positive drifts right, negative drifts left."},
+			{Key: "hue", Label: "hue", Slot: SlotLever, Group: "palette", Type: KnobFloat, Min: 180, Max: 260, Step: 1, Default: 216,
+				Description: "Base scene hue. Lower values warm toward sodium light; higher values cool toward blue noir."},
+			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "palette", Type: KnobFloat, Min: 0, Max: 40, Step: 1, Default: 18,
+				Description: "Variation between shadow tones, smoke tint, and ember-adjacent light."},
+			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "palette", Type: KnobFloat, Min: 0.04, Max: 0.6, Step: 0.01, Default: 0.18,
+				Description: "Overall scene saturation."},
+			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "palette", Type: KnobFloat, Min: 0.02, Max: 0.3, Step: 0.01, Default: 0.04,
+				Description: "Minimum lightness used for the darkest background and coat tones."},
+			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "palette", Type: KnobFloat, Min: 0.3, Max: 1, Step: 0.01, Default: 0.88,
+				Description: "Maximum lightness used for ember, lighter flick, and the brightest smoke edges."},
+			{Key: "inhale_p", Label: "inhale", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "inhale",
+				Description: "Per-tick chance of the ember brightening for a deeper inhale."},
+			{Key: "exhale_p", Label: "exhale", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "exhale",
+				Description: "Per-tick chance of a visible smoke plume leaving the figure."},
+			{Key: "ash_fall_p", Label: "ash fall", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "ash-fall",
+				Description: "Per-tick chance of a small ash fleck breaking away from the cigarette."},
+			{Key: "lighter_flick_p", Label: "lighter flick", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "lighter-flick",
+				Description: "Per-tick chance of a brief brighter warm flash near the face and hand."},
+			{Key: "inhale_dur", Label: "inhale dur", Slot: SlotEventMod, Group: "inhale", Type: KnobInt, Min: 10, Max: 120, Step: 5, Default: 34,
+				Description: "Duration of the inhale emphasis window."},
+			{Key: "inhale_mult", Label: "inhale x", Slot: SlotEventMod, Group: "inhale", Type: KnobFloat, Min: 1.05, Max: 3, Step: 0.05, Default: 1.8,
+				Description: "Ember multiplier applied during an inhale."},
+			{Key: "exhale_dur", Label: "exhale dur", Slot: SlotEventMod, Group: "exhale", Type: KnobInt, Min: 10, Max: 160, Step: 5, Default: 46,
+				Description: "Duration of the exhale plume window."},
+			{Key: "exhale_mult", Label: "exhale x", Slot: SlotEventMod, Group: "exhale", Type: KnobFloat, Min: 1.05, Max: 3, Step: 0.05, Default: 1.65,
+				Description: "Smoke plume multiplier applied during an exhale."},
+			{Key: "ash_fall_dur", Label: "ash dur", Slot: SlotEventMod, Group: "ash-fall", Type: KnobInt, Min: 10, Max: 120, Step: 5, Default: 24,
+				Description: "Duration of the falling ash fleck event."},
+			{Key: "ash_fall_mult", Label: "ash x", Slot: SlotEventMod, Group: "ash-fall", Type: KnobFloat, Min: 1.0, Max: 3, Step: 0.05, Default: 1.4,
+				Description: "Intensity multiplier applied to the ash-fall event."},
+			{Key: "lighter_flick_dur", Label: "flick dur", Slot: SlotEventMod, Group: "lighter-flick", Type: KnobInt, Min: 10, Max: 100, Step: 5, Default: 20,
+				Description: "Duration of the lighter flick highlight."},
+			{Key: "lighter_flick_mult", Label: "flick x", Slot: SlotEventMod, Group: "lighter-flick", Type: KnobFloat, Min: 1.05, Max: 4, Step: 0.05, Default: 2.25,
+				Description: "Brightness multiplier applied during the lighter flick."},
+		},
+	}
+}
+
 func cloneProceduralConfig(src ProceduralConfig) ProceduralConfig {
 	if src == nil {
 		return ProceduralConfig{}
@@ -1236,6 +1340,8 @@ func proceduralDefaults(kind string) ProceduralConfig {
 		return cloneProceduralConfig(volcanoDefaults)
 	case "train":
 		return cloneProceduralConfig(trainDefaults)
+	case "mysterious-man":
+		return cloneProceduralConfig(mysteriousManDefaults)
 	default:
 		return ProceduralConfig{}
 	}
@@ -2099,6 +2205,78 @@ func mergeProceduralDefaults(kind string, cfg ProceduralConfig) ProceduralConfig
 		if out["quiet_gap_mult"] <= 0 {
 			out["quiet_gap_mult"] = trainDefaults["quiet_gap_mult"]
 		}
+	case "mysterious-man":
+		if out["intro_dur"] <= 0 {
+			out["intro_dur"] = mysteriousManDefaults["intro_dur"]
+		}
+		out["intro_reveal"] = clamp01(out["intro_reveal"])
+		if out["ending_dur"] <= 0 {
+			out["ending_dur"] = mysteriousManDefaults["ending_dur"]
+		}
+		if out["ending_linger"] < 0 {
+			out["ending_linger"] = 0
+		}
+		out["ending_shadow"] = clamp01(out["ending_shadow"])
+		if out["figure_x"] <= 0 {
+			out["figure_x"] = mysteriousManDefaults["figure_x"]
+		}
+		if out["figure_scale"] <= 0 {
+			out["figure_scale"] = mysteriousManDefaults["figure_scale"]
+		}
+		if out["contrast"] <= 0 {
+			out["contrast"] = mysteriousManDefaults["contrast"]
+		}
+		if out["ember"] <= 0 {
+			out["ember"] = mysteriousManDefaults["ember"]
+		}
+		if out["smoke"] <= 0 {
+			out["smoke"] = mysteriousManDefaults["smoke"]
+		}
+		if out["rise_speed"] <= 0 {
+			out["rise_speed"] = mysteriousManDefaults["rise_speed"]
+		}
+		if out["hue"] <= 0 {
+			out["hue"] = mysteriousManDefaults["hue"]
+		}
+		if out["hue_sp"] < 0 {
+			out["hue_sp"] = 0
+		}
+		if out["sat"] <= 0 {
+			out["sat"] = mysteriousManDefaults["sat"]
+		}
+		if out["lmin"] <= 0 {
+			out["lmin"] = mysteriousManDefaults["lmin"]
+		}
+		if out["lmax"] <= 0 {
+			out["lmax"] = mysteriousManDefaults["lmax"]
+		}
+		if out["lmax"] < out["lmin"] {
+			out["lmin"], out["lmax"] = out["lmax"], out["lmin"]
+		}
+		if out["inhale_dur"] <= 0 {
+			out["inhale_dur"] = mysteriousManDefaults["inhale_dur"]
+		}
+		if out["inhale_mult"] <= 0 {
+			out["inhale_mult"] = mysteriousManDefaults["inhale_mult"]
+		}
+		if out["exhale_dur"] <= 0 {
+			out["exhale_dur"] = mysteriousManDefaults["exhale_dur"]
+		}
+		if out["exhale_mult"] <= 0 {
+			out["exhale_mult"] = mysteriousManDefaults["exhale_mult"]
+		}
+		if out["ash_fall_dur"] <= 0 {
+			out["ash_fall_dur"] = mysteriousManDefaults["ash_fall_dur"]
+		}
+		if out["ash_fall_mult"] <= 0 {
+			out["ash_fall_mult"] = mysteriousManDefaults["ash_fall_mult"]
+		}
+		if out["lighter_flick_dur"] <= 0 {
+			out["lighter_flick_dur"] = mysteriousManDefaults["lighter_flick_dur"]
+		}
+		if out["lighter_flick_mult"] <= 0 {
+			out["lighter_flick_mult"] = mysteriousManDefaults["lighter_flick_mult"]
+		}
 	}
 	return out
 }
@@ -2453,6 +2631,26 @@ func (p *Procedural) TriggerEvent(name string) bool {
 			return false
 		}
 		return true
+	case "mysterious-man":
+		switch name {
+		case "inhale":
+			p.startMysteriousManInhaleLocked("triggered")
+		case "exhale":
+			p.startMysteriousManExhaleLocked("triggered")
+		case "ash-fall":
+			p.startMysteriousManAshFallLocked("triggered")
+		case "lighter-flick":
+			p.startMysteriousManLighterFlickLocked("triggered")
+		case "intro":
+			p.startMysteriousManIntroLocked()
+			p.appendLog("intro", fmt.Sprintf("started (dur=%d, reveal=%.2f)", p.timers["intro"], p.cfg["intro_reveal"]))
+		case "ending":
+			p.startMysteriousManEndingLocked()
+			p.appendLog("ending", fmt.Sprintf("started (fade=%d, linger=%d)", p.intCfg("ending_dur"), p.intCfg("ending_linger")))
+		default:
+			return false
+		}
+		return true
 	default:
 		return false
 	}
@@ -2514,6 +2712,8 @@ func (p *Procedural) Step() {
 		p.stepVolcanoLocked()
 	case "train":
 		p.stepTrainLocked()
+	case "mysterious-man":
+		p.stepMysteriousManLocked()
 	}
 }
 
@@ -3470,5 +3670,126 @@ func (p *Procedural) stepTrainLocked() {
 	}
 	if p.timers["pass"] <= 0 && p.timers["express"] <= 0 && p.timers["quiet-gap"] <= 0 && p.cfg["quiet_gap_p"] > 0 && p.rng.Float64() < p.cfg["quiet_gap_p"] {
 		p.startTrainQuietGapLocked("started")
+	}
+}
+
+func (p *Procedural) startMysteriousManInhaleLocked(verb string) {
+	p.timers["exhale"] = 0
+	p.timers["inhale"] = jitterInt(p.rng, p.intCfg("inhale_dur"), 0.3)
+	p.values["inhale_gain"] = p.cfg["inhale_mult"] * (0.85 + p.rng.Float64()*0.35)
+	p.values["exhale_gain"] = 1
+	p.appendLog("inhale", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["inhale"], p.values["inhale_gain"]))
+}
+
+func (p *Procedural) startMysteriousManExhaleLocked(verb string) {
+	p.timers["inhale"] = 0
+	p.timers["exhale"] = jitterInt(p.rng, p.intCfg("exhale_dur"), 0.3)
+	p.values["inhale_gain"] = 1
+	p.values["exhale_gain"] = p.cfg["exhale_mult"] * (0.85 + p.rng.Float64()*0.35)
+	p.values["exhale_total"] = float64(p.timers["exhale"])
+	p.values["exhale_seed"] = p.rng.Float64() * 1000
+	p.values["exhale_dir"] = 1
+	if p.rng.Float64() < 0.5 {
+		p.values["exhale_dir"] = -1
+	}
+	p.appendLog("exhale", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["exhale"], p.values["exhale_gain"]))
+}
+
+func (p *Procedural) startMysteriousManAshFallLocked(verb string) {
+	p.timers["ash-fall"] = jitterInt(p.rng, p.intCfg("ash_fall_dur"), 0.3)
+	p.values["ash_gain"] = p.cfg["ash_fall_mult"] * (0.8 + p.rng.Float64()*0.35)
+	p.values["ash_seed"] = p.rng.Float64() * 1000
+	p.values["ash_total"] = float64(p.timers["ash-fall"])
+	p.appendLog("ash-fall", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["ash-fall"], p.values["ash_gain"]))
+}
+
+func (p *Procedural) startMysteriousManLighterFlickLocked(verb string) {
+	p.timers["lighter-flick"] = jitterInt(p.rng, p.intCfg("lighter_flick_dur"), 0.3)
+	p.values["lighter_gain"] = p.cfg["lighter_flick_mult"] * (0.9 + p.rng.Float64()*0.4)
+	p.appendLog("lighter-flick", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["lighter-flick"], p.values["lighter_gain"]))
+}
+
+func (p *Procedural) startMysteriousManIntroLocked() {
+	p.timers["inhale"] = 0
+	p.timers["exhale"] = 0
+	p.timers["ash-fall"] = 0
+	p.timers["lighter-flick"] = 0
+	p.timers["ending"] = 0
+	p.values["inhale_gain"] = 1
+	p.values["exhale_gain"] = 1
+	p.values["exhale_total"] = 0
+	p.values["lighter_gain"] = 1
+	p.values["exhale_seed"] = 0
+	p.values["exhale_dir"] = 0
+	p.values["ash_gain"] = 1
+	p.values["ash_seed"] = 0
+	p.values["ash_total"] = 0
+	p.timers["intro"] = p.intCfg("intro_dur")
+	p.values["intro_total"] = float64(p.timers["intro"])
+}
+
+func (p *Procedural) startMysteriousManEndingLocked() {
+	p.timers["intro"] = 0
+	p.timers["inhale"] = 0
+	p.timers["exhale"] = 0
+	p.timers["ash-fall"] = 0
+	p.timers["lighter-flick"] = 0
+	p.values["inhale_gain"] = 1
+	p.values["exhale_gain"] = 1
+	p.values["exhale_total"] = 0
+	p.values["lighter_gain"] = 1
+	p.values["exhale_seed"] = 0
+	p.values["exhale_dir"] = 0
+	p.values["ash_gain"] = 1
+	p.values["ash_seed"] = 0
+	p.values["ash_total"] = 0
+	endingTotal := p.intCfg("ending_dur") + max(0, p.intCfg("ending_linger"))
+	if endingTotal < 1 {
+		endingTotal = max(1, p.intCfg("ending_dur"))
+	}
+	p.timers["ending"] = endingTotal
+	p.values["ending_total"] = float64(endingTotal)
+}
+
+func (p *Procedural) stepMysteriousManLocked() {
+	if p.timers["inhale"] <= 0 {
+		p.values["inhale_gain"] = 1
+	}
+	if p.timers["exhale"] <= 0 {
+		p.values["exhale_gain"] = 1
+		p.values["exhale_total"] = 0
+		p.values["exhale_seed"] = 0
+		p.values["exhale_dir"] = 0
+	}
+	if p.timers["ash-fall"] <= 0 {
+		p.values["ash_gain"] = 1
+		p.values["ash_seed"] = 0
+		p.values["ash_total"] = 0
+	}
+	if p.timers["lighter-flick"] <= 0 {
+		p.values["lighter_gain"] = 1
+	}
+	if p.timers["intro"] <= 0 {
+		delete(p.values, "intro_total")
+	}
+	if p.timers["ending"] <= 0 {
+		delete(p.values, "ending_total")
+	}
+	if p.timers["intro"] > 0 || p.timers["ending"] > 0 {
+		return
+	}
+	if p.timers["inhale"] <= 0 && p.timers["exhale"] <= 0 && p.cfg["inhale_p"] > 0 && p.rng.Float64() < p.cfg["inhale_p"] {
+		p.startMysteriousManInhaleLocked("started")
+		return
+	}
+	if p.timers["exhale"] <= 0 && p.timers["inhale"] <= 0 && p.cfg["exhale_p"] > 0 && p.rng.Float64() < p.cfg["exhale_p"] {
+		p.startMysteriousManExhaleLocked("started")
+		return
+	}
+	if p.timers["ash-fall"] <= 0 && p.cfg["ash_fall_p"] > 0 && p.rng.Float64() < p.cfg["ash_fall_p"] {
+		p.startMysteriousManAshFallLocked("started")
+	}
+	if p.timers["lighter-flick"] <= 0 && p.cfg["lighter_flick_p"] > 0 && p.rng.Float64() < p.cfg["lighter_flick_p"] {
+		p.startMysteriousManLighterFlickLocked("started")
 	}
 }

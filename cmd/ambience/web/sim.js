@@ -2065,6 +2065,39 @@
 			quiet_gap_dur: 90,
 			quiet_gap_mult: 0.45,
 		},
+		'mysterious-man': {
+			intro_dur: 55,
+			intro_reveal: 0.08,
+			ending_dur: 70,
+			ending_linger: 20,
+			ending_shadow: 0.08,
+			figure_x: 0.38,
+			figure_scale: 1,
+			lean: 0.08,
+			contrast: 0.24,
+			ember: 0.24,
+			hold_angle: 0.22,
+			smoke: 0.16,
+			rise_speed: 0.72,
+			drift: 0.08,
+			hue: 216,
+			hue_sp: 18,
+			sat: 0.18,
+			lmin: 0.04,
+			lmax: 0.88,
+			inhale_p: 0,
+			exhale_p: 0,
+			ash_fall_p: 0,
+			lighter_flick_p: 0,
+			inhale_dur: 34,
+			inhale_mult: 1.8,
+			exhale_dur: 46,
+			exhale_mult: 1.65,
+			ash_fall_dur: 24,
+			ash_fall_mult: 1.4,
+			lighter_flick_dur: 20,
+			lighter_flick_mult: 2.25,
+		},
 		starfield: {
 			intro_dur: 50,
 			intro_density: 0.08,
@@ -2377,6 +2410,33 @@
 				if (c.quiet_gap_dur <= 0) c.quiet_gap_dur = base.quiet_gap_dur;
 				if (c.quiet_gap_mult <= 0) c.quiet_gap_mult = base.quiet_gap_mult;
 				break;
+			case 'mysterious-man':
+				if (c.intro_dur <= 0) c.intro_dur = base.intro_dur;
+				c.intro_reveal = clamp01(c.intro_reveal);
+				if (c.ending_dur <= 0) c.ending_dur = base.ending_dur;
+				if (c.ending_linger < 0) c.ending_linger = 0;
+				c.ending_shadow = clamp01(c.ending_shadow);
+				if (c.figure_x <= 0) c.figure_x = base.figure_x;
+				if (c.figure_scale <= 0) c.figure_scale = base.figure_scale;
+				if (c.contrast <= 0) c.contrast = base.contrast;
+				if (c.ember <= 0) c.ember = base.ember;
+				if (c.smoke <= 0) c.smoke = base.smoke;
+				if (c.rise_speed <= 0) c.rise_speed = base.rise_speed;
+				if (c.hue <= 0) c.hue = base.hue;
+				if (c.hue_sp < 0) c.hue_sp = 0;
+				if (c.sat <= 0) c.sat = base.sat;
+				if (c.lmin <= 0) c.lmin = base.lmin;
+				if (c.lmax <= 0) c.lmax = base.lmax;
+				if (c.lmax < c.lmin) [c.lmin, c.lmax] = [c.lmax, c.lmin];
+				if (c.inhale_dur <= 0) c.inhale_dur = base.inhale_dur;
+				if (c.inhale_mult <= 0) c.inhale_mult = base.inhale_mult;
+				if (c.exhale_dur <= 0) c.exhale_dur = base.exhale_dur;
+				if (c.exhale_mult <= 0) c.exhale_mult = base.exhale_mult;
+				if (c.ash_fall_dur <= 0) c.ash_fall_dur = base.ash_fall_dur;
+				if (c.ash_fall_mult <= 0) c.ash_fall_mult = base.ash_fall_mult;
+				if (c.lighter_flick_dur <= 0) c.lighter_flick_dur = base.lighter_flick_dur;
+				if (c.lighter_flick_mult <= 0) c.lighter_flick_mult = base.lighter_flick_mult;
+				break;
 			case 'aurora':
 				if (c.intro_dur <= 0) c.intro_dur = base.intro_dur;
 				c.intro_glow = clamp01(c.intro_glow);
@@ -2530,6 +2590,8 @@
 					return this._triggerVolcano(name);
 				case 'train':
 					return this._triggerTrain(name);
+				case 'mysterious-man':
+					return this._triggerMysteriousMan(name);
 				case 'aurora':
 					return this._triggerAurora(name);
 				case 'starfield':
@@ -2630,6 +2692,23 @@
 					this.values.headlight_gain = 0;
 				}
 			}
+			if (this.kind === 'mysterious-man') {
+				if (!this.timers.inhale || this.timers.inhale <= 0) this.values.inhale_gain = 1;
+				if (!this.timers.exhale || this.timers.exhale <= 0) {
+					this.values.exhale_gain = 1;
+					this.values.exhale_total = 0;
+					this.values.exhale_seed = 0;
+					this.values.exhale_dir = 0;
+				}
+				if (!this.timers['ash-fall'] || this.timers['ash-fall'] <= 0) {
+					this.values.ash_gain = 1;
+					this.values.ash_seed = 0;
+					this.values.ash_total = 0;
+				}
+				if (!this.timers['lighter-flick'] || this.timers['lighter-flick'] <= 0) {
+					this.values.lighter_gain = 1;
+				}
+			}
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
@@ -2652,6 +2731,8 @@
 					return this._renderVolcano(ctx, canvasW, canvasH, opts);
 				case 'train':
 					return this._renderTrain(ctx, canvasW, canvasH, opts);
+				case 'mysterious-man':
+					return this._renderMysteriousMan(ctx, canvasW, canvasH, opts);
 				case 'aurora':
 					return this._renderAurora(ctx, canvasW, canvasH, opts);
 				case 'starfield':
@@ -3129,6 +3210,74 @@
 			return false;
 		}
 
+		_triggerMysteriousMan(name) {
+			const rng = this._eventRng(name.length + 121);
+			switch (name) {
+				case 'inhale':
+					this.timers.exhale = 0;
+					this.timers.inhale = jitterInt(rng, this.cfg.inhale_dur, 0.3);
+					this.values.inhale_gain = this.cfg.inhale_mult * (0.85 + rng() * 0.35);
+					this.values.exhale_gain = 1;
+					return true;
+				case 'exhale':
+					this.timers.inhale = 0;
+					this.timers.exhale = jitterInt(rng, this.cfg.exhale_dur, 0.3);
+					this.values.inhale_gain = 1;
+					this.values.exhale_gain = this.cfg.exhale_mult * (0.85 + rng() * 0.35);
+					this.values.exhale_total = this.timers.exhale;
+					this.values.exhale_seed = rng() * 1000;
+					this.values.exhale_dir = rng() < 0.5 ? -1 : 1;
+					return true;
+				case 'ash-fall':
+					this.timers['ash-fall'] = jitterInt(rng, this.cfg.ash_fall_dur, 0.3);
+					this.values.ash_gain = this.cfg.ash_fall_mult * (0.8 + rng() * 0.35);
+					this.values.ash_seed = rng() * 1000;
+					this.values.ash_total = this.timers['ash-fall'];
+					return true;
+				case 'lighter-flick':
+					this.timers['lighter-flick'] = jitterInt(rng, this.cfg.lighter_flick_dur, 0.3);
+					this.values.lighter_gain = this.cfg.lighter_flick_mult * (0.9 + rng() * 0.4);
+					return true;
+				case 'intro':
+					this.timers.inhale = 0;
+					this.timers.exhale = 0;
+					this.timers['ash-fall'] = 0;
+					this.timers['lighter-flick'] = 0;
+					this.timers.ending = 0;
+					this.values.inhale_gain = 1;
+					this.values.exhale_gain = 1;
+					this.values.exhale_total = 0;
+					this.values.lighter_gain = 1;
+					this.values.exhale_seed = 0;
+					this.values.exhale_dir = 0;
+					this.values.ash_gain = 1;
+					this.values.ash_seed = 0;
+					this.values.ash_total = 0;
+					this.timers.intro = Math.max(1, Math.round(this.cfg.intro_dur));
+					this.values.intro_total = this.timers.intro;
+					return true;
+				case 'ending':
+					this.timers.intro = 0;
+					this.timers.inhale = 0;
+					this.timers.exhale = 0;
+					this.timers['ash-fall'] = 0;
+					this.timers['lighter-flick'] = 0;
+					this.values.inhale_gain = 1;
+					this.values.exhale_gain = 1;
+					this.values.exhale_total = 0;
+					this.values.lighter_gain = 1;
+					this.values.exhale_seed = 0;
+					this.values.exhale_dir = 0;
+					this.values.ash_gain = 1;
+					this.values.ash_seed = 0;
+					this.values.ash_total = 0;
+					this.timers.ending = Math.max(1, Math.round(this.cfg.ending_dur + Math.max(0, this.cfg.ending_linger)));
+					this.values.ending_total = this.timers.ending;
+					return true;
+			}
+			return false;
+		}
+
 		_triggerAurora(name) {
 			const rng = this._eventRng(name.length + 53);
 			switch (name) {
@@ -3424,6 +3573,24 @@
 				level *= 1 - (1 - this.cfg.ending_clear) * progress;
 			}
 			return Math.max(0.04, level);
+		}
+
+		_sceneLevelMysteriousMan() {
+			let level = 1;
+			if (this.timers.inhale > 0) level *= this.values.inhale_gain || this.cfg.inhale_mult;
+			if (this.timers.exhale > 0) level *= 1 + Math.max(0, (this.values.exhale_gain || this.cfg.exhale_mult) - 1) * 0.3;
+			if (this.timers['lighter-flick'] > 0) level *= this.values.lighter_gain || this.cfg.lighter_flick_mult;
+			if (this.timers.intro > 0) {
+				const total = this.values.intro_total || this.cfg.intro_dur;
+				const progress = this._phaseProgress(total, this.timers.intro);
+				level *= this.cfg.intro_reveal + (1 - this.cfg.intro_reveal) * progress;
+			}
+			if (this.timers.ending > 0) {
+				const total = this.values.ending_total || (this.cfg.ending_dur + this.cfg.ending_linger);
+				const progress = this._phaseProgress(total, this.timers.ending);
+				level *= 1 - (1 - this.cfg.ending_shadow) * progress;
+			}
+			return Math.max(0.03, level);
 		}
 
 		_renderSnow(ctx, canvasW, canvasH, opts) {
@@ -4853,6 +5020,164 @@
 			}
 		}
 
+		_renderMysteriousMan(ctx, canvasW, canvasH, opts) {
+			opts = opts || {};
+			if (opts.transparent) {
+				ctx.clearRect(0, 0, canvasW, canvasH);
+			} else {
+				const skyTop = hslToRGB(this.cfg.hue, clamp01(this.cfg.sat * 0.55), clamp01(this.cfg.lmin * 0.55));
+				const skyMid = hslToRGB((this.cfg.hue + this.cfg.hue_sp * 0.25) % 360, clamp01(this.cfg.sat * 0.34), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.08));
+				const skyLow = hslToRGB((this.cfg.hue + this.cfg.hue_sp * 0.75) % 360, clamp01(this.cfg.sat * 0.22), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.14));
+				const bg = ctx.createLinearGradient(0, 0, 0, canvasH);
+				bg.addColorStop(0, `rgb(${skyTop.r},${skyTop.g},${skyTop.b})`);
+				bg.addColorStop(0.62, `rgb(${skyMid.r},${skyMid.g},${skyMid.b})`);
+				bg.addColorStop(1, `rgb(${skyLow.r},${skyLow.g},${skyLow.b})`);
+				ctx.fillStyle = bg;
+				ctx.fillRect(0, 0, canvasW, canvasH);
+			}
+
+			const sx = canvasW / this.w;
+			const sy = canvasH / this.h;
+			const ceilSx = Math.ceil(sx);
+			const ceilSy = Math.ceil(sy);
+			const floorRow = Math.max(10, Math.min(this.h - 6, Math.floor(this.h * 0.84)));
+			const sceneLevel = this._sceneLevelMysteriousMan();
+			const scale = Math.max(0.85, this.cfg.figure_scale) * 1.18;
+			const baseX = Math.round(this.w * this.cfg.figure_x);
+			const lean = this.cfg.lean * 6 * scale;
+			const headR = Math.max(2, Math.round(3 * scale));
+			const bodyH = Math.max(12, Math.round(18 * scale));
+			const shoulderW = Math.max(6, Math.round(10 * scale));
+			const shoulderY = floorRow - bodyH + Math.round(4 * scale);
+			const headCx = baseX + lean * 0.35;
+			const headCy = shoulderY - Math.round(2.2 * scale);
+			const mouthX = headCx + Math.round(1.2 * scale);
+			const mouthY = headCy + Math.round(0.8 * scale);
+			const hold = this.cfg.hold_angle;
+			const emberX = mouthX + Math.round(Math.cos(hold) * 1.5 * scale);
+			const emberY = mouthY - Math.round(Math.sin(hold) * 1.2 * scale);
+			const silhouetteColor = hslToRGB((this.cfg.hue + this.cfg.hue_sp * 0.1) % 360, clamp01(this.cfg.sat * 0.22), clamp01(this.cfg.lmin * 0.85));
+			const edgeColor = hslToRGB((this.cfg.hue + this.cfg.hue_sp * 0.2) % 360, clamp01(this.cfg.sat * 0.18), clamp01(this.cfg.lmin * 1.15));
+			const floorColor = hslToRGB((this.cfg.hue + 10) % 360, clamp01(this.cfg.sat * 0.14), clamp01(this.cfg.lmin * 1.2));
+			const contrastAlpha = clamp01((0.58 + this.cfg.contrast * 1.5) * sceneLevel);
+			const emberLevel = clamp01((this.cfg.ember + (this.timers.inhale > 0 ? Math.max(0, (this.values.inhale_gain || this.cfg.inhale_mult) - 1) * 0.18 : 0)) * sceneLevel);
+			const lighterGain = this.timers['lighter-flick'] > 0 ? (this.values.lighter_gain || this.cfg.lighter_flick_mult) : 1;
+
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, floorRow, this.w, this.h - floorRow, `rgb(${floorColor.r},${floorColor.g},${floorColor.b})`, 1);
+
+			const doorwayGlow = ctx.createRadialGradient((baseX - 2) * sx, (shoulderY + 2) * sy, 0, (baseX - 2) * sx, (shoulderY + 2) * sy, Math.max(24, 24 * sx));
+			doorwayGlow.addColorStop(0, `rgba(255, 176, 108, ${clamp01(0.1 + emberLevel * 0.14 + Math.max(0, lighterGain - 1) * 0.08)})`);
+			doorwayGlow.addColorStop(1, 'rgba(255, 176, 108, 0)');
+			ctx.fillStyle = doorwayGlow;
+			ctx.fillRect(Math.floor((baseX - 20) * sx), Math.floor((shoulderY - 16) * sy), Math.ceil(34 * sx), Math.ceil(34 * sy));
+
+			const doorwayRect = hslToRGB((this.cfg.hue + 8) % 360, clamp01(this.cfg.sat * 0.1), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.12));
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, baseX - 5, shoulderY - Math.round(5 * scale), 9, Math.round(12 * scale), `rgb(${doorwayRect.r},${doorwayRect.g},${doorwayRect.b})`, clamp01(0.18 * sceneLevel));
+
+			const wallLight = ctx.createLinearGradient(0, Math.floor((floorRow - 14) * sy), 0, Math.floor(floorRow * sy));
+			wallLight.addColorStop(0, 'rgba(255, 176, 108, 0)');
+			wallLight.addColorStop(1, `rgba(255, 176, 108, ${clamp01(0.03 + emberLevel * 0.06)})`);
+			ctx.fillStyle = wallLight;
+			ctx.fillRect(0, Math.floor((floorRow - 14) * sy), canvasW, Math.ceil(14 * sy));
+
+			ctx.fillStyle = `rgb(${silhouetteColor.r},${silhouetteColor.g},${silhouetteColor.b})`;
+			ctx.globalAlpha = contrastAlpha;
+			ctx.beginPath();
+			ctx.moveTo(Math.floor((baseX - shoulderW * 0.9) * sx), Math.floor(floorRow * sy));
+			ctx.lineTo(Math.floor((baseX - shoulderW * 0.85) * sx), Math.floor((shoulderY + 4 * scale) * sy));
+			ctx.lineTo(Math.floor((baseX - shoulderW * 0.6) * sx), Math.floor((shoulderY + 1) * sy));
+			ctx.lineTo(Math.floor((baseX - shoulderW * 0.15 + lean) * sx), Math.floor((shoulderY - 1) * sy));
+			ctx.lineTo(Math.floor((baseX + shoulderW * 0.42 + lean * 0.8) * sx), Math.floor((shoulderY + 2) * sy));
+			ctx.lineTo(Math.floor((baseX + shoulderW * 0.2) * sx), Math.floor(floorRow * sy));
+			ctx.closePath();
+			ctx.fill();
+			ctx.beginPath();
+			ctx.ellipse(headCx * sx, headCy * sy, Math.max(2, headR * sx), Math.max(2, (headR + 1) * sy), 0, 0, Math.PI * 2);
+			ctx.fill();
+			ctx.beginPath();
+			ctx.moveTo(Math.floor((baseX - shoulderW * 0.05 + lean * 0.35) * sx), Math.floor((shoulderY + 1) * sy));
+			ctx.lineTo(Math.floor((mouthX - 1.5 * scale) * sx), Math.floor((mouthY + 1.5 * scale) * sy));
+			ctx.lineWidth = Math.max(2, Math.round(2 * sx));
+			ctx.lineCap = 'round';
+			ctx.strokeStyle = `rgb(${silhouetteColor.r},${silhouetteColor.g},${silhouetteColor.b})`;
+			ctx.stroke();
+			ctx.lineCap = 'butt';
+			ctx.lineWidth = 1;
+			ctx.globalAlpha = 1;
+
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, baseX - 1, floorRow - 1, 2, 1, `rgb(${edgeColor.r},${edgeColor.g},${edgeColor.b})`, contrastAlpha * 0.55);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, baseX - Math.round(shoulderW * 0.55), shoulderY + Math.round(1 * scale), Math.max(2, Math.round(2 * scale)), 1, `rgb(${edgeColor.r},${edgeColor.g},${edgeColor.b})`, contrastAlpha * 0.35);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, Math.round(headCx - headR * 0.4), Math.round(headCy - headR * 0.1), Math.max(1, Math.round(headR * 0.7)), Math.max(1, Math.round(headR * 1.5)), `rgb(${edgeColor.r},${edgeColor.g},${edgeColor.b})`, contrastAlpha * 0.28);
+
+			const emberColor = hslToRGB(18, 0.88, clamp01(this.cfg.lmax));
+			const emberCore = hslToRGB(36, 0.8, clamp01(this.cfg.lmax * 0.96));
+			const emberGlow = ctx.createRadialGradient(emberX * sx, emberY * sy, 0, emberX * sx, emberY * sy, Math.max(10, 6 * sx));
+			emberGlow.addColorStop(0, `rgba(255, 196, 110, ${clamp01(0.18 + emberLevel * 0.34 + Math.max(0, lighterGain - 1) * 0.08)})`);
+			emberGlow.addColorStop(1, 'rgba(255, 196, 110, 0)');
+			ctx.fillStyle = emberGlow;
+			ctx.fillRect(Math.floor((emberX - 4) * sx), Math.floor((emberY - 4) * sy), Math.ceil(8 * sx), Math.ceil(8 * sy));
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, emberX, emberY, 1, 1, `rgb(${emberColor.r},${emberColor.g},${emberColor.b})`, clamp01(0.72 + emberLevel * 0.5));
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, emberX, emberY, 1, 1, `rgb(${emberCore.r},${emberCore.g},${emberCore.b})`, clamp01(0.35 + emberLevel * 0.25));
+
+			if (this.timers['lighter-flick'] > 0) {
+				const flash = ctx.createRadialGradient((mouthX - 2) * sx, (mouthY + 1) * sy, 0, (mouthX - 2) * sx, (mouthY + 1) * sy, Math.max(16, 10 * sx));
+				flash.addColorStop(0, `rgba(255, 178, 96, ${clamp01(0.16 + Math.max(0, lighterGain - 1) * 0.16)})`);
+				flash.addColorStop(1, 'rgba(255, 178, 96, 0)');
+				ctx.fillStyle = flash;
+				ctx.fillRect(Math.floor((mouthX - 10) * sx), Math.floor((mouthY - 7) * sy), Math.ceil(20 * sx), Math.ceil(14 * sy));
+			}
+
+			const smokeTint = hslToRGB((this.cfg.hue + this.cfg.hue_sp * 0.45) % 360, clamp01(this.cfg.sat * 0.16), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.48));
+			const smokeCount = Math.max(6, Math.round((4 + this.cfg.smoke * 18) * Math.max(0.45, sceneLevel)));
+			const inhaleClamp = this.timers.inhale > 0 ? 0.7 : 1;
+			for (let i = 0; i < smokeCount; i++) {
+				const life = 28 + Math.floor(this._hash(34500 + i) * 30);
+				const age = positiveMod(this.tick + i * 9, life);
+				const t = age / Math.max(1, life - 1);
+				const lift = t * (4 + this.cfg.rise_speed * 10) * inhaleClamp;
+				const drift = (this.cfg.drift * 7 + (this._hash(34600 + i) * 2 - 1) * 2.2) * t;
+				const wobble = Math.sin(this.tick * 0.03 + i) * (0.6 + t * 1.6);
+				const x = Math.round(emberX + drift + wobble);
+				const y = Math.round(emberY - lift);
+				const width = 1 + Math.floor(this._hash(34700 + i) * (1 + t * 3));
+				const alpha = clamp01((0.07 + this.cfg.smoke * 0.2) * (1 - t) * sceneLevel * inhaleClamp);
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, width, 1 + (t > 0.45 ? 1 : 0), `rgb(${smokeTint.r},${smokeTint.g},${smokeTint.b})`, alpha);
+			}
+
+			if (this.timers.exhale > 0) {
+				const total = Math.max(1, this.values.exhale_total || this.cfg.exhale_dur);
+				const progress = 1 - this.timers.exhale / total;
+				const plumeGain = this.values.exhale_gain || this.cfg.exhale_mult;
+				const dir = this.values.exhale_dir || (this.cfg.drift >= 0 ? 1 : -1);
+				const seed = Math.floor((this.values.exhale_seed || 0) * 10);
+				const plumeGlow = ctx.createRadialGradient((emberX + dir * 6) * sx, (emberY - 1) * sy, 0, (emberX + dir * 6) * sx, (emberY - 1) * sy, Math.max(14, 9 * sx));
+				plumeGlow.addColorStop(0, `rgba(${smokeTint.r},${smokeTint.g},${smokeTint.b}, ${clamp01(0.06 + plumeGain * 0.04)})`);
+				plumeGlow.addColorStop(1, `rgba(${smokeTint.r},${smokeTint.g},${smokeTint.b}, 0)`);
+				ctx.fillStyle = plumeGlow;
+				ctx.fillRect(Math.floor((emberX - 3) * sx), Math.floor((emberY - 8) * sy), Math.ceil(18 * sx), Math.ceil(14 * sy));
+				for (let i = 0; i < 18; i++) {
+					const launch = this._hash(34800 + seed + i) * 0.2;
+					const t = clamp01((progress - launch) / (0.55 + this._hash(34900 + seed + i) * 0.2));
+					if (t <= 0 || t >= 1) continue;
+					const x = emberX + dir * t * (6 + plumeGain * 6) + Math.sin(i + t * Math.PI * 2) * (1.5 + t * 2.5);
+					const y = emberY - t * (1.5 + this.cfg.rise_speed * 3.4) + Math.sin(i * 0.8 + t * 6) * 0.8;
+					const alpha = clamp01((1 - t) * (0.2 + this.cfg.smoke * 0.24) * plumeGain);
+					const size = 1 + Math.floor(this._hash(35000 + seed + i) * (2 + t * 4));
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, Math.round(x), Math.round(y), size, 1 + (t > 0.4 ? 1 : 0), `rgb(${smokeTint.r},${smokeTint.g},${smokeTint.b})`, alpha);
+				}
+			}
+
+			if (this.timers['ash-fall'] > 0) {
+				const total = Math.max(1, this.values.ash_total || this.cfg.ash_fall_dur);
+				const progress = 1 - this.timers['ash-fall'] / total;
+				const ashGain = this.values.ash_gain || this.cfg.ash_fall_mult;
+				const wobble = Math.sin(progress * Math.PI * 4 + (this.values.ash_seed || 0)) * 0.8;
+				const x = Math.round(emberX + wobble);
+				const y = Math.round(emberY + progress * (4 + ashGain * 7));
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, 1, 1, `rgb(${emberColor.r},${emberColor.g},${emberColor.b})`, clamp01((1 - progress) * 0.8));
+			}
+		}
+
 		_renderAurora(ctx, canvasW, canvasH, opts) {
 			opts = opts || {};
 			if (opts.transparent) {
@@ -5035,6 +5360,12 @@
 		}
 	}
 
+	class MysteriousMan extends ProceduralScene {
+		constructor(w, h, cfg, seed) {
+			super('mysterious-man', w, h, cfg, seed);
+		}
+	}
+
 	class Aurora extends ProceduralScene {
 		constructor(w, h, cfg, seed) {
 			super('aurora', w, h, cfg, seed);
@@ -5093,7 +5424,7 @@
 	// server's snapshot payload — the client looks up the constructor here
 	// by name so new effects just register themselves and work without
 	// client-side changes.
-	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, beach: Beach, campfire: Campfire, windmill: Windmill, lighthouse: Lighthouse, rowboat: Rowboat, underwater: Underwater, volcano: Volcano, train: Train, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield };
+	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, beach: Beach, campfire: Campfire, windmill: Windmill, lighthouse: Lighthouse, rowboat: Rowboat, underwater: Underwater, volcano: Volcano, train: Train, 'mysterious-man': MysteriousMan, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield };
 	const presets = {
 		'wheat-field': [
 			{
@@ -5869,6 +6200,103 @@
 				},
 			},
 		],
+		'mysterious-man': [
+			{
+				key: 'noir-stillness',
+				label: 'noir stillness',
+				config: {
+					intro_reveal: 0.06,
+					ending_shadow: 0.12,
+					figure_x: 0.39,
+					figure_scale: 1,
+					lean: 0.06,
+					contrast: 0.2,
+					ember: 0.18,
+					hold_angle: 0.18,
+					smoke: 0.1,
+					rise_speed: 0.6,
+					drift: 0.04,
+					hue: 222,
+					hue_sp: 12,
+					sat: 0.14,
+					lmin: 0.03,
+					lmax: 0.76,
+				},
+			},
+			{
+				key: 'deep-inhale',
+				label: 'deep inhale',
+				config: {
+					intro_reveal: 0.08,
+					ending_shadow: 0.08,
+					figure_x: 0.38,
+					figure_scale: 1.05,
+					lean: 0.1,
+					contrast: 0.26,
+					ember: 0.26,
+					hold_angle: 0.24,
+					smoke: 0.14,
+					rise_speed: 0.68,
+					drift: 0.06,
+					hue: 216,
+					hue_sp: 16,
+					sat: 0.18,
+					lmin: 0.04,
+					lmax: 0.84,
+					inhale_p: 0.0016,
+					exhale_p: 0.0012,
+				},
+			},
+			{
+				key: 'cold-alley',
+				label: 'cold alley',
+				config: {
+					intro_reveal: 0.07,
+					ending_shadow: 0.1,
+					figure_x: 0.36,
+					figure_scale: 0.95,
+					lean: 0.04,
+					contrast: 0.3,
+					ember: 0.2,
+					hold_angle: 0.14,
+					smoke: 0.2,
+					rise_speed: 0.82,
+					drift: 0.18,
+					hue: 204,
+					hue_sp: 20,
+					sat: 0.16,
+					lmin: 0.03,
+					lmax: 0.8,
+					exhale_p: 0.0015,
+					ash_fall_p: 0.0009,
+				},
+			},
+			{
+				key: 'ember-watch',
+				label: 'ember watch',
+				config: {
+					intro_reveal: 0.1,
+					ending_shadow: 0.06,
+					figure_x: 0.4,
+					figure_scale: 1.1,
+					lean: 0.12,
+					contrast: 0.34,
+					ember: 0.32,
+					hold_angle: 0.28,
+					smoke: 0.18,
+					rise_speed: 0.76,
+					drift: 0.08,
+					hue: 214,
+					hue_sp: 22,
+					sat: 0.22,
+					lmin: 0.04,
+					lmax: 0.9,
+					inhale_p: 0.0011,
+					lighter_flick_p: 0.001,
+					lighter_flick_mult: 2.5,
+				},
+			},
+		],
 		aurora: [
 			{
 				key: 'green-veil',
@@ -6380,5 +6808,5 @@
 		],
 	};
 
-	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Volcano, Train, Aurora, AutumnLeaves, Snow, Starfield, subscribe, applyDefaults, hslToRGB, effects, presets };
+	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Volcano, Train, MysteriousMan, Aurora, AutumnLeaves, Snow, Starfield, subscribe, applyDefaults, hslToRGB, effects, presets };
 })(window);

@@ -132,6 +132,16 @@ func TestTrainSchema(t *testing.T) {
 	}
 }
 
+func TestMysteriousManSchema(t *testing.T) {
+	schema := MysteriousManSchema()
+	if schema.Name != "mysterious-man" {
+		t.Fatalf("schema name = %q, want mysterious-man", schema.Name)
+	}
+	if len(schema.Knobs) == 0 {
+		t.Fatal("expected mysterious-man schema knobs")
+	}
+}
+
 func TestProceduralSnowSnapshotRestore(t *testing.T) {
 	p := NewProcedural("snow", 160, 80, 42, nil)
 	if !p.TriggerEvent("gust") {
@@ -557,5 +567,49 @@ func TestProceduralTrainSnapshotRestore(t *testing.T) {
 	}
 	if again.Values["train_cars"] != snap.Values["train_cars"] {
 		t.Fatalf("restored train cars = %f, want %f", again.Values["train_cars"], snap.Values["train_cars"])
+	}
+}
+
+func TestProceduralMysteriousManSnapshotRestore(t *testing.T) {
+	p := NewProcedural("mysterious-man", 160, 80, 41, nil)
+	if !p.TriggerEvent("exhale") {
+		t.Fatal("expected exhale trigger to succeed")
+	}
+	if !p.TriggerEvent("lighter-flick") {
+		t.Fatal("expected lighter-flick trigger to succeed")
+	}
+	p.Step()
+
+	snap := p.Snapshot()
+	if snap.Timers["exhale"] <= 0 {
+		t.Fatal("expected exhale timer in snapshot")
+	}
+	if snap.Timers["lighter-flick"] <= 0 {
+		t.Fatal("expected lighter-flick timer in snapshot")
+	}
+	if snap.Values["exhale_gain"] <= 1 {
+		t.Fatal("expected exhale gain value in snapshot")
+	}
+	if snap.Values["exhale_seed"] == 0 {
+		t.Fatal("expected exhale seed in snapshot")
+	}
+	if snap.Values["lighter_gain"] <= 1 {
+		t.Fatal("expected lighter gain value in snapshot")
+	}
+
+	restored := NewProcedural("mysterious-man", 160, 80, 7, nil)
+	restored.RestoreSnapshot(snap)
+	again := restored.Snapshot()
+	if again.Timers["exhale"] != snap.Timers["exhale"] {
+		t.Fatalf("restored exhale timer = %d, want %d", again.Timers["exhale"], snap.Timers["exhale"])
+	}
+	if again.Values["exhale_gain"] != snap.Values["exhale_gain"] {
+		t.Fatalf("restored exhale gain = %f, want %f", again.Values["exhale_gain"], snap.Values["exhale_gain"])
+	}
+	if again.Values["exhale_seed"] != snap.Values["exhale_seed"] {
+		t.Fatalf("restored exhale seed = %f, want %f", again.Values["exhale_seed"], snap.Values["exhale_seed"])
+	}
+	if again.Values["lighter_gain"] != snap.Values["lighter_gain"] {
+		t.Fatalf("restored lighter gain = %f, want %f", again.Values["lighter_gain"], snap.Values["lighter_gain"])
 	}
 }
