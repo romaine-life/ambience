@@ -2157,6 +2157,36 @@
 			calm_dur: 60,
 			calm_mult: 0.42,
 		},
+		'water-pipe': {
+			intro_dur: 55,
+			intro_flow: 0.10,
+			intro_pool: 0.08,
+			ending_dur: 70,
+			ending_linger: 22,
+			ending_ripple: 0.08,
+			pipe_x: 0.22,
+			pipe_width: 7,
+			pipe_drop: 17,
+			basin_x: 0.40,
+			basin_width: 30,
+			basin_depth: 9,
+			flow: 0.24,
+			stream: 1.05,
+			ripple: 0.38,
+			overflow: 0.30,
+			foam: 0.22,
+			hue: 196,
+			hue_sp: 18,
+			sat: 0.56,
+			lmin: 0.12,
+			lmax: 0.92,
+			surge_p: 0,
+			dry_up_p: 0,
+			surge_dur: 36,
+			surge_mult: 1.90,
+			dry_up_dur: 50,
+			dry_up_mult: 0.35,
+		},
 		starfield: {
 			intro_dur: 50,
 			intro_density: 0.08,
@@ -2552,6 +2582,35 @@
 				if (c.calm_dur <= 0) c.calm_dur = base.calm_dur;
 				if (c.calm_mult <= 0) c.calm_mult = base.calm_mult;
 				break;
+			case 'water-pipe':
+				if (c.intro_dur <= 0) c.intro_dur = base.intro_dur;
+				c.intro_flow = clamp01(c.intro_flow);
+				c.intro_pool = clamp01(c.intro_pool);
+				if (c.ending_dur <= 0) c.ending_dur = base.ending_dur;
+				if (c.ending_linger < 0) c.ending_linger = 0;
+				c.ending_ripple = clamp01(c.ending_ripple);
+				if (c.pipe_x <= 0) c.pipe_x = base.pipe_x;
+				if (c.pipe_width <= 0) c.pipe_width = base.pipe_width;
+				if (c.pipe_drop <= 0) c.pipe_drop = base.pipe_drop;
+				if (c.basin_x <= 0) c.basin_x = base.basin_x;
+				if (c.basin_width <= 0) c.basin_width = base.basin_width;
+				if (c.basin_depth <= 0) c.basin_depth = base.basin_depth;
+				if (c.flow <= 0) c.flow = base.flow;
+				if (c.stream <= 0) c.stream = base.stream;
+				if (c.ripple <= 0) c.ripple = base.ripple;
+				if (c.overflow <= 0) c.overflow = base.overflow;
+				if (c.foam <= 0) c.foam = base.foam;
+				if (c.hue <= 0) c.hue = base.hue;
+				if (c.hue_sp < 0) c.hue_sp = 0;
+				if (c.sat <= 0) c.sat = base.sat;
+				if (c.lmin <= 0) c.lmin = base.lmin;
+				if (c.lmax <= 0) c.lmax = base.lmax;
+				if (c.lmax < c.lmin) [c.lmin, c.lmax] = [c.lmax, c.lmin];
+				if (c.surge_dur <= 0) c.surge_dur = base.surge_dur;
+				if (c.surge_mult <= 0) c.surge_mult = base.surge_mult;
+				if (c.dry_up_dur <= 0) c.dry_up_dur = base.dry_up_dur;
+				if (c.dry_up_mult <= 0) c.dry_up_mult = base.dry_up_mult;
+				break;
 			case 'aurora':
 				if (c.intro_dur <= 0) c.intro_dur = base.intro_dur;
 				c.intro_glow = clamp01(c.intro_glow);
@@ -2711,6 +2770,8 @@
 					return this._triggerBurningTrees(name);
 				case 'sand':
 					return this._triggerSand(name);
+				case 'water-pipe':
+					return this._triggerWaterPipe(name);
 				case 'aurora':
 					return this._triggerAurora(name);
 				case 'starfield':
@@ -2865,6 +2926,13 @@
 				if (!this.timers.intro || this.timers.intro <= 0) delete this.values.intro_total;
 				if (!this.timers.ending || this.timers.ending <= 0) delete this.values.ending_total;
 			}
+			if (this.kind === 'water-pipe') {
+				this._stepWaterPipeState();
+				if (!this.timers.surge || this.timers.surge <= 0) this.values.surge_gain = 1;
+				if (!this.timers['dry-up'] || this.timers['dry-up'] <= 0) this.values.dry_up_gain = 1;
+				if (!this.timers.intro || this.timers.intro <= 0) delete this.values.intro_total;
+				if (!this.timers.ending || this.timers.ending <= 0) delete this.values.ending_total;
+			}
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
@@ -2893,6 +2961,8 @@
 					return this._renderBurningTrees(ctx, canvasW, canvasH, opts);
 				case 'sand':
 					return this._renderSand(ctx, canvasW, canvasH, opts);
+				case 'water-pipe':
+					return this._renderWaterPipe(ctx, canvasW, canvasH, opts);
 				case 'aurora':
 					return this._renderAurora(ctx, canvasW, canvasH, opts);
 				case 'starfield':
@@ -3545,6 +3615,47 @@
 			return false;
 		}
 
+		_triggerWaterPipe(name) {
+			const rng = this._eventRng(name.length + 157);
+			switch (name) {
+				case 'surge':
+					this.timers['dry-up'] = 0;
+					this.timers.surge = jitterInt(rng, this.cfg.surge_dur, 0.3);
+					this.values.dry_up_gain = 1;
+					this.values.surge_gain = this.cfg.surge_mult * (0.9 + rng() * 0.35);
+					return true;
+				case 'dry-up':
+					this.timers.surge = 0;
+					this.timers['dry-up'] = jitterInt(rng, this.cfg.dry_up_dur, 0.3);
+					this.values.surge_gain = 1;
+					this.values.dry_up_gain = Math.max(0.08, this.cfg.dry_up_mult * (0.85 + rng() * 0.25));
+					return true;
+				case 'intro':
+					this.timers.surge = 0;
+					this.timers['dry-up'] = 0;
+					this.timers.ending = 0;
+					this.values.surge_gain = 1;
+					this.values.dry_up_gain = 1;
+					this.values.fill_level = clamp01(this.cfg.intro_pool);
+					this.values.spill_level = 0;
+					this.values.surface_bias = 0;
+					this.values.ripple_phase = 0;
+					this.timers.intro = Math.max(1, Math.round(this.cfg.intro_dur));
+					this.values.intro_total = this.timers.intro;
+					return true;
+				case 'ending':
+					this.timers.intro = 0;
+					this.timers.surge = 0;
+					this.timers['dry-up'] = 0;
+					this.values.surge_gain = 1;
+					this.values.dry_up_gain = 1;
+					this.timers.ending = Math.max(1, Math.round(this.cfg.ending_dur + Math.max(0, this.cfg.ending_linger)));
+					this.values.ending_total = this.timers.ending;
+					return true;
+			}
+			return false;
+		}
+
 		_triggerAurora(name) {
 			const rng = this._eventRng(name.length + 53);
 			switch (name) {
@@ -3961,6 +4072,60 @@
 			this.values.fill_level = clamp01(fill);
 			this.values.spill_level = clamp01(spill);
 			this.values.surface_bias = bias;
+		}
+
+		_waterPipeFlowLevel() {
+			let flow = Math.max(0, this.cfg.flow);
+			if (this.timers.intro > 0) {
+				const total = this.values.intro_total || this.cfg.intro_dur;
+				const progress = this._phaseProgress(total, this.timers.intro);
+				flow = this.cfg.intro_flow + (flow - this.cfg.intro_flow) * progress;
+			}
+			if (this.timers.ending > 0) {
+				const total = this.values.ending_total || (this.cfg.ending_dur + this.cfg.ending_linger);
+				const progress = this._phaseProgress(total, this.timers.ending);
+				flow *= Math.max(0, 1 - progress);
+			}
+			if (this.timers.surge > 0) flow *= this.values.surge_gain || this.cfg.surge_mult;
+			if (this.timers['dry-up'] > 0) flow *= this.values.dry_up_gain || this.cfg.dry_up_mult;
+			return Math.max(0, flow);
+		}
+
+		_stepWaterPipeState() {
+			const flow = this._waterPipeFlowLevel();
+			let fill = clamp01(this.values.fill_level || 0);
+			let spill = clamp01(this.values.spill_level || 0);
+			let bias = this.values.surface_bias || 0;
+			let ripplePhase = this.values.ripple_phase || 0;
+
+			const incoming = flow * (0.016 + this.cfg.stream * 0.010);
+			fill += incoming * (0.72 + this.cfg.ripple * 0.2);
+			if (fill > 1) {
+				spill += (fill - 1) * (0.7 + this.cfg.overflow * 0.45);
+				fill = 1;
+			}
+			if (fill > 0.9) {
+				spill += (fill - 0.9) * incoming * (0.3 + this.cfg.overflow * 0.9);
+			}
+			spill -= (0.002 + this.cfg.overflow * 0.006) * Math.max(0.1, 1 - flow * 0.9);
+			if (this.timers.ending > 0) {
+				const total = this.values.ending_total || (this.cfg.ending_dur + this.cfg.ending_linger);
+				const progress = this._phaseProgress(total, this.timers.ending);
+				spill += this.cfg.ending_ripple * 0.004 * (1 - progress);
+			}
+
+			let targetBias = (this.cfg.pipe_x - this.cfg.basin_x) / 0.24;
+			targetBias = Math.max(-1, Math.min(1, targetBias));
+			bias += (targetBias - bias) * (0.03 + flow * 0.05 + this.cfg.ripple * 0.03);
+			bias = Math.max(-1, Math.min(1, bias));
+
+			ripplePhase += 0.12 + flow * (0.8 + this.cfg.stream * 0.4) + spill * 0.4;
+			if (ripplePhase > Math.PI * 200) ripplePhase = positiveMod(ripplePhase, Math.PI * 2);
+
+			this.values.fill_level = clamp01(fill);
+			this.values.spill_level = clamp01(spill);
+			this.values.surface_bias = bias;
+			this.values.ripple_phase = ripplePhase;
 		}
 
 		_renderSnow(ctx, canvasW, canvasH, opts) {
@@ -5898,6 +6063,174 @@
 			}
 		}
 
+		_renderWaterPipe(ctx, canvasW, canvasH, opts) {
+			opts = opts || {};
+			if (opts.transparent) {
+				ctx.clearRect(0, 0, canvasW, canvasH);
+			} else {
+				const skyTop = hslToRGB((this.cfg.hue - 24 + 360) % 360, clamp01(this.cfg.sat * 0.28), clamp01(this.cfg.lmin * 0.42));
+				const skyMid = hslToRGB((this.cfg.hue - 10 + 360) % 360, clamp01(this.cfg.sat * 0.2), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.08));
+				const skyLow = hslToRGB(this.cfg.hue % 360, clamp01(this.cfg.sat * 0.24), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.18));
+				const bg = ctx.createLinearGradient(0, 0, 0, canvasH);
+				bg.addColorStop(0, `rgb(${skyTop.r},${skyTop.g},${skyTop.b})`);
+				bg.addColorStop(0.65, `rgb(${skyMid.r},${skyMid.g},${skyMid.b})`);
+				bg.addColorStop(1, `rgb(${skyLow.r},${skyLow.g},${skyLow.b})`);
+				ctx.fillStyle = bg;
+				ctx.fillRect(0, 0, canvasW, canvasH);
+			}
+
+			const sx = canvasW / this.w;
+			const sy = canvasH / this.h;
+			const ceilSx = Math.ceil(sx);
+			const ceilSy = Math.ceil(sy);
+			const floorRow = Math.max(10, Math.min(this.h - 5, Math.floor(this.h * 0.82)));
+			const pipeX = Math.round(this.w * this.cfg.pipe_x);
+			const pipeW = Math.max(4, Math.round(this.cfg.pipe_width));
+			const outletY = Math.max(4, floorRow - Math.round(this.cfg.pipe_drop));
+			let basinCenter = Math.round(this.w * this.cfg.basin_x);
+			const maxPipeGap = Math.round(this.w * 0.22);
+			if (Math.abs(basinCenter - pipeX) > maxPipeGap) {
+				basinCenter = pipeX + (basinCenter >= pipeX ? maxPipeGap : -maxPipeGap);
+			}
+			const basinW = Math.max(18, Math.round(this.cfg.basin_width));
+			const basinD = Math.max(6, Math.round(this.cfg.basin_depth));
+			const sceneRightLimit = Math.max(basinW + 8, Math.floor(this.w * 0.74));
+			const left = Math.max(4, Math.min(Math.min(this.w - basinW - 4, sceneRightLimit - basinW), basinCenter - Math.floor(basinW / 2)));
+			const right = left + basinW - 1;
+			const basinFloor = floorRow - 1;
+			const basinTop = basinFloor - basinD;
+			const fill = clamp01(this.values.fill_level || 0);
+			const spill = clamp01(this.values.spill_level || 0);
+			const surfaceBias = Math.max(-1, Math.min(1, this.values.surface_bias || 0));
+			const ripplePhase = this.values.ripple_phase || 0;
+			const flow = this._waterPipeFlowLevel();
+			const motion = clamp01(flow * 2.2 + spill * 1.1 + (this.timers.surge > 0 ? 0.18 : 0));
+			const wallColor = hslToRGB((this.cfg.hue + 22) % 360, clamp01(this.cfg.sat * 0.1), clamp01(this.cfg.lmin * 0.62));
+			const floorColor = hslToRGB((this.cfg.hue + 10) % 360, clamp01(this.cfg.sat * 0.16), clamp01(this.cfg.lmin * 0.78));
+			const seamColor = hslToRGB((this.cfg.hue + 8) % 360, clamp01(this.cfg.sat * 0.08), clamp01(this.cfg.lmin * 1.12));
+			const pipeColor = hslToRGB((this.cfg.hue + 16) % 360, clamp01(this.cfg.sat * 0.08), clamp01(this.cfg.lmin * 0.96));
+			const pipeEdge = hslToRGB((this.cfg.hue + 24) % 360, clamp01(this.cfg.sat * 0.06), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.38));
+			const basinColor = hslToRGB((this.cfg.hue + 14) % 360, clamp01(this.cfg.sat * 0.1), clamp01(this.cfg.lmin * 0.86));
+			const basinInterior = hslToRGB((this.cfg.hue + 8) % 360, clamp01(this.cfg.sat * 0.08), clamp01(this.cfg.lmin * 0.54));
+			const rimColor = hslToRGB((this.cfg.hue + 28) % 360, clamp01(this.cfg.sat * 0.08), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.42));
+			const waterDeep = hslToRGB((this.cfg.hue - this.cfg.hue_sp * 0.35 + 360) % 360, clamp01(this.cfg.sat * 0.84), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.18));
+			const waterMid = hslToRGB(this.cfg.hue % 360, clamp01(this.cfg.sat * 0.78), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.42));
+			const waterHi = hslToRGB((this.cfg.hue + this.cfg.hue_sp * 0.24) % 360, clamp01(this.cfg.sat * 0.62), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.74));
+			const foamColor = hslToRGB((this.cfg.hue + this.cfg.hue_sp * 0.5) % 360, clamp01(this.cfg.sat * 0.18), clamp01(Math.min(1, this.cfg.lmax * 0.99)));
+
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, 0, this.w, floorRow, `rgb(${wallColor.r},${wallColor.g},${wallColor.b})`, 0.18);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, floorRow, this.w, this.h - floorRow, `rgb(${floorColor.r},${floorColor.g},${floorColor.b})`, 1);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, floorRow, this.w, 1, `rgb(${seamColor.r},${seamColor.g},${seamColor.b})`, 0.42);
+
+			const glow = ctx.createRadialGradient(pipeX * sx, outletY * sy, 0, pipeX * sx, outletY * sy, Math.max(22, 16 * sx));
+			glow.addColorStop(0, `rgba(${waterHi.r},${waterHi.g},${waterHi.b}, ${clamp01(0.12 + motion * 0.14)})`);
+			glow.addColorStop(1, `rgba(${waterHi.r},${waterHi.g},${waterHi.b}, 0)`);
+			ctx.fillStyle = glow;
+			ctx.fillRect(Math.floor((pipeX - 10) * sx), Math.floor((outletY - 7) * sy), Math.ceil(20 * sx), Math.ceil(15 * sy));
+
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, pipeX - pipeW - 3, outletY - 3, pipeW + 3, 4, `rgb(${pipeColor.r},${pipeColor.g},${pipeColor.b})`, 1);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, pipeX - 2, outletY - 3, 3, 5, `rgb(${pipeColor.r},${pipeColor.g},${pipeColor.b})`, 1);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, pipeX - pipeW - 2, outletY - 2, pipeW + 1, 1, `rgb(${pipeEdge.r},${pipeEdge.g},${pipeEdge.b})`, 0.72);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, pipeX - 1, outletY - 2, 1, 4, `rgb(${pipeEdge.r},${pipeEdge.g},${pipeEdge.b})`, 0.72);
+
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, left, basinTop + 1, basinW, basinD, `rgb(${basinInterior.r},${basinInterior.g},${basinInterior.b})`, 0.5);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, left - 1, basinTop, 2, basinD + 2, `rgb(${basinColor.r},${basinColor.g},${basinColor.b})`, 1);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, right, basinTop, 2, basinD + 2, `rgb(${basinColor.r},${basinColor.g},${basinColor.b})`, 1);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, left - 1, basinFloor, basinW + 2, 2, `rgb(${basinColor.r},${basinColor.g},${basinColor.b})`, 1);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, left - 1, basinTop, basinW + 2, 1, `rgb(${rimColor.r},${rimColor.g},${rimColor.b})`, 0.8);
+
+			const surfaceRows = [];
+			const peak = 0.5 + surfaceBias * 0.18;
+			const rippleAmp = (0.15 + motion * 0.45 + this.cfg.ripple * 0.3) * Math.max(0.2, fill);
+			for (let x = left + 1; x < right; x++) {
+				const nx = (x - (left + 1)) / Math.max(1, basinW - 3);
+				const bowl = clamp01(1 - Math.abs((nx - peak) / 0.58));
+				const wave = Math.sin(ripplePhase + nx * Math.PI * (2.8 + this.cfg.ripple * 1.1)) * rippleAmp;
+				const localFill = fill * (0.88 + bowl * 0.16);
+				const height = Math.max(0, Math.round(localFill * (basinD - 1) + wave));
+				const surfaceY = basinFloor - height;
+				surfaceRows.push(surfaceY);
+				for (let y = surfaceY; y < basinFloor; y++) {
+					const depth = (y - surfaceY) / Math.max(1, basinFloor - surfaceY);
+					const color = depth < 0.18 ? waterHi : (depth < 0.48 ? waterMid : waterDeep);
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, 1, 1, `rgb(${color.r},${color.g},${color.b})`, 0.94);
+				}
+				if (height > 0) {
+					const shimmer = Math.max(0, Math.sin(ripplePhase * 0.7 + nx * Math.PI * 4.5));
+					const alpha = clamp01(0.12 + this.cfg.foam * 0.16 + shimmer * 0.12);
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, surfaceY, 1, 1, `rgb(${foamColor.r},${foamColor.g},${foamColor.b})`, alpha);
+				}
+			}
+
+			const impactX = Math.max(left + 2, Math.min(right - 2, pipeX + Math.round(surfaceBias * basinW * 0.18)));
+			const impactIdx = Math.max(0, Math.min(surfaceRows.length - 1, impactX - (left + 1)));
+			const impactY = surfaceRows[impactIdx] || basinFloor - 1;
+
+			if (spill > 0.01) {
+				const dir = surfaceBias < 0 ? -1 : 1;
+				const spillLen = Math.max(4, Math.round(spill * (10 + this.cfg.overflow * 22)));
+				for (let s = 0; s < spillLen; s++) {
+					const taper = 1 - s / Math.max(1, spillLen - 1);
+					const height = Math.max(1, Math.round(1 + taper * (1.5 + spill * 3)));
+					const x = dir > 0 ? right + s : left - s;
+					const y = basinFloor - height + 1 + Math.round(s * 0.06);
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, 1, height, `rgb(${waterMid.r},${waterMid.g},${waterMid.b})`, 0.9);
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, 1, 1, `rgb(${foamColor.r},${foamColor.g},${foamColor.b})`, clamp01(0.16 + taper * this.cfg.foam * 0.3));
+				}
+				const puddleLen = Math.max(3, Math.round(spill * (6 + this.cfg.overflow * 12)));
+				const puddleStart = dir > 0 ? right + spillLen - 1 : left - spillLen + 1;
+				for (let i = 0; i < puddleLen; i++) {
+					const x = dir > 0 ? puddleStart + i : puddleStart - i;
+					const alpha = clamp01(0.16 + spill * 0.22 - i * 0.012);
+					if (alpha <= 0.02) continue;
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, basinFloor, 1, 1, `rgb(${waterDeep.r},${waterDeep.g},${waterDeep.b})`, alpha);
+					if ((i + this.tick) % 3 === 0) {
+						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, basinFloor, 1, 1, `rgb(${foamColor.r},${foamColor.g},${foamColor.b})`, alpha * 0.42);
+					}
+				}
+			}
+
+			if (flow > 0.01) {
+				const streamW = Math.max(1, Math.round(1 + this.cfg.stream * 1.2 + flow * 1.6));
+				for (let y = outletY + 2; y <= impactY; y++) {
+					const t = (y - outletY) / Math.max(1, impactY - outletY);
+					const sway = Math.sin(this.tick * 0.05 + y * 0.16) * this.cfg.stream * 0.12;
+					const centerX = pipeX + surfaceBias * t * basinW * 0.06 + sway;
+					for (let dx = -Math.floor(streamW / 2); dx <= Math.floor(streamW / 2); dx++) {
+						const edge = Math.abs(dx) / Math.max(1, streamW / 2);
+						const alpha = clamp01(0.18 + flow * 0.9 - edge * 0.24);
+						if (alpha <= 0.02) continue;
+						const color = edge < 0.35 ? waterHi : waterMid;
+						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, Math.round(centerX + dx), y, 1, 1, `rgb(${color.r},${color.g},${color.b})`, alpha);
+					}
+				}
+
+				const splashCount = Math.max(5, Math.round(5 + flow * 16 + this.cfg.foam * 10));
+				for (let i = 0; i < splashCount; i++) {
+					const lift = this._hash(37000 + i) * (1.5 + motion * 4.4);
+					const drift = (this._hash(37100 + i) * 2 - 1) * (1 + this.cfg.stream * 1.8);
+					const x = Math.round(impactX + drift);
+					const y = Math.round(impactY - lift);
+					const alpha = clamp01(0.08 + motion * 0.22 + this.cfg.foam * 0.14);
+					const color = i % 2 === 0 ? foamColor : waterHi;
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, 1, 1, `rgb(${color.r},${color.g},${color.b})`, alpha);
+				}
+			}
+
+			if (fill > 0.02) {
+				for (let x = left + 2; x < right - 1; x++) {
+					const idx = x - (left + 1);
+					const surfaceY = surfaceRows[Math.max(0, Math.min(surfaceRows.length - 1, idx))];
+					if (surfaceY >= basinFloor) continue;
+					const nx = (x - left) / Math.max(1, basinW);
+					const wave = Math.sin(ripplePhase * 1.1 + nx * Math.PI * (5 + this.cfg.ripple * 2) + (x - impactX) * 0.15);
+					const alpha = clamp01((0.05 + this.cfg.foam * 0.1 + motion * 0.08) * Math.max(0, wave));
+					if (alpha <= 0.02) continue;
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, surfaceY, 1, 1, `rgb(${foamColor.r},${foamColor.g},${foamColor.b})`, alpha);
+				}
+			}
+		}
+
 		_renderAurora(ctx, canvasW, canvasH, opts) {
 			opts = opts || {};
 			if (opts.transparent) {
@@ -6098,6 +6431,12 @@
 		}
 	}
 
+	class WaterPipe extends ProceduralScene {
+		constructor(w, h, cfg, seed) {
+			super('water-pipe', w, h, cfg, seed);
+		}
+	}
+
 	class Aurora extends ProceduralScene {
 		constructor(w, h, cfg, seed) {
 			super('aurora', w, h, cfg, seed);
@@ -6156,7 +6495,7 @@
 	// server's snapshot payload — the client looks up the constructor here
 	// by name so new effects just register themselves and work without
 	// client-side changes.
-	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, beach: Beach, campfire: Campfire, windmill: Windmill, lighthouse: Lighthouse, rowboat: Rowboat, underwater: Underwater, volcano: Volcano, train: Train, 'mysterious-man': MysteriousMan, 'burning-trees': BurningTrees, sand: Sand, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield };
+	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, beach: Beach, campfire: Campfire, windmill: Windmill, lighthouse: Lighthouse, rowboat: Rowboat, underwater: Underwater, volcano: Volcano, train: Train, 'mysterious-man': MysteriousMan, 'burning-trees': BurningTrees, sand: Sand, 'water-pipe': WaterPipe, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield };
 	const presets = {
 		'wheat-field': [
 			{
@@ -7317,6 +7656,114 @@
 				},
 			},
 		],
+		'water-pipe': [
+			{
+				key: 'small-trickle',
+				label: 'small trickle',
+				config: {
+					intro_flow: 0.08,
+					intro_pool: 0.02,
+					ending_ripple: 0.1,
+					pipe_x: 0.18,
+					pipe_width: 6,
+					pipe_drop: 16,
+					basin_x: 0.36,
+					basin_width: 28,
+					basin_depth: 9,
+					flow: 0.12,
+					stream: 0.55,
+					ripple: 0.24,
+					overflow: 0.14,
+					foam: 0.12,
+					hue: 194,
+					hue_sp: 14,
+					sat: 0.44,
+					lmin: 0.12,
+					lmax: 0.82,
+					dry_up_p: 0.0011,
+				},
+			},
+			{
+				key: 'steady-pool',
+				label: 'steady pool',
+				config: {
+					intro_flow: 0.1,
+					intro_pool: 0.08,
+					ending_ripple: 0.08,
+					pipe_x: 0.22,
+					pipe_width: 7,
+					pipe_drop: 17,
+					basin_x: 0.4,
+					basin_width: 30,
+					basin_depth: 9,
+					flow: 0.24,
+					stream: 1.05,
+					ripple: 0.38,
+					overflow: 0.3,
+					foam: 0.22,
+					hue: 196,
+					hue_sp: 18,
+					sat: 0.56,
+					lmin: 0.12,
+					lmax: 0.92,
+					surge_p: 0.0008,
+				},
+			},
+			{
+				key: 'heavy-spill',
+				label: 'heavy spill',
+				config: {
+					intro_flow: 0.14,
+					intro_pool: 0.12,
+					ending_ripple: 0.06,
+					pipe_x: 0.24,
+					pipe_width: 8,
+					pipe_drop: 18,
+					basin_x: 0.42,
+					basin_width: 28,
+					basin_depth: 8,
+					flow: 0.34,
+					stream: 1.25,
+					ripple: 0.44,
+					overflow: 0.42,
+					foam: 0.24,
+					hue: 200,
+					hue_sp: 20,
+					sat: 0.58,
+					lmin: 0.12,
+					lmax: 0.92,
+					surge_p: 0.0012,
+					surge_mult: 2.15,
+				},
+			},
+			{
+				key: 'edge-runoff',
+				label: 'edge runoff',
+				config: {
+					intro_flow: 0.12,
+					intro_pool: 0.05,
+					ending_ripple: 0.12,
+					pipe_x: 0.28,
+					pipe_width: 7,
+					pipe_drop: 17,
+					basin_x: 0.38,
+					basin_width: 22,
+					basin_depth: 7,
+					flow: 0.28,
+					stream: 1.05,
+					ripple: 0.36,
+					overflow: 0.56,
+					foam: 0.22,
+					hue: 192,
+					hue_sp: 16,
+					sat: 0.5,
+					lmin: 0.11,
+					lmax: 0.88,
+					surge_p: 0.001,
+					dry_up_p: 0.0005,
+				},
+			},
+		],
 		starfield: [
 			{
 				key: 'still-night',
@@ -7743,5 +8190,5 @@
 		],
 	};
 
-	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Volcano, Train, MysteriousMan, BurningTrees, Sand, Aurora, AutumnLeaves, Snow, Starfield, subscribe, applyDefaults, hslToRGB, effects, presets };
+	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Volcano, Train, MysteriousMan, BurningTrees, Sand, WaterPipe, Aurora, AutumnLeaves, Snow, Starfield, subscribe, applyDefaults, hslToRGB, effects, presets };
 })(window);

@@ -151,6 +151,11 @@ var effectRegistry = map[string]effectDefinition{
 		Schema:     sim.SandSchema,
 		NewRuntime: newSandRuntime,
 	},
+	"water-pipe": {
+		Type:       "water-pipe",
+		Schema:     sim.WaterPipeSchema,
+		NewRuntime: newWaterPipeRuntime,
+	},
 }
 
 func lookupEffectDefinition(effectType string) (effectDefinition, bool) {
@@ -353,6 +358,10 @@ func newBurningTreesRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRu
 
 func newSandRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
 	return newProceduralRuntime("sand", w, h, seed, cfg)
+}
+
+func newWaterPipeRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
+	return newProceduralRuntime("water-pipe", w, h, seed, cfg)
 }
 
 func (r *rainRuntime) Type() string { return "rain" }
@@ -795,6 +804,8 @@ func (p *proceduralRuntime) Schema() sim.EffectSchema {
 		return sim.BurningTreesSchema()
 	case "sand":
 		return sim.SandSchema()
+	case "water-pipe":
+		return sim.WaterPipeSchema()
 	default:
 		return sim.EffectSchema{}
 	}

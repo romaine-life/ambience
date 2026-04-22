@@ -162,6 +162,16 @@ func TestSandSchema(t *testing.T) {
 	}
 }
 
+func TestWaterPipeSchema(t *testing.T) {
+	schema := WaterPipeSchema()
+	if schema.Name != "water-pipe" {
+		t.Fatalf("schema name = %q, want water-pipe", schema.Name)
+	}
+	if len(schema.Knobs) == 0 {
+		t.Fatal("expected water-pipe schema knobs")
+	}
+}
+
 func TestProceduralSnowSnapshotRestore(t *testing.T) {
 	p := NewProcedural("snow", 160, 80, 42, nil)
 	if !p.TriggerEvent("gust") {
@@ -723,5 +733,48 @@ func TestProceduralSandSnapshotRestore(t *testing.T) {
 	}
 	if again.Values["surface_bias"] != snap.Values["surface_bias"] {
 		t.Fatalf("restored surface bias = %f, want %f", again.Values["surface_bias"], snap.Values["surface_bias"])
+	}
+}
+
+func TestProceduralWaterPipeSnapshotRestore(t *testing.T) {
+	p := NewProcedural("water-pipe", 160, 80, 83, nil)
+	if !p.TriggerEvent("intro") {
+		t.Fatal("expected intro trigger to succeed")
+	}
+	if !p.TriggerEvent("dry-up") {
+		t.Fatal("expected dry-up trigger to succeed")
+	}
+	for i := 0; i < 6; i++ {
+		p.Step()
+	}
+
+	snap := p.Snapshot()
+	if snap.Timers["dry-up"] <= 0 {
+		t.Fatal("expected dry-up timer in snapshot")
+	}
+	if snap.Values["fill_level"] <= 0 {
+		t.Fatal("expected fill level value in snapshot")
+	}
+	if snap.Values["surface_bias"] == 0 {
+		t.Fatal("expected surface bias value in snapshot")
+	}
+	if snap.Values["ripple_phase"] <= 0 {
+		t.Fatal("expected ripple phase value in snapshot")
+	}
+
+	restored := NewProcedural("water-pipe", 160, 80, 7, nil)
+	restored.RestoreSnapshot(snap)
+	again := restored.Snapshot()
+	if again.Timers["dry-up"] != snap.Timers["dry-up"] {
+		t.Fatalf("restored dry-up timer = %d, want %d", again.Timers["dry-up"], snap.Timers["dry-up"])
+	}
+	if again.Values["fill_level"] != snap.Values["fill_level"] {
+		t.Fatalf("restored fill level = %f, want %f", again.Values["fill_level"], snap.Values["fill_level"])
+	}
+	if again.Values["surface_bias"] != snap.Values["surface_bias"] {
+		t.Fatalf("restored surface bias = %f, want %f", again.Values["surface_bias"], snap.Values["surface_bias"])
+	}
+	if again.Values["ripple_phase"] != snap.Values["ripple_phase"] {
+		t.Fatalf("restored ripple phase = %f, want %f", again.Values["ripple_phase"], snap.Values["ripple_phase"])
 	}
 }

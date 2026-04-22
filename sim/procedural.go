@@ -507,6 +507,37 @@ var sandDefaults = ProceduralConfig{
 	"calm_mult":       0.42,
 }
 
+var waterPipeDefaults = ProceduralConfig{
+	"intro_dur":     55,
+	"intro_flow":    0.10,
+	"intro_pool":    0.08,
+	"ending_dur":    70,
+	"ending_linger": 22,
+	"ending_ripple": 0.08,
+	"pipe_x":        0.22,
+	"pipe_width":    7.0,
+	"pipe_drop":     17.0,
+	"basin_x":       0.40,
+	"basin_width":   30.0,
+	"basin_depth":   9.0,
+	"flow":          0.24,
+	"stream":        1.05,
+	"ripple":        0.38,
+	"overflow":      0.30,
+	"foam":          0.22,
+	"hue":           196,
+	"hue_sp":        18,
+	"sat":           0.56,
+	"lmin":          0.12,
+	"lmax":          0.92,
+	"surge_p":       0.0,
+	"dry_up_p":      0.0,
+	"surge_dur":     36,
+	"surge_mult":    1.90,
+	"dry_up_dur":    50,
+	"dry_up_mult":   0.35,
+}
+
 func SnowSchema() EffectSchema {
 	return EffectSchema{
 		Name: "snow",
@@ -1461,6 +1492,70 @@ func SandSchema() EffectSchema {
 	}
 }
 
+func WaterPipeSchema() EffectSchema {
+	return EffectSchema{
+		Name: "water-pipe",
+		Knobs: []Knob{
+			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 55, Trigger: "intro",
+				Description: "Ticks spent ramping from a drip into the full water pour."},
+			{Key: "intro_flow", Label: "intro flow", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0.01, Max: 0.4, Step: 0.01, Default: 0.10,
+				Description: "Starting fraction of the full water flow during the intro."},
+			{Key: "intro_pool", Label: "intro pool", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0, Max: 0.4, Step: 0.01, Default: 0.08,
+				Description: "Initial pool depth already resting in the basin when the intro begins."},
+			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 10, Max: 240, Step: 5, Default: 70, Trigger: "ending",
+				Description: "Ticks spent tapering the source from a pour back toward stillness."},
+			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 180, Step: 5, Default: 22,
+				Description: "Extra quiet ticks for ripples and runoff to settle after the source cuts off."},
+			{Key: "ending_ripple", Label: "ending ripple", Slot: SlotEnd, Group: "ending", Type: KnobFloat, Min: 0.01, Max: 0.4, Step: 0.01, Default: 0.08,
+				Description: "Residual ripple and overflow motion remaining near the end of the outro."},
+			{Key: "pipe_x", Label: "pipe x", Slot: SlotLever, Group: "layout", Type: KnobFloat, Min: 0.08, Max: 0.45, Step: 0.01, Default: 0.22,
+				Description: "Horizontal location of the pipe outlet."},
+			{Key: "pipe_width", Label: "pipe width", Slot: SlotLever, Group: "layout", Type: KnobFloat, Min: 4, Max: 12, Step: 1, Default: 7,
+				Description: "Width of the source pipe silhouette in pixels."},
+			{Key: "pipe_drop", Label: "pipe drop", Slot: SlotLever, Group: "layout", Type: KnobFloat, Min: 8, Max: 28, Step: 1, Default: 17,
+				Description: "Distance from the pipe outlet down to the basin floor."},
+			{Key: "basin_x", Label: "basin x", Slot: SlotLever, Group: "layout", Type: KnobFloat, Min: 0.35, Max: 0.78, Step: 0.01, Default: 0.40,
+				Description: "Horizontal center of the receiving basin."},
+			{Key: "basin_width", Label: "basin width", Slot: SlotLever, Group: "layout", Type: KnobFloat, Min: 18, Max: 56, Step: 1, Default: 30,
+				Description: "Interior width of the receiving basin."},
+			{Key: "basin_depth", Label: "basin depth", Slot: SlotLever, Group: "layout", Type: KnobFloat, Min: 6, Max: 18, Step: 1, Default: 9,
+				Description: "Interior depth of the receiving basin."},
+			{Key: "flow", Label: "flow", Slot: SlotLever, Group: "water", Type: KnobFloat, Min: 0.05, Max: 0.7, Step: 0.01, Default: 0.24,
+				Description: "Baseline inflow rate from the pipe."},
+			{Key: "stream", Label: "stream", Slot: SlotLever, Group: "water", Type: KnobFloat, Min: 0.2, Max: 2.5, Step: 0.05, Default: 1.05,
+				Description: "Thickness and cohesion of the falling stream."},
+			{Key: "ripple", Label: "ripple", Slot: SlotLever, Group: "water", Type: KnobFloat, Min: 0.05, Max: 1.2, Step: 0.05, Default: 0.38,
+				Description: "Amount of surface motion and splash ripple in the basin."},
+			{Key: "overflow", Label: "overflow", Slot: SlotLever, Group: "water", Type: KnobFloat, Min: 0.05, Max: 1.4, Step: 0.05, Default: 0.30,
+				Description: "How readily excess water spills out and runs along the floor."},
+			{Key: "foam", Label: "foam", Slot: SlotLever, Group: "water", Type: KnobFloat, Min: 0.02, Max: 0.8, Step: 0.01, Default: 0.22,
+				Description: "Amount of bright splash foam and edge highlights."},
+			{Key: "hue", Label: "hue", Slot: SlotLever, Group: "palette", Type: KnobFloat, Min: 170, Max: 220, Step: 1, Default: 196,
+				Description: "Base water hue from muted teal toward cool blue."},
+			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "palette", Type: KnobFloat, Min: 0, Max: 30, Step: 1, Default: 18,
+				Description: "Variation between deep pool tones, highlights, and foam."},
+			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "palette", Type: KnobFloat, Min: 0.1, Max: 0.9, Step: 0.01, Default: 0.56,
+				Description: "Overall scene saturation."},
+			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "palette", Type: KnobFloat, Min: 0.05, Max: 0.4, Step: 0.01, Default: 0.12,
+				Description: "Minimum lightness used for the deepest pool shadows and background."},
+			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "palette", Type: KnobFloat, Min: 0.4, Max: 1, Step: 0.01, Default: 0.92,
+				Description: "Maximum lightness used for splash foam and top-surface highlights."},
+			{Key: "surge_p", Label: "surge", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "surge",
+				Description: "Per-tick chance of the source temporarily pouring harder."},
+			{Key: "dry_up_p", Label: "dry up", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "dry-up",
+				Description: "Per-tick chance of the source reducing to a weaker trickle or pause."},
+			{Key: "surge_dur", Label: "surge dur", Slot: SlotEventMod, Group: "surge", Type: KnobInt, Min: 10, Max: 160, Step: 5, Default: 36,
+				Description: "Duration of the surge window."},
+			{Key: "surge_mult", Label: "surge x", Slot: SlotEventMod, Group: "surge", Type: KnobFloat, Min: 1.05, Max: 3, Step: 0.05, Default: 1.9,
+				Description: "Flow multiplier applied during a surge."},
+			{Key: "dry_up_dur", Label: "dry up dur", Slot: SlotEventMod, Group: "dry-up", Type: KnobInt, Min: 10, Max: 180, Step: 5, Default: 50,
+				Description: "Duration of the reduced-flow dry-up window."},
+			{Key: "dry_up_mult", Label: "dry up x", Slot: SlotEventMod, Group: "dry-up", Type: KnobFloat, Min: 0.05, Max: 1, Step: 0.05, Default: 0.35,
+				Description: "Flow multiplier applied while dry-up is active."},
+		},
+	}
+}
+
 func cloneProceduralConfig(src ProceduralConfig) ProceduralConfig {
 	if src == nil {
 		return ProceduralConfig{}
@@ -1533,6 +1628,8 @@ func proceduralDefaults(kind string) ProceduralConfig {
 		return cloneProceduralConfig(burningTreesDefaults)
 	case "sand":
 		return cloneProceduralConfig(sandDefaults)
+	case "water-pipe":
+		return cloneProceduralConfig(waterPipeDefaults)
 	default:
 		return ProceduralConfig{}
 	}
@@ -2612,6 +2709,82 @@ func mergeProceduralDefaults(kind string, cfg ProceduralConfig) ProceduralConfig
 		if out["calm_mult"] <= 0 {
 			out["calm_mult"] = sandDefaults["calm_mult"]
 		}
+	case "water-pipe":
+		if out["intro_dur"] <= 0 {
+			out["intro_dur"] = waterPipeDefaults["intro_dur"]
+		}
+		out["intro_flow"] = clamp01(out["intro_flow"])
+		out["intro_pool"] = clamp01(out["intro_pool"])
+		if out["ending_dur"] <= 0 {
+			out["ending_dur"] = waterPipeDefaults["ending_dur"]
+		}
+		if out["ending_linger"] < 0 {
+			out["ending_linger"] = 0
+		}
+		out["ending_ripple"] = clamp01(out["ending_ripple"])
+		if out["pipe_x"] <= 0 {
+			out["pipe_x"] = waterPipeDefaults["pipe_x"]
+		}
+		if out["pipe_width"] <= 0 {
+			out["pipe_width"] = waterPipeDefaults["pipe_width"]
+		}
+		if out["pipe_drop"] <= 0 {
+			out["pipe_drop"] = waterPipeDefaults["pipe_drop"]
+		}
+		if out["basin_x"] <= 0 {
+			out["basin_x"] = waterPipeDefaults["basin_x"]
+		}
+		if out["basin_width"] <= 0 {
+			out["basin_width"] = waterPipeDefaults["basin_width"]
+		}
+		if out["basin_depth"] <= 0 {
+			out["basin_depth"] = waterPipeDefaults["basin_depth"]
+		}
+		if out["flow"] <= 0 {
+			out["flow"] = waterPipeDefaults["flow"]
+		}
+		if out["stream"] <= 0 {
+			out["stream"] = waterPipeDefaults["stream"]
+		}
+		if out["ripple"] <= 0 {
+			out["ripple"] = waterPipeDefaults["ripple"]
+		}
+		if out["overflow"] <= 0 {
+			out["overflow"] = waterPipeDefaults["overflow"]
+		}
+		if out["foam"] <= 0 {
+			out["foam"] = waterPipeDefaults["foam"]
+		}
+		if out["hue"] <= 0 {
+			out["hue"] = waterPipeDefaults["hue"]
+		}
+		if out["hue_sp"] < 0 {
+			out["hue_sp"] = 0
+		}
+		if out["sat"] <= 0 {
+			out["sat"] = waterPipeDefaults["sat"]
+		}
+		if out["lmin"] <= 0 {
+			out["lmin"] = waterPipeDefaults["lmin"]
+		}
+		if out["lmax"] <= 0 {
+			out["lmax"] = waterPipeDefaults["lmax"]
+		}
+		if out["lmax"] < out["lmin"] {
+			out["lmin"], out["lmax"] = out["lmax"], out["lmin"]
+		}
+		if out["surge_dur"] <= 0 {
+			out["surge_dur"] = waterPipeDefaults["surge_dur"]
+		}
+		if out["surge_mult"] <= 0 {
+			out["surge_mult"] = waterPipeDefaults["surge_mult"]
+		}
+		if out["dry_up_dur"] <= 0 {
+			out["dry_up_dur"] = waterPipeDefaults["dry_up_dur"]
+		}
+		if out["dry_up_mult"] <= 0 {
+			out["dry_up_mult"] = waterPipeDefaults["dry_up_mult"]
+		}
 	}
 	return out
 }
@@ -3020,6 +3193,22 @@ func (p *Procedural) TriggerEvent(name string) bool {
 			return false
 		}
 		return true
+	case "water-pipe":
+		switch name {
+		case "surge":
+			p.startWaterPipeSurgeLocked("triggered")
+		case "dry-up":
+			p.startWaterPipeDryUpLocked("triggered")
+		case "intro":
+			p.startWaterPipeIntroLocked()
+			p.appendLog("intro", fmt.Sprintf("started (dur=%d, flow=%.2f)", p.timers["intro"], p.cfg["intro_flow"]))
+		case "ending":
+			p.startWaterPipeEndingLocked()
+			p.appendLog("ending", fmt.Sprintf("started (fade=%d, linger=%d)", p.intCfg("ending_dur"), p.intCfg("ending_linger")))
+		default:
+			return false
+		}
+		return true
 	default:
 		return false
 	}
@@ -3087,6 +3276,8 @@ func (p *Procedural) Step() {
 		p.stepBurningTreesLocked()
 	case "sand":
 		p.stepSandLocked()
+	case "water-pipe":
+		p.stepWaterPipeLocked()
 	}
 }
 
@@ -4492,5 +4683,151 @@ func (p *Procedural) stepSandLocked() {
 	}
 	if p.timers["calm"] <= 0 && p.timers["surge"] <= 0 && p.cfg["calm_p"] > 0 && p.rng.Float64() < p.cfg["calm_p"] {
 		p.startSandCalmLocked("started")
+	}
+}
+
+func (p *Procedural) waterPipeFlowLevelLocked() float64 {
+	flow := math.Max(0, p.cfg["flow"])
+	if p.timers["intro"] > 0 {
+		total := int(math.Round(p.values["intro_total"]))
+		progress := proceduralPhaseProgress(total, p.timers["intro"])
+		flow = p.cfg["intro_flow"] + (flow-p.cfg["intro_flow"])*progress
+	}
+	if p.timers["ending"] > 0 {
+		total := int(math.Round(p.values["ending_total"]))
+		progress := proceduralPhaseProgress(total, p.timers["ending"])
+		flow *= math.Max(0, 1-progress)
+	}
+	if p.timers["surge"] > 0 {
+		gain := p.values["surge_gain"]
+		if gain <= 0 {
+			gain = p.cfg["surge_mult"]
+		}
+		flow *= gain
+	}
+	if p.timers["dry-up"] > 0 {
+		gain := p.values["dry_up_gain"]
+		if gain <= 0 {
+			gain = p.cfg["dry_up_mult"]
+		}
+		flow *= gain
+	}
+	return math.Max(0, flow)
+}
+
+func (p *Procedural) startWaterPipeSurgeLocked(verb string) {
+	p.timers["dry-up"] = 0
+	p.timers["surge"] = jitterInt(p.rng, p.intCfg("surge_dur"), 0.3)
+	p.values["dry_up_gain"] = 1
+	p.values["surge_gain"] = p.cfg["surge_mult"] * (0.9 + p.rng.Float64()*0.35)
+	p.appendLog("surge", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["surge"], p.values["surge_gain"]))
+}
+
+func (p *Procedural) startWaterPipeDryUpLocked(verb string) {
+	p.timers["surge"] = 0
+	p.timers["dry-up"] = jitterInt(p.rng, p.intCfg("dry_up_dur"), 0.3)
+	p.values["surge_gain"] = 1
+	p.values["dry_up_gain"] = math.Max(0.08, p.cfg["dry_up_mult"]*(0.85+p.rng.Float64()*0.25))
+	p.appendLog("dry-up", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["dry-up"], p.values["dry_up_gain"]))
+}
+
+func (p *Procedural) startWaterPipeIntroLocked() {
+	p.timers["surge"] = 0
+	p.timers["dry-up"] = 0
+	p.timers["ending"] = 0
+	p.values["surge_gain"] = 1
+	p.values["dry_up_gain"] = 1
+	p.values["fill_level"] = clamp01(p.cfg["intro_pool"])
+	p.values["spill_level"] = 0
+	p.values["surface_bias"] = 0
+	p.values["ripple_phase"] = 0
+	p.timers["intro"] = p.intCfg("intro_dur")
+	p.values["intro_total"] = float64(p.timers["intro"])
+}
+
+func (p *Procedural) startWaterPipeEndingLocked() {
+	p.timers["intro"] = 0
+	p.timers["surge"] = 0
+	p.timers["dry-up"] = 0
+	p.values["surge_gain"] = 1
+	p.values["dry_up_gain"] = 1
+	endingTotal := p.intCfg("ending_dur") + max(0, p.intCfg("ending_linger"))
+	if endingTotal < 1 {
+		endingTotal = max(1, p.intCfg("ending_dur"))
+	}
+	p.timers["ending"] = endingTotal
+	p.values["ending_total"] = float64(endingTotal)
+}
+
+func (p *Procedural) stepWaterPipeStateLocked() {
+	flow := p.waterPipeFlowLevelLocked()
+	fill := clamp01(p.values["fill_level"])
+	spill := clamp01(p.values["spill_level"])
+	bias := p.values["surface_bias"]
+	ripplePhase := p.values["ripple_phase"]
+
+	incoming := flow * (0.016 + p.cfg["stream"]*0.010)
+	fill += incoming * (0.72 + p.cfg["ripple"]*0.2)
+	if fill > 1 {
+		spill += (fill - 1) * (0.7 + p.cfg["overflow"]*0.45)
+		fill = 1
+	}
+	if fill > 0.9 {
+		spill += (fill - 0.9) * incoming * (0.3 + p.cfg["overflow"]*0.9)
+	}
+	spill -= (0.002 + p.cfg["overflow"]*0.006) * math.Max(0.1, 1-flow*0.9)
+	if p.timers["ending"] > 0 {
+		total := int(math.Round(p.values["ending_total"]))
+		progress := proceduralPhaseProgress(total, p.timers["ending"])
+		spill += p.cfg["ending_ripple"] * 0.004 * (1 - progress)
+	}
+
+	targetBias := (p.cfg["pipe_x"] - p.cfg["basin_x"]) / 0.24
+	if targetBias < -1 {
+		targetBias = -1
+	} else if targetBias > 1 {
+		targetBias = 1
+	}
+	bias += (targetBias - bias) * (0.03 + flow*0.05 + p.cfg["ripple"]*0.03)
+	if bias < -1 {
+		bias = -1
+	} else if bias > 1 {
+		bias = 1
+	}
+
+	ripplePhase += 0.12 + flow*(0.8+p.cfg["stream"]*0.4) + spill*0.4
+	if ripplePhase > math.Pi*200 {
+		ripplePhase = math.Mod(ripplePhase, math.Pi*2)
+	}
+
+	p.values["fill_level"] = clamp01(fill)
+	p.values["spill_level"] = clamp01(spill)
+	p.values["surface_bias"] = bias
+	p.values["ripple_phase"] = ripplePhase
+}
+
+func (p *Procedural) stepWaterPipeLocked() {
+	p.stepWaterPipeStateLocked()
+	if p.timers["surge"] <= 0 {
+		p.values["surge_gain"] = 1
+	}
+	if p.timers["dry-up"] <= 0 {
+		p.values["dry_up_gain"] = 1
+	}
+	if p.timers["intro"] <= 0 {
+		delete(p.values, "intro_total")
+	}
+	if p.timers["ending"] <= 0 {
+		delete(p.values, "ending_total")
+	}
+	if p.timers["intro"] > 0 || p.timers["ending"] > 0 {
+		return
+	}
+	if p.timers["surge"] <= 0 && p.timers["dry-up"] <= 0 && p.cfg["surge_p"] > 0 && p.rng.Float64() < p.cfg["surge_p"] {
+		p.startWaterPipeSurgeLocked("started")
+		return
+	}
+	if p.timers["dry-up"] <= 0 && p.timers["surge"] <= 0 && p.cfg["dry_up_p"] > 0 && p.rng.Float64() < p.cfg["dry_up_p"] {
+		p.startWaterPipeDryUpLocked("started")
 	}
 }
