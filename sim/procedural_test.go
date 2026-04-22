@@ -142,6 +142,16 @@ func TestMysteriousManSchema(t *testing.T) {
 	}
 }
 
+func TestBurningTreesSchema(t *testing.T) {
+	schema := BurningTreesSchema()
+	if schema.Name != "burning-trees" {
+		t.Fatalf("schema name = %q, want burning-trees", schema.Name)
+	}
+	if len(schema.Knobs) == 0 {
+		t.Fatal("expected burning-trees schema knobs")
+	}
+}
+
 func TestProceduralSnowSnapshotRestore(t *testing.T) {
 	p := NewProcedural("snow", 160, 80, 42, nil)
 	if !p.TriggerEvent("gust") {
@@ -611,5 +621,60 @@ func TestProceduralMysteriousManSnapshotRestore(t *testing.T) {
 	}
 	if again.Values["lighter_gain"] != snap.Values["lighter_gain"] {
 		t.Fatalf("restored lighter gain = %f, want %f", again.Values["lighter_gain"], snap.Values["lighter_gain"])
+	}
+}
+
+func TestProceduralBurningTreesSnapshotRestore(t *testing.T) {
+	p := NewProcedural("burning-trees", 160, 80, 63, nil)
+	if !p.TriggerEvent("ignite") {
+		t.Fatal("expected ignite trigger to succeed")
+	}
+	if !p.TriggerEvent("flare") {
+		t.Fatal("expected flare trigger to succeed")
+	}
+	p.Step()
+
+	snap := p.Snapshot()
+	if snap.Timers["ignite"] <= 0 {
+		t.Fatal("expected ignite timer in snapshot")
+	}
+	if snap.Timers["flare"] <= 0 {
+		t.Fatal("expected flare timer in snapshot")
+	}
+	if snap.Values["ignite_center"] < 0 {
+		t.Fatal("expected ignite center value in snapshot")
+	}
+	if snap.Values["flare_gain"] <= 1 {
+		t.Fatal("expected flare gain value in snapshot")
+	}
+	foundChar := false
+	for key, value := range snap.Values {
+		if len(key) > 5 && key[:5] == "char_" && value > 0 {
+			foundChar = true
+			break
+		}
+	}
+	if !foundChar {
+		t.Fatal("expected char accumulation in snapshot")
+	}
+
+	restored := NewProcedural("burning-trees", 160, 80, 7, nil)
+	restored.RestoreSnapshot(snap)
+	again := restored.Snapshot()
+	if again.Timers["ignite"] != snap.Timers["ignite"] {
+		t.Fatalf("restored ignite timer = %d, want %d", again.Timers["ignite"], snap.Timers["ignite"])
+	}
+	if again.Values["ignite_center"] != snap.Values["ignite_center"] {
+		t.Fatalf("restored ignite center = %f, want %f", again.Values["ignite_center"], snap.Values["ignite_center"])
+	}
+	if again.Values["flare_gain"] != snap.Values["flare_gain"] {
+		t.Fatalf("restored flare gain = %f, want %f", again.Values["flare_gain"], snap.Values["flare_gain"])
+	}
+	for key, value := range snap.Values {
+		if len(key) > 5 && key[:5] == "char_" && value > 0 {
+			if again.Values[key] != value {
+				t.Fatalf("restored %s = %f, want %f", key, again.Values[key], value)
+			}
+		}
 	}
 }

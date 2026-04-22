@@ -2098,6 +2098,36 @@
 			lighter_flick_dur: 20,
 			lighter_flick_mult: 2.25,
 		},
+		'burning-trees': {
+			intro_dur: 55,
+			intro_growth: 0.14,
+			ending_dur: 72,
+			ending_linger: 22,
+			ending_ash: 0.1,
+			horizon: 0.84,
+			tree_count: 10,
+			tree_height: 13,
+			canopy: 0.78,
+			spread: 1.35,
+			flame: 0.28,
+			embers: 0.18,
+			smoke: 0.16,
+			char: 0.42,
+			hue: 112,
+			hue_sp: 20,
+			sat: 0.48,
+			lmin: 0.06,
+			lmax: 0.88,
+			ignite_p: 0,
+			flare_p: 0,
+			lull_p: 0,
+			ignite_dur: 76,
+			ignite_span: 1.6,
+			flare_dur: 38,
+			flare_mult: 1.85,
+			lull_dur: 54,
+			lull_mult: 0.55,
+		},
 		starfield: {
 			intro_dur: 50,
 			intro_density: 0.08,
@@ -2437,6 +2467,34 @@
 				if (c.lighter_flick_dur <= 0) c.lighter_flick_dur = base.lighter_flick_dur;
 				if (c.lighter_flick_mult <= 0) c.lighter_flick_mult = base.lighter_flick_mult;
 				break;
+			case 'burning-trees':
+				if (c.intro_dur <= 0) c.intro_dur = base.intro_dur;
+				c.intro_growth = clamp01(c.intro_growth);
+				if (c.ending_dur <= 0) c.ending_dur = base.ending_dur;
+				if (c.ending_linger < 0) c.ending_linger = 0;
+				c.ending_ash = clamp01(c.ending_ash);
+				if (c.horizon <= 0) c.horizon = base.horizon;
+				if (c.tree_count < 1) c.tree_count = base.tree_count;
+				if (c.tree_height <= 0) c.tree_height = base.tree_height;
+				c.canopy = clamp01(c.canopy);
+				if (c.spread <= 0) c.spread = base.spread;
+				if (c.flame <= 0) c.flame = base.flame;
+				if (c.embers <= 0) c.embers = base.embers;
+				if (c.smoke <= 0) c.smoke = base.smoke;
+				c.char = clamp01(c.char);
+				if (c.hue <= 0) c.hue = base.hue;
+				if (c.hue_sp < 0) c.hue_sp = 0;
+				if (c.sat <= 0) c.sat = base.sat;
+				if (c.lmin <= 0) c.lmin = base.lmin;
+				if (c.lmax <= 0) c.lmax = base.lmax;
+				if (c.lmax < c.lmin) [c.lmin, c.lmax] = [c.lmax, c.lmin];
+				if (c.ignite_dur <= 0) c.ignite_dur = base.ignite_dur;
+				if (c.ignite_span <= 0) c.ignite_span = base.ignite_span;
+				if (c.flare_dur <= 0) c.flare_dur = base.flare_dur;
+				if (c.flare_mult <= 0) c.flare_mult = base.flare_mult;
+				if (c.lull_dur <= 0) c.lull_dur = base.lull_dur;
+				if (c.lull_mult <= 0) c.lull_mult = base.lull_mult;
+				break;
 			case 'aurora':
 				if (c.intro_dur <= 0) c.intro_dur = base.intro_dur;
 				c.intro_glow = clamp01(c.intro_glow);
@@ -2592,6 +2650,8 @@
 					return this._triggerTrain(name);
 				case 'mysterious-man':
 					return this._triggerMysteriousMan(name);
+				case 'burning-trees':
+					return this._triggerBurningTrees(name);
 				case 'aurora':
 					return this._triggerAurora(name);
 				case 'starfield':
@@ -2709,6 +2769,36 @@
 					this.values.lighter_gain = 1;
 				}
 			}
+			if (this.kind === 'burning-trees') {
+				this._stepBurningTreesChar();
+				if (!this.timers.ignite || this.timers.ignite <= 0) {
+					this.values.ignite_gain = 0;
+					this.values.ignite_total = 0;
+					this.values.ignite_center = 0;
+					this.values.ignite_span = 0;
+					this.values.ignite_seed = 0;
+				}
+				if (!this.timers.flare || this.timers.flare <= 0) {
+					this.values.flare_gain = 1;
+				}
+				if (!this.timers.lull || this.timers.lull <= 0) {
+					this.values.lull_gain = 1;
+				}
+				if (!this.timers.intro || this.timers.intro <= 0) {
+					delete this.values.intro_total;
+				}
+				if (!this.timers.ending || this.timers.ending <= 0) {
+					delete this.values.ending_total;
+				}
+				if (this.timers.ending > 0) {
+					const treeCount = Math.max(1, Math.round(this.cfg.tree_count));
+					for (let i = 0; i < treeCount; i++) {
+						const key = `char_${i}`;
+						if ((this.values[key] || 0) <= 0) continue;
+						this.values[key] = clamp01(this.values[key] + this.cfg.char * 0.004);
+					}
+				}
+			}
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
@@ -2733,6 +2823,8 @@
 					return this._renderTrain(ctx, canvasW, canvasH, opts);
 				case 'mysterious-man':
 					return this._renderMysteriousMan(ctx, canvasW, canvasH, opts);
+				case 'burning-trees':
+					return this._renderBurningTrees(ctx, canvasW, canvasH, opts);
 				case 'aurora':
 					return this._renderAurora(ctx, canvasW, canvasH, opts);
 				case 'starfield':
@@ -3278,6 +3370,73 @@
 			return false;
 		}
 
+		_triggerBurningTrees(name) {
+			const rng = this._eventRng(name.length + 133);
+			switch (name) {
+				case 'ignite': {
+					this.timers.flare = 0;
+					this.timers.lull = 0;
+					this.timers.ignite = jitterInt(rng, this.cfg.ignite_dur, 0.3);
+					this.values.flare_gain = 1;
+					this.values.lull_gain = 1;
+					this.values.ignite_gain = this.cfg.flame * (0.95 + rng() * 0.45);
+					this.values.ignite_total = this.timers.ignite;
+					const treeCount = Math.max(1, Math.round(this.cfg.tree_count));
+					this.values.ignite_center = Math.floor(rng() * treeCount);
+					const span = Math.max(0.75, this.cfg.ignite_span * (0.7 + rng() * 0.7));
+					this.values.ignite_span = Math.min(Math.max(1, treeCount - 1), span);
+					this.values.ignite_seed = rng() * 1000;
+					return true;
+				}
+				case 'flare':
+					if (!this.timers.ignite || this.timers.ignite <= 0) this._triggerBurningTrees('ignite');
+					this.timers.lull = 0;
+					this.timers.flare = jitterInt(rng, this.cfg.flare_dur, 0.3);
+					this.values.lull_gain = 1;
+					this.values.flare_gain = this.cfg.flare_mult * (0.85 + rng() * 0.35);
+					return true;
+				case 'lull':
+					if (!this.timers.ignite || this.timers.ignite <= 0) this._triggerBurningTrees('ignite');
+					this.timers.flare = 0;
+					this.timers.lull = jitterInt(rng, this.cfg.lull_dur, 0.3);
+					this.values.flare_gain = 1;
+					this.values.lull_gain = Math.max(0.15, this.cfg.lull_mult * (0.85 + rng() * 0.25));
+					return true;
+				case 'intro':
+					this.timers.ignite = 0;
+					this.timers.flare = 0;
+					this.timers.lull = 0;
+					this.timers.ending = 0;
+					this.values.ignite_gain = 0;
+					this.values.ignite_total = 0;
+					this.values.ignite_center = 0;
+					this.values.ignite_span = 0;
+					this.values.ignite_seed = 0;
+					this.values.flare_gain = 1;
+					this.values.lull_gain = 1;
+					this._clearBurningTreesChar();
+					this.timers.intro = Math.max(1, Math.round(this.cfg.intro_dur));
+					this.values.intro_total = this.timers.intro;
+					return true;
+				case 'ending':
+					this.timers.intro = 0;
+					this.timers.ignite = 0;
+					this.timers.flare = 0;
+					this.timers.lull = 0;
+					this.values.ignite_gain = 0;
+					this.values.ignite_total = 0;
+					this.values.ignite_center = 0;
+					this.values.ignite_span = 0;
+					this.values.ignite_seed = 0;
+					this.values.flare_gain = 1;
+					this.values.lull_gain = 1;
+					this.timers.ending = Math.max(1, Math.round(this.cfg.ending_dur + Math.max(0, this.cfg.ending_linger)));
+					this.values.ending_total = this.timers.ending;
+					return true;
+			}
+			return false;
+		}
+
 		_triggerAurora(name) {
 			const rng = this._eventRng(name.length + 53);
 			switch (name) {
@@ -3591,6 +3750,59 @@
 				level *= 1 - (1 - this.cfg.ending_shadow) * progress;
 			}
 			return Math.max(0.03, level);
+		}
+
+		_clearBurningTreesChar() {
+			const limit = Math.max(32, Math.round(this.cfg.tree_count || 0) + 4);
+			for (let i = 0; i < limit; i++) delete this.values[`char_${i}`];
+		}
+
+		_stepBurningTreesChar() {
+			if (!this.timers.ignite || this.timers.ignite <= 0) return;
+			const treeCount = Math.max(1, Math.round(this.cfg.tree_count));
+			const total = Math.max(1, this.values.ignite_total || 0);
+			const progress = clamp01(1 - this.timers.ignite / total);
+			const center = this.values.ignite_center || 0;
+			const span = Math.max(0.75, this.values.ignite_span || this.cfg.ignite_span);
+			const fireGain = this.values.ignite_gain > 0 ? this.values.ignite_gain : this.cfg.flame;
+			let mod = 1;
+			if (this.timers.flare > 0) {
+				const gain = this.values.flare_gain > 0 ? this.values.flare_gain : this.cfg.flare_mult;
+				mod *= 1 + Math.max(0, gain - 1) * 0.55;
+			}
+			if (this.timers.lull > 0) {
+				const gain = this.values.lull_gain > 0 ? this.values.lull_gain : this.cfg.lull_mult;
+				mod *= Math.max(0.18, gain);
+			}
+			const ramp = 0.45 + 0.55 * Math.sin(progress * Math.PI);
+			const reach = span + this.cfg.spread * (0.15 + progress * 0.55);
+			for (let i = 0; i < treeCount; i++) {
+				const dist = Math.abs(i - center);
+				let influence = 1 - dist / Math.max(1, reach + 0.75);
+				if (influence <= 0) continue;
+				influence = Math.pow(influence, 0.72);
+				const delta = this.cfg.char * 0.022 * (0.55 + fireGain * 1.6) * mod * ramp * influence;
+				const key = `char_${i}`;
+				this.values[key] = clamp01((this.values[key] || 0) + delta);
+			}
+		}
+
+		_sceneLevelBurningTrees() {
+			let level = 1;
+			if (this.timers.ignite > 0) level *= 0.72 + (this.values.ignite_gain || this.cfg.flame) * 1.6;
+			if (this.timers.flare > 0) level *= this.values.flare_gain || this.cfg.flare_mult;
+			if (this.timers.lull > 0) level *= this.values.lull_gain || this.cfg.lull_mult;
+			if (this.timers.intro > 0) {
+				const total = this.values.intro_total || this.cfg.intro_dur;
+				const progress = this._phaseProgress(total, this.timers.intro);
+				level *= this.cfg.intro_growth + (1 - this.cfg.intro_growth) * progress;
+			}
+			if (this.timers.ending > 0) {
+				const total = this.values.ending_total || (this.cfg.ending_dur + this.cfg.ending_linger);
+				const progress = this._phaseProgress(total, this.timers.ending);
+				level *= 1 - (1 - this.cfg.ending_ash) * progress;
+			}
+			return Math.max(0.04, level);
 		}
 
 		_renderSnow(ctx, canvasW, canvasH, opts) {
@@ -5178,6 +5390,217 @@
 			}
 		}
 
+		_renderBurningTrees(ctx, canvasW, canvasH, opts) {
+			opts = opts || {};
+			if (opts.transparent) {
+				ctx.clearRect(0, 0, canvasW, canvasH);
+			} else {
+				const skyTop = hslToRGB((this.cfg.hue - 34 + 360) % 360, clamp01(this.cfg.sat * 0.28), clamp01(this.cfg.lmin * 0.45));
+				const skyMid = hslToRGB((this.cfg.hue - 16 + 360) % 360, clamp01(this.cfg.sat * 0.14), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.09));
+				const skyLow = hslToRGB(22, clamp01(this.cfg.sat * 0.24), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.18));
+				const bg = ctx.createLinearGradient(0, 0, 0, canvasH);
+				bg.addColorStop(0, `rgb(${skyTop.r},${skyTop.g},${skyTop.b})`);
+				bg.addColorStop(0.62, `rgb(${skyMid.r},${skyMid.g},${skyMid.b})`);
+				bg.addColorStop(1, `rgb(${skyLow.r},${skyLow.g},${skyLow.b})`);
+				ctx.fillStyle = bg;
+				ctx.fillRect(0, 0, canvasW, canvasH);
+			}
+
+			const sx = canvasW / this.w;
+			const sy = canvasH / this.h;
+			const ceilSx = Math.ceil(sx);
+			const ceilSy = Math.ceil(sy);
+			const treeCount = Math.max(1, Math.round(this.cfg.tree_count));
+			const sceneLevel = this._sceneLevelBurningTrees();
+			const groundRow = Math.max(10, Math.min(this.h - 6, Math.floor(this.h * this.cfg.horizon)));
+			const activeTotal = Math.max(1, this.values.ignite_total || this.cfg.ignite_dur);
+			const activeProgress = this.timers.ignite > 0 ? clamp01(1 - this.timers.ignite / activeTotal) : 0;
+			const activeCenter = Number.isFinite(this.values.ignite_center) ? this.values.ignite_center : Math.floor(treeCount / 2);
+			const activeSpan = Math.max(0.75, this.values.ignite_span || this.cfg.ignite_span);
+			const igniteSeed = Math.floor((this.values.ignite_seed || 0) * 10);
+			const flareBoost = this.timers.flare > 0 ? (this.values.flare_gain || this.cfg.flare_mult) : 1;
+			const lullClamp = this.timers.lull > 0 ? Math.max(0.18, this.values.lull_gain || this.cfg.lull_mult) : 1;
+			const focusX = ((activeCenter + 1) / (treeCount + 1)) * this.w;
+
+			const horizonGlow = ctx.createRadialGradient(focusX * sx, Math.floor((groundRow - 4) * sy), 0, focusX * sx, Math.floor((groundRow - 4) * sy), Math.max(42, 32 * sx));
+			horizonGlow.addColorStop(0, `rgba(255, 138, 72, ${clamp01(0.08 + this.cfg.flame * 0.34 * sceneLevel)})`);
+			horizonGlow.addColorStop(1, 'rgba(255, 138, 72, 0)');
+			ctx.fillStyle = horizonGlow;
+			ctx.fillRect(Math.floor((focusX - 24) * sx), Math.floor((groundRow - 18) * sy), Math.ceil(48 * sx), Math.ceil(28 * sy));
+
+			const smokeWash = ctx.createLinearGradient(0, Math.floor((groundRow - 20) * sy), 0, Math.floor((groundRow + 2) * sy));
+			smokeWash.addColorStop(0, 'rgba(36, 32, 28, 0)');
+			smokeWash.addColorStop(1, `rgba(36, 32, 28, ${clamp01(0.16 + this.cfg.smoke * 0.32 * sceneLevel)})`);
+			ctx.fillStyle = smokeWash;
+			ctx.fillRect(0, Math.floor((groundRow - 20) * sy), canvasW, Math.ceil(24 * sy));
+
+			const ridgeColor = hslToRGB((this.cfg.hue + 18) % 360, clamp01(this.cfg.sat * 0.18), clamp01(this.cfg.lmin * 0.85));
+			const ridgePoints = [];
+			const ridgeSegments = 7;
+			for (let i = 0; i <= ridgeSegments; i++) {
+				ridgePoints.push(groundRow - Math.floor(this._hash(35100 + i) * 3) - Math.floor((0.5 + 0.5 * Math.sin(i * 1.1 + this._hash(35200 + i) * 3.2)) * 2));
+			}
+			ctx.fillStyle = `rgb(${ridgeColor.r},${ridgeColor.g},${ridgeColor.b})`;
+			ctx.beginPath();
+			ctx.moveTo(0, canvasH);
+			for (let x = 0; x < this.w; x++) {
+				const pos = (x / Math.max(1, this.w - 1)) * ridgeSegments;
+				const idx = Math.min(ridgeSegments - 1, Math.floor(pos));
+				const frac = pos - idx;
+				const eased = frac * frac * (3 - 2 * frac);
+				const row = ridgePoints[idx] + (ridgePoints[idx + 1] - ridgePoints[idx]) * eased;
+				ctx.lineTo(Math.floor(x * sx), Math.floor(row * sy));
+			}
+			ctx.lineTo(canvasW, canvasH);
+			ctx.closePath();
+			ctx.fill();
+
+			const fieldColor = hslToRGB((this.cfg.hue + 6) % 360, clamp01(this.cfg.sat * 0.22), clamp01(this.cfg.lmin * 1.05));
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, groundRow, this.w, this.h - groundRow, `rgb(${fieldColor.r},${fieldColor.g},${fieldColor.b})`, 1);
+
+			const healthyLeaf = hslToRGB((this.cfg.hue - 6 + 360) % 360, clamp01(this.cfg.sat * 0.5), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.24));
+			const healthyShade = hslToRGB((this.cfg.hue - 14 + 360) % 360, clamp01(this.cfg.sat * 0.38), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.14));
+			const trunkColor = hslToRGB((this.cfg.hue + 26) % 360, clamp01(this.cfg.sat * 0.18), clamp01(this.cfg.lmin * 0.72));
+			const charColor = hslToRGB(18, 0.08, clamp01(this.cfg.lmin * 0.52));
+			const emberColor = hslToRGB(18, 0.88, clamp01(this.cfg.lmax * 0.96));
+			const emberCore = hslToRGB(34, 0.8, clamp01(this.cfg.lmax));
+			const smokeTint = hslToRGB((this.cfg.hue + this.cfg.hue_sp * 0.5) % 360, clamp01(this.cfg.sat * 0.12), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.48));
+			const ashTint = hslToRGB((this.cfg.hue + 26) % 360, clamp01(this.cfg.sat * 0.06), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.62));
+			const spacing = this.w / (treeCount + 1);
+			const sources = [];
+
+			for (let i = 0; i < treeCount; i++) {
+				const x = Math.round((i + 1) * spacing + (this._hash(35300 + i) - 0.5) * spacing * 0.26);
+				const baseY = groundRow - 1 - Math.floor(this._hash(35400 + i) * 2);
+				const treeH = Math.max(8, Math.round(this.cfg.tree_height * (0.78 + this._hash(35500 + i) * 0.42)));
+				const trunkH = Math.max(3, Math.round(treeH * (0.28 + this._hash(35600 + i) * 0.08)));
+				const char = clamp01(this.values[`char_${i}`] || 0);
+				let heat = 0;
+				if (this.timers.ignite > 0) {
+					const dist = Math.abs(i - activeCenter);
+					let influence = 1 - dist / Math.max(1, activeSpan + this.cfg.spread * (0.15 + activeProgress * 0.55) + 0.75);
+					if (influence > 0) {
+						influence = Math.pow(influence, 0.72);
+						const fireBase = 0.45 + (this.values.ignite_gain || this.cfg.flame) * 2.2;
+						heat = clamp01((0.22 + influence * 0.78) * fireBase * (0.72 + 0.28 * Math.sin(activeProgress * Math.PI)) * flareBoost * lullClamp);
+					}
+				}
+				const crownScale = 1 - char * 0.55;
+				const crownH = Math.max(3, Math.round(treeH * (0.5 + this.cfg.canopy * 0.45) * crownScale));
+				const crownHalf = Math.max(2, Math.round((1.5 + this.cfg.canopy * 3.2) * (treeH / 10) * (1 - char * 0.38)));
+				const shadowWidth = Math.max(2, crownHalf * 2 + 1);
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x - Math.floor(shadowWidth / 2), baseY + 1, shadowWidth, 1, `rgb(${charColor.r},${charColor.g},${charColor.b})`, clamp01(0.14 + char * 0.18));
+
+				const trunkDrawH = Math.max(2, Math.round(trunkH * (1 - Math.min(0.7, char * 0.45))));
+				for (let row = 0; row < trunkDrawH; row++) {
+					const y = baseY - row;
+					const color = char > 0.45 ? charColor : trunkColor;
+					const alpha = clamp01(0.72 + char * 0.18);
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, 1 + (row < trunkDrawH * 0.22 ? 1 : 0), 1, `rgb(${color.r},${color.g},${color.b})`, alpha);
+				}
+
+				for (let row = 0; row < crownH; row++) {
+					const progress = row / Math.max(1, crownH - 1);
+					const width = Math.max(1, Math.round(crownHalf * (1 - progress * 0.72))) + (row < crownH * 0.3 ? 1 : 0);
+					const y = baseY - trunkDrawH - crownH + row + 1;
+					for (let dx = -width; dx <= width; dx++) {
+						const edge = 1 - Math.abs(dx) / Math.max(1, width);
+						const burnMask = clamp01(char * 0.78 + heat * (0.1 + edge * 0.42) * (1 - progress * 0.42));
+						if (burnMask > 0.88 && ((dx + row + i) % 3 === 0)) continue;
+						const baseColor = burnMask > 0.48
+							? charColor
+							: (row < crownH * 0.45 ? healthyLeaf : healthyShade);
+						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x + dx, y, 1, 1, `rgb(${baseColor.r},${baseColor.g},${baseColor.b})`, clamp01(0.7 + edge * 0.22));
+						const flameHere = heat > 0.08 && row >= crownH * 0.14 && edge > 0.22 && ((dx + row + this.tick + i) % 2 === 0);
+						if (flameHere) {
+							const flameAlpha = clamp01((0.18 + this.cfg.flame * 0.42) * heat * sceneLevel * (0.9 - progress * 0.3));
+							const flameColor = row < crownH * 0.36 ? emberCore : emberColor;
+							this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x + dx, y, 1, 1, `rgb(${flameColor.r},${flameColor.g},${flameColor.b})`, flameAlpha);
+							if (flameAlpha > 0.16) {
+								this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x + dx, y - 1, 1, 1, `rgb(${emberCore.r},${emberCore.g},${emberCore.b})`, flameAlpha * 0.65);
+							}
+							if (progress > 0.18 && this._hash(35700 + i * 23 + row * 7 + dx + igniteSeed) > 0.5) {
+								this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x + dx, y - 1, 1, 1, `rgb(${emberCore.r},${emberCore.g},${emberCore.b})`, flameAlpha * 0.55);
+							}
+						}
+					}
+				}
+
+				if (heat > 0.08) {
+					const glow = ctx.createRadialGradient(x * sx, (baseY - crownH * 0.35) * sy, 0, x * sx, (baseY - crownH * 0.35) * sy, Math.max(16, 9 * sx));
+					glow.addColorStop(0, `rgba(255, 152, 74, ${clamp01(0.08 + heat * 0.22)})`);
+					glow.addColorStop(1, 'rgba(255, 152, 74, 0)');
+					ctx.fillStyle = glow;
+					ctx.fillRect(Math.floor((x - 6) * sx), Math.floor((baseY - crownH - 4) * sy), Math.ceil(12 * sx), Math.ceil((crownH + 8) * sy));
+
+					const tongues = 3 + Math.round(heat * 4);
+					for (let tongue = 0; tongue < tongues; tongue++) {
+						const offset = -1 + tongue - Math.floor(tongues / 2);
+						const flicker = this._hash(36500 + i * 17 + tongue * 5 + igniteSeed);
+						const flameH = 1 + Math.floor(flicker * (2 + heat * 3));
+						const flameY = baseY - Math.floor(1 + flicker * (2 + heat * 3));
+						const flameColor = tongue % 2 === 0 ? emberCore : emberColor;
+						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x + offset, flameY - flameH + 1, 1, flameH, `rgb(${flameColor.r},${flameColor.g},${flameColor.b})`, clamp01(0.3 + heat * 0.5));
+					}
+				}
+
+				if (char > 0.58 || this.timers.ending > 0) {
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x - 1, baseY - Math.min(2, trunkDrawH - 1), 3, 1, `rgb(${charColor.r},${charColor.g},${charColor.b})`, clamp01(0.72 + char * 0.16));
+				}
+
+				sources.push({
+					x,
+					y: baseY - trunkDrawH - Math.max(2, Math.round(crownH * 0.42)),
+					heat,
+					char,
+				});
+			}
+
+			for (const source of sources) {
+				const sourceStrength = Math.max(source.heat, source.char * 0.65);
+				if (sourceStrength <= 0.04) continue;
+				const puffCount = Math.max(2, Math.round((2 + this.cfg.smoke * 8) * (0.45 + sourceStrength * 1.4)));
+				for (let i = 0; i < puffCount; i++) {
+					const life = 34 + Math.floor(this._hash(35800 + source.x * 11 + i) * 34);
+					const age = positiveMod(this.tick + i * 9 + Math.floor(source.x * 2), life);
+					const t = age / Math.max(1, life - 1);
+					const drift = (this._hash(35900 + source.x * 13 + i) * 2 - 1) * (0.8 + t * 4.5);
+					const lift = t * (5 + this.cfg.smoke * 16 + sourceStrength * 7);
+					const x = Math.round(source.x + drift + Math.sin(this.tick * 0.03 + i + source.x * 0.08) * (0.4 + t * 1.8));
+					const y = Math.round(source.y - lift);
+					const alpha = clamp01((0.03 + this.cfg.smoke * 0.18) * (1 - t) * (0.55 + sourceStrength) * sceneLevel);
+					const size = 1 + Math.floor(this._hash(36000 + source.x * 17 + i) * (1 + t * 3));
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, size, 1 + (t > 0.45 ? 1 : 0), `rgb(${smokeTint.r},${smokeTint.g},${smokeTint.b})`, alpha);
+				}
+			}
+
+			for (const source of sources) {
+				if (source.heat <= 0.06) continue;
+				const emberCount = Math.max(2, Math.round(this.cfg.embers * 18 + source.heat * 6));
+				for (let i = 0; i < emberCount; i++) {
+					const life = 24 + Math.floor(this._hash(36100 + source.x * 19 + i) * 26);
+					const age = positiveMod(this.tick + i * 7 + igniteSeed, life);
+					const t = age / Math.max(1, life - 1);
+					const x = Math.round(source.x + (this._hash(36200 + source.x * 23 + i) * 2 - 1) * (1 + t * 4));
+					const y = Math.round(source.y - t * (3 + source.heat * 8));
+					const alpha = clamp01((0.08 + this.cfg.embers * 0.34) * (1 - t) * source.heat);
+					const color = t < 0.35 ? emberCore : emberColor;
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, 1, 1, `rgb(${color.r},${color.g},${color.b})`, alpha);
+				}
+			}
+
+			if (this.timers.ending > 0 || this.timers.lull > 0) {
+				const ashCount = Math.max(8, Math.round(this.w * (0.03 + this.cfg.ending_ash * 0.08)));
+				for (let i = 0; i < ashCount; i++) {
+					const x = Math.round(this._hash(36300 + i) * this.w);
+					const drop = positiveMod(this.tick * (0.18 + this._hash(36400 + i) * 0.22) + i * 2.3, Math.max(8, groundRow - 8));
+					const y = Math.round(Math.max(4, groundRow - 14 + drop));
+					const alpha = clamp01(0.03 + this.cfg.ending_ash * 0.18);
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, 1, 1, `rgb(${ashTint.r},${ashTint.g},${ashTint.b})`, alpha);
+				}
+			}
+		}
+
 		_renderAurora(ctx, canvasW, canvasH, opts) {
 			opts = opts || {};
 			if (opts.transparent) {
@@ -5366,6 +5789,12 @@
 		}
 	}
 
+	class BurningTrees extends ProceduralScene {
+		constructor(w, h, cfg, seed) {
+			super('burning-trees', w, h, cfg, seed);
+		}
+	}
+
 	class Aurora extends ProceduralScene {
 		constructor(w, h, cfg, seed) {
 			super('aurora', w, h, cfg, seed);
@@ -5424,7 +5853,7 @@
 	// server's snapshot payload — the client looks up the constructor here
 	// by name so new effects just register themselves and work without
 	// client-side changes.
-	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, beach: Beach, campfire: Campfire, windmill: Windmill, lighthouse: Lighthouse, rowboat: Rowboat, underwater: Underwater, volcano: Volcano, train: Train, 'mysterious-man': MysteriousMan, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield };
+	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, beach: Beach, campfire: Campfire, windmill: Windmill, lighthouse: Lighthouse, rowboat: Rowboat, underwater: Underwater, volcano: Volcano, train: Train, 'mysterious-man': MysteriousMan, 'burning-trees': BurningTrees, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield };
 	const presets = {
 		'wheat-field': [
 			{
@@ -6297,6 +6726,105 @@
 				},
 			},
 		],
+		'burning-trees': [
+			{
+				key: 'single-ignition',
+				label: 'single ignition',
+				config: {
+					intro_growth: 0.12,
+					ending_ash: 0.14,
+					horizon: 0.84,
+					tree_count: 9,
+					tree_height: 12,
+					canopy: 0.82,
+					spread: 0.9,
+					flame: 0.22,
+					embers: 0.12,
+					smoke: 0.12,
+					char: 0.38,
+					hue: 118,
+					hue_sp: 14,
+					sat: 0.46,
+					lmin: 0.06,
+					lmax: 0.82,
+					ignite_p: 0.0011,
+				},
+			},
+			{
+				key: 'slow-spread',
+				label: 'slow spread',
+				config: {
+					intro_growth: 0.14,
+					ending_ash: 0.12,
+					horizon: 0.84,
+					tree_count: 10,
+					tree_height: 13,
+					canopy: 0.78,
+					spread: 1.35,
+					flame: 0.26,
+					embers: 0.16,
+					smoke: 0.16,
+					char: 0.42,
+					hue: 112,
+					hue_sp: 20,
+					sat: 0.48,
+					lmin: 0.06,
+					lmax: 0.88,
+					ignite_p: 0.0013,
+					lull_p: 0.0007,
+				},
+			},
+			{
+				key: 'smoldering-line',
+				label: 'smoldering line',
+				config: {
+					intro_growth: 0.1,
+					ending_ash: 0.18,
+					horizon: 0.85,
+					tree_count: 11,
+					tree_height: 11.5,
+					canopy: 0.68,
+					spread: 1.1,
+					flame: 0.18,
+					embers: 0.24,
+					smoke: 0.24,
+					char: 0.56,
+					hue: 104,
+					hue_sp: 18,
+					sat: 0.38,
+					lmin: 0.05,
+					lmax: 0.8,
+					ignite_p: 0.001,
+					lull_p: 0.0012,
+					lull_mult: 0.42,
+				},
+			},
+			{
+				key: 'active-burn',
+				label: 'active burn',
+				config: {
+					intro_growth: 0.16,
+					ending_ash: 0.1,
+					horizon: 0.83,
+					tree_count: 12,
+					tree_height: 14,
+					canopy: 0.84,
+					spread: 1.75,
+					flame: 0.34,
+					embers: 0.24,
+					smoke: 0.2,
+					char: 0.48,
+					hue: 108,
+					hue_sp: 24,
+					sat: 0.54,
+					lmin: 0.06,
+					lmax: 0.92,
+					ignite_p: 0.0016,
+					flare_p: 0.0012,
+					flare_mult: 2.1,
+				},
+			},
+		],
 		aurora: [
 			{
 				key: 'green-veil',
@@ -6808,5 +7336,5 @@
 		],
 	};
 
-	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Volcano, Train, MysteriousMan, Aurora, AutumnLeaves, Snow, Starfield, subscribe, applyDefaults, hslToRGB, effects, presets };
+	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Volcano, Train, MysteriousMan, BurningTrees, Aurora, AutumnLeaves, Snow, Starfield, subscribe, applyDefaults, hslToRGB, effects, presets };
 })(window);

@@ -141,6 +141,11 @@ var effectRegistry = map[string]effectDefinition{
 		Schema:     sim.MysteriousManSchema,
 		NewRuntime: newMysteriousManRuntime,
 	},
+	"burning-trees": {
+		Type:       "burning-trees",
+		Schema:     sim.BurningTreesSchema,
+		NewRuntime: newBurningTreesRuntime,
+	},
 }
 
 func lookupEffectDefinition(effectType string) (effectDefinition, bool) {
@@ -335,6 +340,10 @@ func newTrainRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, 
 
 func newMysteriousManRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
 	return newProceduralRuntime("mysterious-man", w, h, seed, cfg)
+}
+
+func newBurningTreesRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
+	return newProceduralRuntime("burning-trees", w, h, seed, cfg)
 }
 
 func (r *rainRuntime) Type() string { return "rain" }
@@ -773,6 +782,8 @@ func (p *proceduralRuntime) Schema() sim.EffectSchema {
 		return sim.TrainSchema()
 	case "mysterious-man":
 		return sim.MysteriousManSchema()
+	case "burning-trees":
+		return sim.BurningTreesSchema()
 	default:
 		return sim.EffectSchema{}
 	}
