@@ -10,13 +10,15 @@ template:
   spec:
     containers:
       - name: runner
-        image: romainecr.azurecr.io/ambience-agent-runner:issue-agents-20260423221714
+        image: romainecr.azurecr.io/ambience-agent-runner:issue-agents-20260424001818
         command:
           - /home/runner/run.sh
         resources:
           requests:
             cpu: "1000m"
             memory: "2Gi"
+            ephemeral-storage: "4Gi"
           limits:
             cpu: "4000m"
             memory: "8Gi"
+            ephemeral-storage: "8Gi"

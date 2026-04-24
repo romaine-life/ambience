@@ -68,11 +68,15 @@ Build and push it with the manual workflow:
 
 - `Build Agent Runner Image`
 
-That image intentionally stays small. The job still installs `@openai/codex` and `playwright` at runtime, but the image provides:
+That image now preinstalls the heavy runtime tooling so issue jobs do less work on every ephemeral runner start. It provides:
 
 - Azure CLI
-- `sudo` so `playwright install --with-deps chromium` can succeed on Linux runners
+- Node.js 22
+- `@openai/codex`
+- Playwright plus Chromium
 - the standard GitHub runner base
+
+The runner scale-set values now also declare `ephemeral-storage` requests and limits so runner pods are less likely to be evicted under disk pressure.
 
 ## ARC scale set
 
