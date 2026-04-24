@@ -39,6 +39,8 @@ jobs:
       FINAL_MESSAGE_FILE: .github/codex/output/final-message.md
       RUN_LOG_FILE: .github/codex/output/run.jsonl
       PROGRESS_LOG_FILE: .github/codex/output/progress.log
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      PLAYWRIGHT_PACKAGE_PATH: /opt/ambience-agent/node_modules/playwright/index.mjs
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -226,12 +228,6 @@ jobs:
             exit 1
           fi
 
-      - name: Set up Node.js
-        if: steps.issue.outputs.should_run == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
       - name: Set up Go
         if: steps.issue.outputs.should_run == 'true'
         uses: actions/setup-go@v5
@@ -251,13 +247,6 @@ jobs:
       - name: Set up Helm
         if: steps.issue.outputs.should_run == 'true'
         uses: azure/setup-helm@v4
-
-      - name: Install Codex and Playwright packages
-        if: steps.issue.outputs.should_run == 'true'
-        run: |
-          set -euo pipefail
-          npm install --no-save @openai/codex playwright
-          npx playwright install --with-deps chromium || npx playwright install chromium
 
       - name: Install ambience preview MCP package
         if: steps.issue.outputs.should_run == 'true'
@@ -345,7 +334,7 @@ jobs:
         run: |
           set -euo pipefail
           prompt="$(cat .github/codex/prompts/issue-implementation.md)"
-          cat "$ISSUE_CONTEXT_FILE" | npx codex exec \
+          cat "$ISSUE_CONTEXT_FILE" | codex exec \
             --ephemeral \
             --sandbox danger-full-access \
             --full-auto \

@@ -1,5 +1,11 @@
 import path from "node:path";
-import { chromium } from "playwright";
+import { pathToFileURL } from "node:url";
+
+const playwrightModule =
+  process.env.PLAYWRIGHT_PACKAGE_PATH
+    ? pathToFileURL(process.env.PLAYWRIGHT_PACKAGE_PATH).href
+    : "playwright";
+const { chromium } = await import(playwrightModule);
 
 function readArg(flag, fallback = "") {
   const index = process.argv.indexOf(flag);
