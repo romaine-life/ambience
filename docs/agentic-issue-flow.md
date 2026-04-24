@@ -49,7 +49,7 @@ If the variable is unset, the workflow falls back to `["codex:run"]`. The workfl
 
 Secrets:
 
-- `OPENAI_API_KEY` or `CODEX_API_KEY`: OpenAI API key used by `codex exec`
+- `OPENAI_API_KEY` or `CODEX_API_KEY`: optional fallback OpenAI API key used by `codex exec`
 - `CODEX_GH_TOKEN`: optional PAT or GitHub App token used when opening PRs; if omitted the workflow falls back to `GITHUB_TOKEN`
 
 Variables:
@@ -59,6 +59,9 @@ Variables:
 - `ARM_SUBSCRIPTION_ID`
 - `AZURE_AKS_RESOURCE_GROUP`
 - `AZURE_AKS_CLUSTER_NAME`
+- `KEY_VAULT_NAME`
+
+The workflow loads the API key from Azure Key Vault secret `openai-api-key` after OIDC login. If that lookup fails or you need an override, it falls back to the GitHub Actions secrets `OPENAI_API_KEY` and then `CODEX_API_KEY`.
 
 ## Runner image
 
