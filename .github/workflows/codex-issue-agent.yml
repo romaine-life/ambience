@@ -201,7 +201,7 @@ jobs:
       - name: Validate job configuration
         if: steps.issue.outputs.should_run == 'true'
         env:
-          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+          CODEX_API_KEY: ${{ secrets.OPENAI_API_KEY != '' && secrets.OPENAI_API_KEY || secrets.CODEX_API_KEY }}
           ARM_CLIENT_ID: ${{ vars.ARM_CLIENT_ID }}
           ARM_TENANT_ID: ${{ vars.ARM_TENANT_ID }}
           ARM_SUBSCRIPTION_ID: ${{ vars.ARM_SUBSCRIPTION_ID }}
@@ -320,7 +320,7 @@ jobs:
       - name: Run Codex implementation loop
         if: steps.issue.outputs.should_run == 'true'
         env:
-          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+          CODEX_API_KEY: ${{ secrets.OPENAI_API_KEY != '' && secrets.OPENAI_API_KEY || secrets.CODEX_API_KEY }}
           ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
           ISSUE_TITLE: ${{ steps.issue.outputs.issue_title }}
           ISSUE_URL: ${{ steps.issue.outputs.issue_url }}

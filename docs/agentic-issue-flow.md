@@ -49,7 +49,7 @@ If the variable is unset, the workflow falls back to `["codex:run"]`. The workfl
 
 Secrets:
 
-- `CODEX_API_KEY`: OpenAI API key used by `codex exec`
+- `OPENAI_API_KEY` or `CODEX_API_KEY`: OpenAI API key used by `codex exec`
 - `CODEX_GH_TOKEN`: optional PAT or GitHub App token used when opening PRs; if omitted the workflow falls back to `GITHUB_TOKEN`
 
 Variables:
