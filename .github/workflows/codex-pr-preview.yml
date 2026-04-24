@@ -93,7 +93,6 @@ jobs:
           az aks get-credentials \
             --resource-group "$AZURE_AKS_RESOURCE_GROUP" \
             --name "$AZURE_AKS_CLUSTER_NAME" \
-            --admin \
             --overwrite-existing
 
       - name: Build preview image
@@ -245,7 +244,6 @@ jobs:
           az aks get-credentials \
             --resource-group "$AZURE_AKS_RESOURCE_GROUP" \
             --name "$AZURE_AKS_CLUSTER_NAME" \
-            --admin \
             --overwrite-existing
 
       - name: Destroy preview
