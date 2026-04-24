@@ -9,3 +9,5 @@
 node_modules/
 /.github/codex/output/
 /.github/codex/tmp/
+mcp/.venv/
+mcp/**/__pycache__/
