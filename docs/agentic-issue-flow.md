@@ -7,19 +7,22 @@ This repo now has a first-pass GitHub-to-Codex-to-k8s issue flow aimed at bounde
 1. A GitHub issue gets a trigger label.
 2. GitHub Actions becomes the queue manager.
 3. The job runs on an ARC-backed self-hosted runner scale set capped at five runners.
-4. Codex implements the issue in the checked-out repo, runs tests, deploys an ephemeral ambience environment in Kubernetes, validates the change, captures screenshots, and hands a structured result back to the workflow.
-5. The workflow wrapper opens a pull request with the screenshots and posts the result back to the issue.
-6. The namespace is deleted at the end of the run.
+4. Codex implements the issue in the checked-out repo, runs tests, uses the repo-local `ambience_preview` MCP server for the exact build/deploy/screenshot commands, and hands a structured result back to the workflow.
+5. The workflow opens a pull request with the screenshots and posts the result back to the issue.
+6. A separate pull-request workflow builds and publishes a long-lived preview at `pr-<number>.ambience.dev.romaine.life`.
+7. The scratch validation namespace is deleted at the end of the issue run, while the PR preview stays up until the PR closes.
 
 Because each job owns one runner and one namespace, a `maxRunners: 5` scale set also caps us at five concurrent ephemeral environments.
 
 ## Files added for this flow
 
 - `.github/workflows/codex-issue-agent.yml`
+- `.github/workflows/codex-pr-preview.yml`
 - `.github/workflows/build-agent-runner-image.yml`
 - `.github/codex/prompts/issue-implementation.md`
 - `.github/codex/issue-result.schema.json`
 - `.github/runner/Dockerfile`
+- `mcp/`
 - `scripts/agent/*.sh`
 - `scripts/agent/capture-screenshot.mjs`
 - `k8s/arc/values-issue-agents.yaml`
@@ -94,7 +97,19 @@ helm upgrade --install ambience-issue-agents \
 
 This setup targets the runner scale set by name (`ambience-issue-agents`) instead of extra ARC labels. That keeps it compatible with the controller/chart version currently running in the cluster.
 
-## Ephemeral environment behavior
+## Agent MCP server
+
+The issue automation now installs a small repo-local Python MCP server from `mcp/` before it launches `codex exec`.
+
+That server gives Codex exact, typed tools for the fixed preview operations:
+
+- `build_preview_image`
+- `deploy_validation_preview`
+- `capture_validation_screenshot`
+
+The point is to move the exact build/deploy/screenshot command lines behind a stable tool surface instead of making the model reconstruct them from prompt text on every run.
+
+## Ephemeral validation behavior
 
 Each run uses:
 
@@ -102,7 +117,20 @@ Each run uses:
 - a fixed Helm release name inside that namespace
 - a unique image tag built from the current branch contents
 
-The deploy helper disables public gateway resources by default and keeps the validation environment internal-only. The workflow validates through `kubectl port-forward`, which avoids burning public DNS names for short-lived runs.
+The validation deploy stays internal-only. Codex validates through the MCP server, which deploys the chart without public gateway resources and captures screenshots through a temporary `kubectl port-forward`.
+
+## PR preview behavior
+
+When the issue workflow opens a pull request, `Codex PR Preview` takes over the long-lived review environment:
+
+- build an image for the PR head SHA
+- deploy it to `ambience-pr-<number>`
+- expose `https://pr-<number>.ambience.dev.romaine.life`
+- let external-dns publish the record from the `HTTPRoute`
+- update the preview on `pull_request.synchronize`
+- delete the namespace on `pull_request.closed`
+
+Preview cleanup is intentionally non-agentic and deterministic.
 
 ## Security notes
 
@@ -126,7 +154,8 @@ Strongly recommended:
 
 1. Label a bounded issue with `codex:run`.
 2. Wait for the ARC runner to scale up and pick up the job.
-3. Review the PR that the workflow opens.
-4. Re-label or manually dispatch if you want another pass.
+3. Review the PR that the workflow opens and use the PR preview URL that the preview workflow comments back.
+4. Close the PR when you are done; the preview namespace will be removed automatically.
+5. Re-label or manually dispatch if you want another pass.
 
 If the run is blocked, the workflow comments back on the issue instead of guessing.

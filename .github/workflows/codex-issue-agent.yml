@@ -238,6 +238,12 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Set up Python
+        if: steps.issue.outputs.should_run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Set up kubectl
         if: steps.issue.outputs.should_run == 'true'
         uses: azure/setup-kubectl@v4
@@ -252,6 +258,38 @@ jobs:
           set -euo pipefail
           npm install --no-save @openai/codex playwright
           npx playwright install --with-deps chromium || npx playwright install chromium
+
+      - name: Install ambience preview MCP package
+        if: steps.issue.outputs.should_run == 'true'
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install ./mcp
+
+      - name: Configure Codex MCP server
+        if: steps.issue.outputs.should_run == 'true'
+        env:
+          WORKSPACE: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.codex"
+          python <<'PY'
+          import os
+          from pathlib import Path
+
+          workspace = os.environ["WORKSPACE"]
+          config = f"""[projects.'{workspace}']
+          trust_level = "trusted"
+
+          [mcp_servers.ambience_preview]
+          command = "python"
+          args = ["-m", "ambience_preview.mcp_server"]
+          cwd = "{workspace}"
+          """
+          config_path = Path.home() / ".codex" / "config.toml"
+          config_path.write_text(config, encoding="utf-8")
+          print(config_path)
+          PY
 
       - name: Azure Login (OIDC)
         if: steps.issue.outputs.should_run == 'true'
@@ -453,7 +491,7 @@ jobs:
           EPHEMERAL_RELEASE: ${{ env.EPHEMERAL_RELEASE }}
         run: |
           set -euo pipefail
-          bash scripts/agent/destroy-env.sh "$EPHEMERAL_NAMESPACE" "$EPHEMERAL_RELEASE"
+          python -m ambience_preview.cli destroy-validation-preview
 
       - name: Comment on failure
         if: failure() && steps.issue.outputs.should_run == 'true'

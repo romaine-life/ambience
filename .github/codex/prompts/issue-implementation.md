@@ -20,17 +20,23 @@ Environment variables you can rely on:
 - `EPHEMERAL_RELEASE`
 - `ARTIFACT_DIR`
 
-Use these repo-native helpers for runtime validation:
-- `bash scripts/agent/build-image.sh "$IMAGE_TAG"`
-- `bash scripts/agent/deploy-env.sh "$EPHEMERAL_NAMESPACE" "$IMAGE" "$EPHEMERAL_RELEASE"`
-- `bash scripts/agent/capture-screenshot.sh "$EPHEMERAL_NAMESPACE" "/path" "$ARTIFACT_DIR/file.png"`
+Use the `ambience_preview` MCP server for fixed platform operations:
+- `build_preview_image`
+- `deploy_validation_preview`
+- `capture_validation_screenshot`
+
+Those tools encode the exact build, deploy, and screenshot commands for this repo. Prefer them over ad hoc `az`, `helm`, `kubectl`, or Playwright command lines unless the MCP server is unavailable.
+
+Preview lifecycle rules:
+- Your run-scoped validation namespace is scratch space. The workflow tears it down after the run.
+- The long-lived public PR preview is handled by a separate pull-request workflow after the PR opens, and it is cleaned up automatically when the PR closes.
 
 Validation rules:
 - Prefer the narrowest useful test loop, but run the checks needed to justify the change.
 - For browser-facing work, capture at least one screenshot from the route you validated.
 - For non-visual work, still deploy and smoke-test the most relevant route if the issue can be exercised there.
-- Do not tear down the ephemeral namespace; the workflow wrapper handles cleanup.
-- Do not push branches or open the pull request yourself; the workflow wrapper handles git push and PR creation after you finish.
+- Do not tear down the ephemeral namespace; the workflow handles cleanup.
+- Do not push branches or open the pull request yourself; the workflow handles git push and PR creation after you finish.
 
 When you finish, your final response must match the configured JSON schema:
 - `status`: use `ready_for_pr`, `needs_human_input`, or `no_change`
