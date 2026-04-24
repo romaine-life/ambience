@@ -292,7 +292,6 @@ jobs:
         if: steps.issue.outputs.should_run == 'true'
         env:
           KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
-          FALLBACK_CODEX_API_KEY: ${{ secrets.OPENAI_API_KEY != '' && secrets.OPENAI_API_KEY || secrets.CODEX_API_KEY }}
         shell: bash
         run: |
           set -euo pipefail
@@ -303,10 +302,7 @@ jobs:
               -o tsv \
               2>/dev/null || true)"
           if [ -z "$codex_api_key" ]; then
-            codex_api_key="${FALLBACK_CODEX_API_KEY:-}"
-          fi
-          if [ -z "$codex_api_key" ]; then
-            echo "Unable to load a Codex API key from GitHub Actions secrets or Azure Key Vault secret 'openai-api-key'." >&2
+            echo "Unable to load a Codex API key from Azure Key Vault secret 'openai-api-key'." >&2
             exit 1
           fi
           echo "::add-mask::$codex_api_key"
@@ -344,7 +340,6 @@ jobs:
       - name: Run Codex implementation loop
         if: steps.issue.outputs.should_run == 'true'
         env:
-          CODEX_API_KEY: ${{ secrets.OPENAI_API_KEY != '' && secrets.OPENAI_API_KEY || secrets.CODEX_API_KEY }}
           ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
           ISSUE_TITLE: ${{ steps.issue.outputs.issue_title }}
           ISSUE_URL: ${{ steps.issue.outputs.issue_url }}
@@ -441,7 +436,7 @@ jobs:
         id: cpr
         uses: peter-evans/create-pull-request@v8
         with:
-          token: ${{ secrets.CODEX_GH_TOKEN != '' && secrets.CODEX_GH_TOKEN || github.token }}
+          token: ${{ github.token }}
           branch: ${{ steps.issue.outputs.branch_name }}
           base: ${{ steps.issue.outputs.default_branch }}
           commit-message: "Codex: address issue #${{ steps.issue.outputs.issue_number }}"
