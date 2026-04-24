@@ -201,21 +201,21 @@ jobs:
       - name: Validate job configuration
         if: steps.issue.outputs.should_run == 'true'
         env:
-          CODEX_API_KEY: ${{ secrets.OPENAI_API_KEY != '' && secrets.OPENAI_API_KEY || secrets.CODEX_API_KEY }}
           ARM_CLIENT_ID: ${{ vars.ARM_CLIENT_ID }}
           ARM_TENANT_ID: ${{ vars.ARM_TENANT_ID }}
           ARM_SUBSCRIPTION_ID: ${{ vars.ARM_SUBSCRIPTION_ID }}
           AZURE_AKS_RESOURCE_GROUP: ${{ vars.AZURE_AKS_RESOURCE_GROUP }}
           AZURE_AKS_CLUSTER_NAME: ${{ vars.AZURE_AKS_CLUSTER_NAME }}
+          KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
         run: |
           set -euo pipefail
           required_vars=(
-            CODEX_API_KEY
             ARM_CLIENT_ID
             ARM_TENANT_ID
             ARM_SUBSCRIPTION_ID
             AZURE_AKS_RESOURCE_GROUP
             AZURE_AKS_CLUSTER_NAME
+            KEY_VAULT_NAME
           )
           missing=()
           for name in "${required_vars[@]}"; do
@@ -287,6 +287,30 @@ jobs:
           client-id: ${{ vars.ARM_CLIENT_ID }}
           tenant-id: ${{ vars.ARM_TENANT_ID }}
           subscription-id: ${{ vars.ARM_SUBSCRIPTION_ID }}
+
+      - name: Load Codex API key
+        if: steps.issue.outputs.should_run == 'true'
+        env:
+          KEY_VAULT_NAME: ${{ vars.KEY_VAULT_NAME }}
+          FALLBACK_CODEX_API_KEY: ${{ secrets.OPENAI_API_KEY != '' && secrets.OPENAI_API_KEY || secrets.CODEX_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          codex_api_key="$(az keyvault secret show \
+              --vault-name "$KEY_VAULT_NAME" \
+              --name openai-api-key \
+              --query value \
+              -o tsv \
+              2>/dev/null || true)"
+          if [ -z "$codex_api_key" ]; then
+            codex_api_key="${FALLBACK_CODEX_API_KEY:-}"
+          fi
+          if [ -z "$codex_api_key" ]; then
+            echo "Unable to load a Codex API key from GitHub Actions secrets or Azure Key Vault secret 'openai-api-key'." >&2
+            exit 1
+          fi
+          echo "::add-mask::$codex_api_key"
+          printf 'CODEX_API_KEY=%s\n' "$codex_api_key" >> "$GITHUB_ENV"
 
       - name: Set AKS context
         if: steps.issue.outputs.should_run == 'true'
