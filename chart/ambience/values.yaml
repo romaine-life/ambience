@@ -15,6 +15,7 @@ gateway:
     kind: Gateway
     name: main
     namespace: envoy-gateway-system
+  listenerSetEnabled: true
   listenerSetName: ambience
   listenerName: https
 
