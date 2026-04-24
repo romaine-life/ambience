@@ -1,0 +1,53 @@
+name: Build Agent Runner Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to publish. Leave blank to use the current short SHA."
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: build-agent-runner-image
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    name: Build agent runner image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.ARM_CLIENT_ID }}
+          tenant-id: ${{ vars.ARM_TENANT_ID }}
+          subscription-id: ${{ vars.ARM_SUBSCRIPTION_ID }}
+
+      - name: Resolve image tag
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.image_tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="$(git rev-parse --short=7 HEAD)"
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "Publishing romainecr.azurecr.io/ambience-agent-runner:${TAG}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build and push runner image
+        run: |
+          set -euo pipefail
+          az acr build \
+            --registry romainecr \
+            --image "ambience-agent-runner:${TAG}" \
+            --file .github/runner/Dockerfile \
+            .

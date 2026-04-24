@@ -1,0 +1,22 @@
+githubConfigUrl: "https://github.com/nelsong6/ambience"
+githubConfigSecret: arc-github-app
+
+maxRunners: 5
+minRunners: 0
+
+runnerScaleSetName: "ambience-issue-agents"
+
+template:
+  spec:
+    containers:
+      - name: runner
+        image: romainecr.azurecr.io/ambience-agent-runner:issue-agents-20260423221714
+        command:
+          - /home/runner/run.sh
+        resources:
+          requests:
+            cpu: "1000m"
+            memory: "2Gi"
+          limits:
+            cpu: "4000m"
+            memory: "8Gi"

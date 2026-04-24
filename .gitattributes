@@ -1,0 +1,5 @@
+.github/** text eol=lf
+chart/** text eol=lf
+docs/agentic-issue-flow.md text eol=lf
+k8s/** text eol=lf
+scripts/agent/** text eol=lf

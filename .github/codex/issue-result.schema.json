@@ -1,0 +1,46 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["ready_for_pr", "needs_human_input", "no_change"]
+    },
+    "pr_title": {
+      "type": "string"
+    },
+    "change_summary": {
+      "type": "string"
+    },
+    "testing": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "validation_notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "screenshots": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "issue_comment": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "pr_title",
+    "change_summary",
+    "testing",
+    "validation_notes",
+    "screenshots",
+    "issue_comment"
+  ],
+  "additionalProperties": false
+}
