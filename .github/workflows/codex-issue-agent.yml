@@ -473,7 +473,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Tear down ephemeral environment
-        if: always() && steps.issue.outputs.should_run == 'true'
+        if: always() && steps.issue.outputs.should_run == 'true' && env.EPHEMERAL_NAMESPACE != ''
         env:
           EPHEMERAL_NAMESPACE: ${{ env.EPHEMERAL_NAMESPACE }}
           EPHEMERAL_RELEASE: ${{ env.EPHEMERAL_RELEASE }}
