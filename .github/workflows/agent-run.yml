@@ -204,14 +204,27 @@ jobs:
       - name: Apply agent Job
         run: |
           set -euo pipefail
+          # Scope envsubst to ONLY the workflow-set templating vars. Without
+          # this, every `${VAR}` in the rendered YAML — including bash-script
+          # references like ${REPO_SLUG}, ${GH_TOKEN}, ${HOME} — gets blanked
+          # out, because envsubst can't find them in the workflow shell env.
+          # The Job's bash command needs those to stay literal so the
+          # container's shell evaluates them at runtime.
           export ISSUE_NUMBER ISSUE_TITLE ISSUE_URL VALIDATION_URL BRANCH_NAME NAMESPACE JOB_NAME PROXY_IP CLAUDE_CONTAINER_TAG
-          envsubst < .github/agent/job.yaml | kubectl apply -f -
+          envsubst '$ISSUE_NUMBER $ISSUE_TITLE $ISSUE_URL $VALIDATION_URL $BRANCH_NAME $NAMESPACE $JOB_NAME $PROXY_IP $CLAUDE_CONTAINER_TAG' \
+            < .github/agent/job.yaml | kubectl apply -f -
 
       - name: Stream + wait for Job
         id: job
         run: |
           set -euo pipefail
-          # Stream logs until the Job's Pod terminates.
+          # Wait for the Job's pod to appear, then `kubectl logs -f` blocks
+          # until the pod terminates (success or failure). After that, check
+          # `.status.succeeded` directly — the Job's `Complete` condition
+          # only fires on success, so a failed Job would have made
+          # `kubectl wait --for=condition=complete` block all the way to its
+          # 30-minute timeout. Counting succeeded pods is monotonic and
+          # works for either outcome.
           pod=""
           for _ in $(seq 1 30); do
             pod=$(kubectl -n "${NAMESPACE}" get pods -l "job-name=${JOB_NAME}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
@@ -223,12 +236,15 @@ jobs:
             exit 1
           fi
           kubectl -n "${NAMESPACE}" logs -f "$pod" || true
-          # Wait on Job conditions; one of complete or failed lands.
-          kubectl -n "${NAMESPACE}" wait --for=condition=complete --timeout=30m "job/${JOB_NAME}" && exit 0
-          kubectl -n "${NAMESPACE}" wait --for=condition=failed --timeout=10s "job/${JOB_NAME}" && {
-            echo "::error::agent Job failed"
-            exit 1
-          }
+
+          succeeded=$(kubectl -n "${NAMESPACE}" get job "${JOB_NAME}" -o jsonpath='{.status.succeeded}' 2>/dev/null || echo 0)
+          failed=$(kubectl -n "${NAMESPACE}" get job "${JOB_NAME}" -o jsonpath='{.status.failed}' 2>/dev/null || echo 0)
+          if [ "${succeeded:-0}" -ge 1 ]; then
+            echo "agent Job succeeded (succeeded=${succeeded})"
+            exit 0
+          fi
+          echo "::error::agent Job failed (failed=${failed:-0})"
+          exit 1
 
       - name: Open pull request
         if: success()
