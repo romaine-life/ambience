@@ -17,7 +17,15 @@ and produce a coherent commit on the agent branch.
    ambience deployment running the image you'll be modifying. The
    `cmd/ambience/web/*` static path is overridable via the dev-loop
    pattern; effect work usually wants `/dev/<effect>`.
-4. Stage all changes with `git add` and exit cleanly. The wrapper script
+4. Decide which page paths the reviewer should see screenshots of and
+   write them to
+   `.github/agent-artifacts/issue-${ISSUE_NUMBER}/screenshot-paths.json`
+   as `{"paths": ["/dev/<effect>", ...]}`. The wrapper rebuilds the
+   validation env from your pushed branch, captures each path with
+   Playwright, uploads the PNGs to blob storage, and embeds the URLs in
+   the PR body — your only job here is to choose the paths. Commit this
+   file alongside your code changes; do **not** commit any PNGs.
+5. Stage all changes with `git add` and exit cleanly. The wrapper script
    commits and pushes the branch when you finish; if you produce no
    changes, the job will fail and the PR will not open.
 
