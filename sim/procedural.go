@@ -353,6 +353,37 @@ var underwaterDefaults = ProceduralConfig{
 	"calm_mult":          0.55,
 }
 
+var volcanoDefaults = ProceduralConfig{
+	"intro_dur":         55,
+	"intro_glow":        0.16,
+	"ending_dur":        70,
+	"ending_linger":     22,
+	"ending_glow":       0.10,
+	"horizon":           0.86,
+	"cone_height":       28.0,
+	"cone_width":        46.0,
+	"crater_width":      8.0,
+	"slope_jitter":      1.6,
+	"glow":              0.55,
+	"smoke":             0.32,
+	"smoke_height":      18.0,
+	"hue":               18,
+	"hue_sp":            16,
+	"sat":               0.78,
+	"lmin":              0.18,
+	"lmax":              0.92,
+	"eruption_p":        0.0,
+	"smolder_p":         0.0,
+	"flare_p":           0.0,
+	"eruption_dur":      80,
+	"eruption_height":   28.0,
+	"eruption_mult":     2.4,
+	"smolder_dur":       80,
+	"smolder_mult":      0.55,
+	"flare_dur":         24,
+	"flare_mult":        1.85,
+}
+
 func SnowSchema() EffectSchema {
 	return EffectSchema{
 		Name: "snow",
@@ -989,6 +1020,70 @@ func UnderwaterSchema() EffectSchema {
 	}
 }
 
+func VolcanoSchema() EffectSchema {
+	return EffectSchema{
+		Name: "volcano",
+		Knobs: []Knob{
+			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 10, Max: 200, Step: 5, Default: 55, Trigger: "intro",
+				Description: "Ticks spent kindling crater glow and smoke hints before pressure builds."},
+			{Key: "intro_glow", Label: "intro glow", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0.05, Max: 0.5, Step: 0.01, Default: 0.16,
+				Description: "Starting fraction of the crater glow before the mountain settles into idle pressure."},
+			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 70, Trigger: "ending",
+				Description: "Ticks spent tapering eruptions back toward a quiet simmer."},
+			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 160, Step: 5, Default: 22,
+				Description: "Extra quiet ticks for ash and embers to fall back to the cone."},
+			{Key: "ending_glow", Label: "ending glow", Slot: SlotEnd, Group: "ending", Type: KnobFloat, Min: 0.02, Max: 0.4, Step: 0.01, Default: 0.10,
+				Description: "Residual crater glow that remains near the end of the outro."},
+			{Key: "horizon", Label: "horizon", Slot: SlotLever, Group: "mountain", Type: KnobFloat, Min: 0.6, Max: 0.95, Step: 0.01, Default: 0.86,
+				Description: "Where the mountain base sits in the frame."},
+			{Key: "cone_height", Label: "cone height", Slot: SlotLever, Group: "mountain", Type: KnobFloat, Min: 12, Max: 44, Step: 1, Default: 28,
+				Description: "Height of the volcano silhouette above the base."},
+			{Key: "cone_width", Label: "cone width", Slot: SlotLever, Group: "mountain", Type: KnobFloat, Min: 22, Max: 70, Step: 1, Default: 46,
+				Description: "Base width of the cone silhouette."},
+			{Key: "crater_width", Label: "crater", Slot: SlotLever, Group: "mountain", Type: KnobFloat, Min: 4, Max: 18, Step: 0.5, Default: 8,
+				Description: "Width of the glowing crater notch at the cone's summit."},
+			{Key: "slope_jitter", Label: "slope rough", Slot: SlotLever, Group: "mountain", Type: KnobFloat, Min: 0, Max: 4, Step: 0.1, Default: 1.6,
+				Description: "Per-column jitter applied to the silhouette so the slopes read as rocky rather than perfect."},
+			{Key: "glow", Label: "crater glow", Slot: SlotLever, Group: "vent", Type: KnobFloat, Min: 0.05, Max: 1, Step: 0.01, Default: 0.55,
+				Description: "Strength of the warm glow rising out of the crater during idle."},
+			{Key: "smoke", Label: "smoke", Slot: SlotLever, Group: "vent", Type: KnobFloat, Min: 0, Max: 0.9, Step: 0.01, Default: 0.32,
+				Description: "How much smoke continually rises from the crater during idle."},
+			{Key: "smoke_height", Label: "smoke height", Slot: SlotLever, Group: "vent", Type: KnobFloat, Min: 6, Max: 40, Step: 1, Default: 18,
+				Description: "How far smoke trails rise above the crater before fading."},
+			{Key: "hue", Label: "hue", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 60, Step: 1, Default: 18,
+				Description: "Base lava and crater hue. Lower values warm toward red; higher values lean orange."},
+			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 36, Step: 1, Default: 16,
+				Description: "Variation across crater core, lava sparks, and smoke tinting."},
+			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.2, Max: 1, Step: 0.01, Default: 0.78,
+				Description: "Overall saturation of the lava and crater glow."},
+			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.6, Step: 0.01, Default: 0.18,
+				Description: "Minimum lightness used for the cone silhouette and dim smoke."},
+			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.4, Max: 1, Step: 0.01, Default: 0.92,
+				Description: "Maximum lightness used for the brightest lava sparks at peak eruption."},
+			{Key: "eruption_p", Label: "eruption", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.01, Step: 0.0002, Default: 0, Trigger: "eruption",
+				Description: "Per-tick chance of a full eruption blasting lava sparks and ash above the crater."},
+			{Key: "smolder_p", Label: "smolder", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "smolder",
+				Description: "Per-tick chance of the mountain settling into a quieter, dimmer simmer."},
+			{Key: "flare_p", Label: "flare", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "flare",
+				Description: "Per-tick chance of a brief crater flare without the full eruption arc."},
+			{Key: "eruption_dur", Label: "eruption dur", Slot: SlotEventMod, Group: "eruption", Type: KnobInt, Min: 20, Max: 220, Step: 5, Default: 80,
+				Description: "Duration of an eruption in ticks (jittered by +/-30%)."},
+			{Key: "eruption_height", Label: "eruption arc", Slot: SlotEventMod, Group: "eruption", Type: KnobFloat, Min: 8, Max: 60, Step: 1, Default: 28,
+				Description: "How far above the crater lava sparks reach at peak eruption."},
+			{Key: "eruption_mult", Label: "eruption x", Slot: SlotEventMod, Group: "eruption", Type: KnobFloat, Min: 1.1, Max: 4, Step: 0.05, Default: 2.4,
+				Description: "Glow and spark multiplier applied while an eruption is active."},
+			{Key: "smolder_dur", Label: "smolder dur", Slot: SlotEventMod, Group: "smolder", Type: KnobInt, Min: 20, Max: 240, Step: 5, Default: 80,
+				Description: "Duration of the quieter smoldering window."},
+			{Key: "smolder_mult", Label: "smolder x", Slot: SlotEventMod, Group: "smolder", Type: KnobFloat, Min: 0.1, Max: 1, Step: 0.05, Default: 0.55,
+				Description: "Glow and smoke multiplier applied while smolder is active."},
+			{Key: "flare_dur", Label: "flare dur", Slot: SlotEventMod, Group: "flare", Type: KnobInt, Min: 6, Max: 80, Step: 2, Default: 24,
+				Description: "Duration of a brief crater flare."},
+			{Key: "flare_mult", Label: "flare x", Slot: SlotEventMod, Group: "flare", Type: KnobFloat, Min: 1.05, Max: 3, Step: 0.05, Default: 1.85,
+				Description: "Glow multiplier applied during a flare."},
+		},
+	}
+}
+
 func cloneProceduralConfig(src ProceduralConfig) ProceduralConfig {
 	if src == nil {
 		return ProceduralConfig{}
@@ -1051,6 +1146,8 @@ func proceduralDefaults(kind string) ProceduralConfig {
 		return cloneProceduralConfig(rowboatDefaults)
 	case "underwater":
 		return cloneProceduralConfig(underwaterDefaults)
+	case "volcano":
+		return cloneProceduralConfig(volcanoDefaults)
 	default:
 		return ProceduralConfig{}
 	}
@@ -1773,6 +1870,81 @@ func mergeProceduralDefaults(kind string, cfg ProceduralConfig) ProceduralConfig
 		if out["calm_mult"] <= 0 {
 			out["calm_mult"] = underwaterDefaults["calm_mult"]
 		}
+	case "volcano":
+		if out["intro_dur"] <= 0 {
+			out["intro_dur"] = volcanoDefaults["intro_dur"]
+		}
+		out["intro_glow"] = clamp01(out["intro_glow"])
+		if out["ending_dur"] <= 0 {
+			out["ending_dur"] = volcanoDefaults["ending_dur"]
+		}
+		if out["ending_linger"] < 0 {
+			out["ending_linger"] = 0
+		}
+		out["ending_glow"] = clamp01(out["ending_glow"])
+		if out["horizon"] <= 0 {
+			out["horizon"] = volcanoDefaults["horizon"]
+		}
+		if out["cone_height"] <= 0 {
+			out["cone_height"] = volcanoDefaults["cone_height"]
+		}
+		if out["cone_width"] <= 0 {
+			out["cone_width"] = volcanoDefaults["cone_width"]
+		}
+		if out["crater_width"] <= 0 {
+			out["crater_width"] = volcanoDefaults["crater_width"]
+		}
+		if out["slope_jitter"] < 0 {
+			out["slope_jitter"] = 0
+		}
+		if out["glow"] <= 0 {
+			out["glow"] = volcanoDefaults["glow"]
+		}
+		if out["smoke"] < 0 {
+			out["smoke"] = 0
+		}
+		if out["smoke_height"] <= 0 {
+			out["smoke_height"] = volcanoDefaults["smoke_height"]
+		}
+		if out["hue"] < 0 {
+			out["hue"] = volcanoDefaults["hue"]
+		}
+		if out["hue_sp"] < 0 {
+			out["hue_sp"] = 0
+		}
+		if out["sat"] <= 0 {
+			out["sat"] = volcanoDefaults["sat"]
+		}
+		if out["lmin"] <= 0 {
+			out["lmin"] = volcanoDefaults["lmin"]
+		}
+		if out["lmax"] <= 0 {
+			out["lmax"] = volcanoDefaults["lmax"]
+		}
+		if out["lmax"] < out["lmin"] {
+			out["lmin"], out["lmax"] = out["lmax"], out["lmin"]
+		}
+		if out["eruption_dur"] <= 0 {
+			out["eruption_dur"] = volcanoDefaults["eruption_dur"]
+		}
+		if out["eruption_height"] <= 0 {
+			out["eruption_height"] = volcanoDefaults["eruption_height"]
+		}
+		if out["eruption_mult"] <= 0 {
+			out["eruption_mult"] = volcanoDefaults["eruption_mult"]
+		}
+		if out["smolder_dur"] <= 0 {
+			out["smolder_dur"] = volcanoDefaults["smolder_dur"]
+		}
+		if out["smolder_mult"] <= 0 {
+			out["smolder_mult"] = volcanoDefaults["smolder_mult"]
+		}
+		if out["flare_dur"] <= 0 {
+			out["flare_dur"] = volcanoDefaults["flare_dur"]
+		}
+		if out["flare_mult"] <= 0 {
+			out["flare_mult"] = volcanoDefaults["flare_mult"]
+		}
 	}
 	return out
 }
@@ -2091,6 +2263,24 @@ func (p *Procedural) TriggerEvent(name string) bool {
 			return false
 		}
 		return true
+	case "volcano":
+		switch name {
+		case "eruption":
+			p.startVolcanoEruptionLocked("triggered")
+		case "smolder":
+			p.startVolcanoSmolderLocked("triggered")
+		case "flare":
+			p.startVolcanoFlareLocked("triggered")
+		case "intro":
+			p.startVolcanoIntroLocked()
+			p.appendLog("intro", fmt.Sprintf("started (dur=%d, glow=%.2f)", p.timers["intro"], p.cfg["intro_glow"]))
+		case "ending":
+			p.startVolcanoEndingLocked()
+			p.appendLog("ending", fmt.Sprintf("started (fade=%d, linger=%d)", p.intCfg("ending_dur"), p.intCfg("ending_linger")))
+		default:
+			return false
+		}
+		return true
 	default:
 		return false
 	}
@@ -2148,6 +2338,8 @@ func (p *Procedural) Step() {
 		p.stepRowboatLocked()
 	case "underwater":
 		p.stepUnderwaterLocked()
+	case "volcano":
+		p.stepVolcanoLocked()
 	}
 }
 
@@ -2886,5 +3078,79 @@ func (p *Procedural) stepUnderwaterLocked() {
 	}
 	if p.timers["calm"] <= 0 && p.timers["current-shift"] <= 0 && p.cfg["calm_p"] > 0 && p.rng.Float64() < p.cfg["calm_p"] {
 		p.startUnderwaterCalmLocked("started")
+	}
+}
+
+func (p *Procedural) startVolcanoEruptionLocked(verb string) {
+	p.timers["eruption"] = jitterInt(p.rng, p.intCfg("eruption_dur"), 0.3)
+	p.timers["smolder"] = 0
+	p.values["eruption_gain"] = p.cfg["eruption_mult"] * (0.8 + p.rng.Float64()*0.45)
+	p.values["eruption_seed"] = p.rng.Float64() * 1024
+	p.appendLog("eruption", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["eruption"], p.values["eruption_gain"]))
+}
+
+func (p *Procedural) startVolcanoSmolderLocked(verb string) {
+	p.timers["smolder"] = jitterInt(p.rng, p.intCfg("smolder_dur"), 0.3)
+	p.timers["eruption"] = 0
+	p.values["eruption_gain"] = 1
+	p.appendLog("smolder", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["smolder"], p.cfg["smolder_mult"]))
+}
+
+func (p *Procedural) startVolcanoFlareLocked(verb string) {
+	p.timers["flare"] = jitterInt(p.rng, p.intCfg("flare_dur"), 0.3)
+	p.values["flare_gain"] = p.cfg["flare_mult"] * (0.85 + p.rng.Float64()*0.3)
+	p.appendLog("flare", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["flare"], p.values["flare_gain"]))
+}
+
+func (p *Procedural) startVolcanoIntroLocked() {
+	p.timers["eruption"] = 0
+	p.timers["smolder"] = 0
+	p.timers["flare"] = 0
+	p.timers["ending"] = 0
+	p.values["eruption_gain"] = 1
+	p.values["flare_gain"] = 1
+	p.timers["intro"] = p.intCfg("intro_dur")
+	p.values["intro_total"] = float64(p.timers["intro"])
+}
+
+func (p *Procedural) startVolcanoEndingLocked() {
+	p.timers["intro"] = 0
+	p.timers["eruption"] = 0
+	p.timers["smolder"] = 0
+	p.timers["flare"] = 0
+	p.values["eruption_gain"] = 1
+	p.values["flare_gain"] = 1
+	endingTotal := p.intCfg("ending_dur") + max(0, p.intCfg("ending_linger"))
+	if endingTotal < 1 {
+		endingTotal = max(1, p.intCfg("ending_dur"))
+	}
+	p.timers["ending"] = endingTotal
+	p.values["ending_total"] = float64(endingTotal)
+}
+
+func (p *Procedural) stepVolcanoLocked() {
+	if p.timers["eruption"] <= 0 {
+		p.values["eruption_gain"] = 1
+	}
+	if p.timers["flare"] <= 0 {
+		p.values["flare_gain"] = 1
+	}
+	if p.timers["intro"] <= 0 {
+		delete(p.values, "intro_total")
+	}
+	if p.timers["ending"] <= 0 {
+		delete(p.values, "ending_total")
+	}
+	if p.timers["intro"] > 0 || p.timers["ending"] > 0 {
+		return
+	}
+	if p.timers["eruption"] <= 0 && p.timers["smolder"] <= 0 && p.cfg["eruption_p"] > 0 && p.rng.Float64() < p.cfg["eruption_p"] {
+		p.startVolcanoEruptionLocked("started")
+	}
+	if p.timers["smolder"] <= 0 && p.timers["eruption"] <= 0 && p.cfg["smolder_p"] > 0 && p.rng.Float64() < p.cfg["smolder_p"] {
+		p.startVolcanoSmolderLocked("started")
+	}
+	if p.timers["flare"] <= 0 && p.cfg["flare_p"] > 0 && p.rng.Float64() < p.cfg["flare_p"] {
+		p.startVolcanoFlareLocked("started")
 	}
 }
