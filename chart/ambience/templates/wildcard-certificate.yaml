@@ -1,0 +1,25 @@
+{{- if .Values.wildcardCertificate.enabled }}
+{{- /*
+Wildcard cert covering the dev base host and all per-issue / per-PR
+ephemeral hostnames under *.ambience.dev.romaine.life. Issued via the
+DNS-01 ClusterIssuer (HTTP-01 cannot do wildcards). The resulting Secret
+is consumed by the wildcard XListenerSet in this same namespace; ephemeral
+namespaces don't need their own cert.
+*/}}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.wildcardCertificate.tlsSecretName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ambience.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.wildcardCertificate.tlsSecretName }}
+  issuerRef:
+    name: {{ .Values.wildcardCertificate.issuerRef.name }}
+    kind: {{ .Values.wildcardCertificate.issuerRef.kind }}
+  dnsNames:
+    {{- range .Values.wildcardCertificate.hosts }}
+    - {{ . | quote }}
+    {{- end }}
+{{- end }}

@@ -1,9 +1,25 @@
 domain:
   host: ambience.dev.romaine.life
-  tlsSecretName: ambience-dev-tls
+  tlsSecretName: ambience-wildcard-tls
 
 image:
   tag: 38391ed
+
+# Dev no longer provisions its own per-host cert + listener — it shares the
+# wildcard infrastructure below with all ephemeral environments under
+# *.ambience.dev.romaine.life.
+certificate:
+  enabled: false
+
+gateway:
+  listenerSetEnabled: false
+
+wildcardCertificate:
+  enabled: true
+
+route:
+  attachListenerSet:
+    name: ambience-wildcard
 
 edge:
   replicas: 1

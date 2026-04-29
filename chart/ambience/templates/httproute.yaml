@@ -1,4 +1,6 @@
 {{- if .Values.route.enabled }}
+{{- $listenerSetName := default .Values.gateway.listenerSetName .Values.route.attachListenerSet.name -}}
+{{- $listenerSetNamespace := default .Release.Namespace .Values.route.attachListenerSet.namespace -}}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -16,7 +18,8 @@ spec:
       namespace: {{ .Values.gateway.parentGateway.namespace }}
     - group: gateway.networking.x-k8s.io
       kind: XListenerSet
-      name: {{ .Values.gateway.listenerSetName }}
+      name: {{ $listenerSetName }}
+      namespace: {{ $listenerSetNamespace }}
   rules:
     - matches:
         - path:

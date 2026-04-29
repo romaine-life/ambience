@@ -182,15 +182,22 @@ def deploy_preview(
     }
 
     if public_host:
+        # Ephemeral envs share the wildcard cert + XListenerSet provisioned
+        # in the ambience-dev namespace (see chart/ambience/values-dev.yaml).
+        # The HTTPRoute attaches there; no per-env Certificate or
+        # XListenerSet is created.
         string_values["domain.host"] = public_host
-        string_values["domain.tlsSecretName"] = tls_secret_name or f"{namespace}-tls"
+        string_values["route.attachListenerSet.name"] = "ambience-wildcard"
+        string_values["route.attachListenerSet.namespace"] = "ambience-dev"
         bool_values["route.enabled"] = True
-        bool_values["certificate.enabled"] = True
-        bool_values["gateway.listenerSetEnabled"] = True
+        bool_values["certificate.enabled"] = False
+        bool_values["gateway.listenerSetEnabled"] = False
+        bool_values["wildcardCertificate.enabled"] = False
     else:
         bool_values["route.enabled"] = False
         bool_values["certificate.enabled"] = False
         bool_values["gateway.listenerSetEnabled"] = False
+        bool_values["wildcardCertificate.enabled"] = False
 
     for key, value in string_values.items():
         command.extend(["--set-string", f"{key}={value}"])

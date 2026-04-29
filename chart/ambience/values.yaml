@@ -15,9 +15,30 @@ gateway:
     kind: Gateway
     name: main
     namespace: envoy-gateway-system
+  # Per-app HTTPS listener (used by prod for ambience.romaine.life). Dev and
+  # ephemeral envs share a wildcard listener instead — see wildcardCertificate.
   listenerSetEnabled: true
   listenerSetName: ambience
   listenerName: https
+
+# Shared wildcard infrastructure. Provisioned once in the dev base namespace
+# (ambience-dev). The cert covers the dev base host AND any subdomain via
+# DNS-01 (HTTP-01 cannot issue wildcards). Per-issue and per-PR ephemeral
+# environments attach HTTPRoutes to the resulting XListenerSet so they don't
+# each provision their own cert and listener.
+wildcardCertificate:
+  enabled: false
+  name: ambience-wildcard
+  hosts:
+    - ambience.dev.romaine.life
+    - "*.ambience.dev.romaine.life"
+  tlsSecretName: ambience-wildcard-tls
+  issuerRef:
+    name: letsencrypt-prod-dns01
+    kind: ClusterIssuer
+  # Listener-level allowedRoutes.namespaces.from. "All" lets ambience-pr-*
+  # and ambience-issue-* HTTPRoutes attach without per-namespace plumbing.
+  allowedFromNamespaces: All
 
 service:
   port: 80
@@ -112,3 +133,9 @@ route:
   enabled: true
   requestTimeout: 0s
   backendRequestTimeout: 0s
+  # Override which XListenerSet the HTTPRoute attaches to. Defaults
+  # to the per-app set in this release's namespace. For ephemeral
+  # envs, point at the wildcard listener in ambience-dev.
+  attachListenerSet:
+    name: ""        # empty → gateway.listenerSetName
+    namespace: ""   # empty → release namespace
