@@ -443,6 +443,13 @@ def destroy_pr_preview(*, pr_number: int, release: str = DEFAULT_PR_RELEASE_NAME
 # (REPO_SLUG, GH_TOKEN, ISSUE_NUMBER, BRANCH_NAME, etc).
 _AGENT_BASH_SCRIPT = r"""set -euo pipefail
 
+# Pre-create the evidence dirs the agent writes into. Sibling of
+# /workspace/repo (the clone root) so `git add -A` in the repo doesn't
+# pick PNGs/notes up. The post-Job workflow `kubectl cp`s
+# /workspace/evidence out to the runner; the dirs need to exist for that
+# cp to succeed even if the agent produced no evidence.
+mkdir -p /workspace/evidence/screenshots
+
 # Seed claude state — placeholder credentials so claude never tries to
 # refresh, project trust + onboarding flags so it boots straight into the run.
 mkdir -p $HOME/.claude
@@ -547,7 +554,7 @@ def _agent_job_spec(
     validation_url: str,
     branch_name: str,
     proxy_ip: str,
-    claude_container_tag: str,
+    agent_container_tag: str,
     repo_slug: str = "nelsong6/ambience",
 ) -> dict:
     """Build the Job spec as a Python dict. No templating; values land directly
@@ -603,7 +610,11 @@ def _agent_job_spec(
                     "containers": [
                         {
                             "name": "agent",
-                            "image": f"romainecr.azurecr.io/claude-container:{claude_container_tag}",
+                            # agent-container is the issue-runner image (playwright
+                            # noble + Go + claude-code), distinct from
+                            # claude-container (which is alpine + serves tank-operator
+                            # interactive sessions). See tank-operator/agent-container/.
+                            "image": f"romainecr.azurecr.io/agent-container:{agent_container_tag}",
                             "imagePullPolicy": "IfNotPresent",
                             "command": ["/bin/bash", "-c", _AGENT_BASH_SCRIPT],
                             "env": [
@@ -649,7 +660,7 @@ def apply_agent_job(
     validation_url: str,
     branch_name: str,
     proxy_ip: str,
-    claude_container_tag: str,
+    agent_container_tag: str,
     repo_slug: str = "nelsong6/ambience",
 ) -> dict:
     """Render the agent Job spec and `kubectl apply -f -` it."""
@@ -663,7 +674,7 @@ def apply_agent_job(
         validation_url=validation_url,
         branch_name=branch_name,
         proxy_ip=proxy_ip,
-        claude_container_tag=claude_container_tag,
+        agent_container_tag=agent_container_tag,
         repo_slug=repo_slug,
     )
     proc = subprocess.run(
