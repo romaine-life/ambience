@@ -47,6 +47,13 @@ env:
   GLIMMUNG_BASE: https://glimmung.romaine.life
   GLIMMUNG_PROJECT: ambience
   CLAUDE_CONTAINER_TAG: latest
+  # Make python's stdout line-buffered so step output streams live to the
+  # GHA UI instead of pooling until the step exits. Critical for the
+  # Stream + wait for Job step where the kubectl-logs-f stream is the
+  # only signal during long agent runs.
+  PYTHONUNBUFFERED: "1"
+  # Same idea for any stdio that sits behind glibc/musl line buffering.
+  PYTHONIOENCODING: "utf-8"
 
 jobs:
   route:
