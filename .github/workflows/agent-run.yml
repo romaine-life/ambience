@@ -79,11 +79,56 @@ jobs:
           fi
           echo "lease verified: ${LEASE_ID} active on ${HOST}"
 
+      # ------------------------------------------------------------------
+      # Mint a GitHub App installation token (1h TTL) for all GH calls in
+      # this job. App credentials live in romaine-kv:
+      #   - github-app-id          : romaine-life-app App ID
+      #   - github-app-private-key : the App's PEM private key
+      # We use the App rather than secrets.GITHUB_TOKEN because the default
+      # token lacks "create or approve pull requests" (a repo-level toggle)
+      # and we want a consistent App identity for everything (comments,
+      # cluster-side push, gh pr create).
+      # ------------------------------------------------------------------
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.ARM_CLIENT_ID }}
+          tenant-id: ${{ vars.ARM_TENANT_ID }}
+          subscription-id: ${{ vars.ARM_SUBSCRIPTION_ID }}
+
+      - name: Fetch GitHub App credentials from Key Vault
+        env:
+          KV_NAME: ${{ vars.KEY_VAULT_NAME }}
+        run: |
+          set -euo pipefail
+          app_id=$(az keyvault secret show --vault-name "$KV_NAME" --name "github-app-id" --query value -o tsv)
+          pem=$(az keyvault secret show --vault-name "$KV_NAME" --name "github-app-private-key" --query value -o tsv)
+          # GHA's add-mask is per-line for multi-line values.
+          echo "::add-mask::${app_id}"
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            echo "::add-mask::${line}"
+          done <<< "$pem"
+          echo "GH_APP_ID=${app_id}" >> "$GITHUB_ENV"
+          {
+            echo "GH_APP_PRIVATE_KEY<<KEY_EOF"
+            echo "$pem"
+            echo "KEY_EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Mint GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ env.GH_APP_ID }}
+          private-key: ${{ env.GH_APP_PRIVATE_KEY }}
+
       - name: Comment with run link
         # Best-effort one-line link from the originating issue to this run.
         # Mirrors spirelens. Failure here never sinks the run.
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           ISSUE_NUMBER: ${{ inputs.issue_number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           HOST: ${{ inputs.host }}
@@ -134,6 +179,35 @@ jobs:
           client-id: ${{ vars.ARM_CLIENT_ID }}
           tenant-id: ${{ vars.ARM_TENANT_ID }}
           subscription-id: ${{ vars.ARM_SUBSCRIPTION_ID }}
+
+      - name: Fetch GitHub App credentials from Key Vault
+        env:
+          KV_NAME: ${{ vars.KEY_VAULT_NAME }}
+        run: |
+          set -euo pipefail
+          app_id=$(az keyvault secret show --vault-name "$KV_NAME" --name "github-app-id" --query value -o tsv)
+          pem=$(az keyvault secret show --vault-name "$KV_NAME" --name "github-app-private-key" --query value -o tsv)
+          echo "::add-mask::${app_id}"
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            echo "::add-mask::${line}"
+          done <<< "$pem"
+          echo "GH_APP_ID=${app_id}" >> "$GITHUB_ENV"
+          {
+            echo "GH_APP_PRIVATE_KEY<<KEY_EOF"
+            echo "$pem"
+            echo "KEY_EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Mint GitHub App installation token
+        # 1h TTL — long enough for the agent run + rebuild + screenshot
+        # capture + PR open. Used by the cluster-side agent to clone+push,
+        # and by the runner-side `gh pr create` step.
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ env.GH_APP_ID }}
+          private-key: ${{ env.GH_APP_PRIVATE_KEY }}
 
       - name: Set AKS context
         env:
@@ -212,7 +286,10 @@ jobs:
             --from-literal=token="${GITHUB_TOKEN}" \
             --dry-run=client -o yaml | kubectl apply -f -
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use the App installation token (1h TTL) so the agent's clone +
+          # push happens as `romaine-life-app[bot]` instead of as the
+          # ephemeral GHA bot.
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
       - name: Apply agent Job
         run: |
@@ -378,7 +455,10 @@ jobs:
       - name: Open pull request and label env
         if: success()
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # App token avoids the "GitHub Actions is not permitted to
+          # create or approve pull requests" GraphQL error from the
+          # default secrets.GITHUB_TOKEN.
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SCREENSHOTS_MD: ${{ steps.upload.outputs.markdown }}
         run: |
           set -euo pipefail
