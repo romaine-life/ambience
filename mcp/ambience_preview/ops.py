@@ -424,6 +424,15 @@ cat /tmp/agent-input.md | claude \
   --dangerously-skip-permissions \
   2>&1 | tee /tmp/claude-stream.log
 
+# Refuse to publish runner-local config files. The prompt tells the
+# agent not to touch these; this is the second line of defense.
+BLOCKED=$(git status --porcelain -- .github/workflows .github/agent .mcp.json 2>/dev/null || true)
+if [ -n "$BLOCKED" ]; then
+  echo "agent modified runner-local config files (forbidden by prompt):" >&2
+  echo "$BLOCKED" >&2
+  exit 1
+fi
+
 git add -A
 if git diff --cached --quiet; then
   echo "agent produced no changes; failing job so the workflow doesn't open an empty PR" >&2
@@ -434,6 +443,17 @@ git commit -m "agent: address issue #${ISSUE_NUMBER}
 ${ISSUE_TITLE}
 
 Closes #${ISSUE_NUMBER}"
+
+# Sync onto current main before pushing. The agent ran for several minutes;
+# main may have moved (e.g. someone merged a workflow tweak). Pushing a
+# branch whose tip has a stale view of `.github/workflows/*` would be
+# rejected by GitHub's workflow-permission check, even though the agent's
+# commit didn't touch those files. Rebase replays the agent's single
+# commit on top of current main; if there's a real conflict we fail loudly
+# rather than ship a stale-base branch.
+git fetch origin main
+git rebase origin/main
+
 git push origin "HEAD:${BRANCH_NAME}"
 """
 
