@@ -31,6 +31,16 @@ def build_parser() -> argparse.ArgumentParser:
     screenshot.add_argument("--namespace", default="")
     screenshot.add_argument("--wait-ms", type=int, default=5000)
 
+    rebuild_validation = subparsers.add_parser(
+        "rebuild-validation-image",
+        help="Build a fresh image from a pushed branch ref and roll the "
+        "validation env's edge/authority workloads onto it.",
+    )
+    rebuild_validation.add_argument("--namespace", required=True)
+    rebuild_validation.add_argument("--branch", required=True)
+    rebuild_validation.add_argument("--image-tag", required=True)
+    rebuild_validation.add_argument("--repo-slug", default="nelsong6/ambience")
+
     upsert_pr = subparsers.add_parser("upsert-pr-preview")
     upsert_pr.add_argument("--pr-number", type=int, required=True)
     upsert_pr.add_argument("--image", required=True)
@@ -104,6 +114,15 @@ def main() -> int:
                     page_path=args.page_path,
                     output_path=args.output_path,
                     wait_ms=args.wait_ms,
+                )
+            )
+        elif args.command == "rebuild-validation-image":
+            dump(
+                ops.rebuild_validation_image(
+                    namespace=args.namespace,
+                    branch=args.branch,
+                    image_tag=args.image_tag,
+                    repo_slug=args.repo_slug,
                 )
             )
         elif args.command == "upsert-pr-preview":
