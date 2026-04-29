@@ -5,9 +5,9 @@ run-name: "#${{ inputs.issue_number }} ${{ inputs.issue_title }} (${{ inputs.hos
 # Glimmung is the entry point. https://glimmung.romaine.life/v1/webhook/github
 # receives the GitHub `issues` event, atomically claims a host, and fires this
 # workflow_dispatch with lease_id + host + issue_number. Heavy lifting (Claude
-# run) happens inside an in-cluster k8s Job that talks to the tank-operator
-# claude-api-proxy for subscription-token auth — the GHA runner only
-# orchestrates.
+# run + screenshot/notes capture) happens inside an in-cluster k8s Job that
+# talks to the tank-operator claude-api-proxy for subscription-token auth —
+# the GHA runner only orchestrates and copies evidence out.
 
 on:
   workflow_dispatch:
@@ -46,7 +46,12 @@ permissions:
 env:
   GLIMMUNG_BASE: https://glimmung.romaine.life
   GLIMMUNG_PROJECT: ambience
-  CLAUDE_CONTAINER_TAG: latest
+  # agent-container is the issue-runner image (playwright noble + Go +
+  # claude-code) maintained in tank-operator/agent-container/. Distinct
+  # from claude-container which serves human sessions and stays slim.
+  # The :latest tag tracks the most recent agent-container build; pin to
+  # a SHA here if you need to lock a specific run.
+  AGENT_CONTAINER_TAG: latest
   # Make python's stdout line-buffered so step output streams live to the
   # GHA UI instead of pooling until the step exits. Critical for the
   # Stream + wait for Job step where the kubectl-logs-f stream is the
@@ -200,7 +205,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Mint GitHub App installation token
-        # 1h TTL — long enough for the agent run + rebuild + screenshot
+        # 1h TTL — long enough for the agent run + rebuild + evidence
         # capture + PR open. Used by the cluster-side agent to clone+push,
         # and by the runner-side `gh pr create` step.
         id: app-token
@@ -307,7 +312,7 @@ jobs:
             --validation-url "${VALIDATION_URL}" \
             --branch-name "${BRANCH_NAME}" \
             --proxy-ip "${PROXY_IP}" \
-            --claude-container-tag "${CLAUDE_CONTAINER_TAG}"
+            --agent-container-tag "${AGENT_CONTAINER_TAG}"
 
       - name: Stream + wait for Job
         id: job
@@ -338,13 +343,39 @@ jobs:
           grep -E '^\{' /tmp/agent-pod.log > /tmp/agent-events.jsonl || true
           echo "captured $(wc -l < /tmp/agent-events.jsonl) event lines from ${pod}"
 
+      - name: Capture agent evidence from pod
+        # Pull /workspace/evidence out of the agent pod into the runner.
+        # The agent writes screenshots to /workspace/evidence/screenshots/
+        # and free-form notes to /workspace/evidence/notes.md (per the
+        # prompt). The bash bootstrap pre-creates the dirs, so kubectl cp
+        # always has something to copy even if the agent produced no
+        # evidence (backend/refactor change with empty screenshots dir).
+        id: evidence
+        if: success()
+        run: |
+          set -euo pipefail
+          pod=$(kubectl -n "${NAMESPACE}" get pods -l "job-name=${JOB_NAME}" -o jsonpath='{.items[0].metadata.name}')
+          mkdir -p /tmp/evidence
+          kubectl -n "${NAMESPACE}" cp "${pod}:workspace/evidence/." /tmp/evidence/ 2>/dev/null || true
+          echo "evidence files captured:"
+          find /tmp/evidence -type f 2>/dev/null | sort || true
+          have_screenshots=false
+          if compgen -G "/tmp/evidence/screenshots/*.png" >/dev/null; then
+            have_screenshots=true
+          fi
+          have_notes=false
+          if [ -s /tmp/evidence/notes.md ]; then
+            have_notes=true
+          fi
+          echo "have_screenshots=${have_screenshots}" >> "$GITHUB_OUTPUT"
+          echo "have_notes=${have_notes}" >> "$GITHUB_OUTPUT"
+
       # ------------------------------------------------------------------
       # Post-agent verify: rebuild the validation env from the agent's
-      # pushed branch, capture screenshots of the paths the agent picked,
-      # upload to Azure blob, and embed the URLs in the PR body. Mirrors
-      # spirelens's verify phase. Without this, the validation env still
-      # runs the pre-edit image, so the URL in the PR body would not
-      # reflect the diff under review.
+      # pushed branch so the URL in the PR body actually reflects the
+      # diff. Distinct from evidence — evidence comes from the agent's
+      # own captures inside the pod (above); the rebuild env is for the
+      # human reviewer's interactive validation after the PR opens.
       # ------------------------------------------------------------------
 
       - name: Fetch agent branch onto runner
@@ -373,62 +404,13 @@ jobs:
           set -euo pipefail
           python -m ambience_preview.cli wait-public-preview --url "${VALIDATION_URL}"
 
-      - name: Read screenshot paths from agent artifacts
-        id: shots
-        if: success()
-        run: |
-          set -euo pipefail
-          paths_file=".github/agent-artifacts/issue-${ISSUE_NUMBER}/screenshot-paths.json"
-          if [ ! -f "${paths_file}" ]; then
-            echo "agent did not emit ${paths_file}; skipping screenshot capture"
-            echo "have_shots=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          paths_json=$(jq -ec '.paths | select(type=="array")' "${paths_file}" || echo "")
-          if [ -z "${paths_json}" ] || [ "${paths_json}" = "[]" ]; then
-            echo "screenshot-paths.json present but empty; skipping"
-            echo "have_shots=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "paths=${paths_json}" >> "$GITHUB_OUTPUT"
-          echo "have_shots=true" >> "$GITHUB_OUTPUT"
-
-      - name: Install Playwright + chromium
-        # capture-screenshot.mjs does a dynamic `import "playwright"`, so
-        # the package + browser bundle have to be on the runner before the
-        # capture step runs. Only installed when we actually have paths.
-        if: success() && steps.shots.outputs.have_shots == 'true'
-        run: |
-          set -euo pipefail
-          npm install --no-save playwright
-          npx --yes playwright install --with-deps chromium
-
-      - name: Capture screenshots
-        if: success() && steps.shots.outputs.have_shots == 'true'
-        env:
-          PATHS_JSON: ${{ steps.shots.outputs.paths }}
-        run: |
-          set -euo pipefail
-          out_dir="screenshots-out"
-          mkdir -p "${out_dir}"
-          # capture-validation-screenshot manages its own kubectl port-forward
-          # lifecycle per call; iterating sequentially keeps that simple.
-          while IFS= read -r p; do
-            slug=$(printf '%s' "${p}" | sed 's|^/||;s|/|-|g;s|[^a-zA-Z0-9_.-]|_|g')
-            [ -z "${slug}" ] && slug=root
-            python -m ambience_preview.cli capture-validation-screenshot \
-              --namespace "${NAMESPACE}" \
-              --page-path "${p}" \
-              --output-path "${out_dir}/${slug}.png"
-          done < <(printf '%s' "${PATHS_JSON}" | jq -r '.[]')
-
       - name: Refresh Azure OIDC login
         # azure/login@v2's OIDC JWT assertion is valid for 5 minutes only.
         # The agent + rebuild + capture takes 10-15 min, so by upload time
         # the cached JWT is stale and `az storage` hits AADSTS700024
         # ("Client assertion is not within its valid time range"). Re-login
         # mints a fresh JWT.
-        if: success() && steps.shots.outputs.have_shots == 'true'
+        if: success() && steps.evidence.outputs.have_screenshots == 'true'
         uses: azure/login@v2
         with:
           client-id: ${{ vars.ARM_CLIENT_ID }}
@@ -437,7 +419,7 @@ jobs:
 
       - name: Upload screenshots to Azure blob
         id: upload
-        if: success() && steps.shots.outputs.have_shots == 'true'
+        if: success() && steps.evidence.outputs.have_screenshots == 'true'
         env:
           STORAGE_ACCOUNT: ${{ vars.AGENT_SCREENSHOT_STORAGE_ACCOUNT }}
           CONTAINER: ${{ vars.AGENT_SCREENSHOT_CONTAINER }}
@@ -449,14 +431,14 @@ jobs:
             --account-name "${STORAGE_ACCOUNT}" \
             --destination "${CONTAINER}" \
             --destination-path "${prefix}" \
-            --source screenshots-out \
+            --source /tmp/evidence/screenshots \
             --auth-mode login \
             --overwrite true
           {
             echo "markdown<<EOF_MD"
             echo "## Screenshots"
             echo ""
-            for f in screenshots-out/*.png; do
+            for f in /tmp/evidence/screenshots/*.png; do
               [ -e "${f}" ] || continue
               base=$(basename "${f}")
               echo "### ${base%.png}"
@@ -475,26 +457,22 @@ jobs:
           # default secrets.GITHUB_TOKEN.
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SCREENSHOTS_MD: ${{ steps.upload.outputs.markdown }}
-          PATHS_JSON: ${{ steps.shots.outputs.paths }}
+          HAVE_NOTES: ${{ steps.evidence.outputs.have_notes }}
         run: |
           set -euo pipefail
           body_file=$(mktemp)
           {
             echo "Closes #${ISSUE_NUMBER}."
             echo ""
-            # Validation links: deep-link to each path the agent flagged
-            # for screenshots — typically `/dev/<effect>`. The root URL is
-            # only useful as a fallback when the agent emitted no paths.
-            if [ -n "${PATHS_JSON:-}" ] && [ "${PATHS_JSON}" != "null" ] && [ "${PATHS_JSON}" != "[]" ]; then
-              echo "Validation env (until PR closes):"
-              while IFS= read -r p; do
-                [ -z "$p" ] && continue
-                echo "- ${VALIDATION_URL}${p}"
-              done < <(printf '%s' "${PATHS_JSON}" | jq -r '.[]')
-            else
-              echo "Validation env (until PR closes): ${VALIDATION_URL}"
-            fi
+            echo "Validation env (until PR closes): ${VALIDATION_URL}"
             echo ""
+            # Agent-authored notes go first — the agent owns the framing
+            # and may include deep-link URLs, command output, or non-
+            # screenshot evidence in here.
+            if [ "${HAVE_NOTES}" = "true" ]; then
+              cat /tmp/evidence/notes.md
+              echo ""
+            fi
             if [ -n "${SCREENSHOTS_MD:-}" ]; then
               printf '%s\n' "${SCREENSHOTS_MD}"
               echo ""
