@@ -255,6 +255,13 @@ jobs:
           set -euo pipefail
           python -m ambience_preview.cli destroy-validation-preview --namespace "${NAMESPACE}" --release ambience-agent || true
           kubectl delete namespace "${NAMESPACE}" --ignore-not-found=true --wait=false || true
+          # Reclaim ACR storage. The per-run image is a one-shot for this
+          # agent run; without this, every agent run leaves a tagged
+          # manifest in romainecr forever (Basic SKU has no retention
+          # policy and a 10 GB storage cap).
+          if [ -n "${IMAGE_TAG:-}" ]; then
+            az acr repository delete --name romainecr --image "ambience:${IMAGE_TAG}" --yes || true
+          fi
 
       - name: Stop heartbeat
         if: always()
