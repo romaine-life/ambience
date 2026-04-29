@@ -356,7 +356,12 @@ jobs:
           set -euo pipefail
           pod=$(kubectl -n "${NAMESPACE}" get pods -l "job-name=${JOB_NAME}" -o jsonpath='{.items[0].metadata.name}')
           mkdir -p /tmp/evidence
-          kubectl -n "${NAMESPACE}" cp "${pod}:workspace/evidence/." /tmp/evidence/ 2>/dev/null || true
+          # Absolute path required: kubectl cp's <pod>:<path> with no
+          # leading slash is relative to the container's WORKDIR
+          # (/workspace), so `workspace/evidence/.` resolves to
+          # /workspace/workspace/evidence/. and silently misses the real
+          # /workspace/evidence dir.
+          kubectl -n "${NAMESPACE}" cp "${pod}:/workspace/evidence/." /tmp/evidence/ 2>/dev/null || true
           echo "evidence files captured:"
           find /tmp/evidence -type f 2>/dev/null | sort || true
           have_screenshots=false
