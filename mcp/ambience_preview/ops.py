@@ -350,3 +350,335 @@ def destroy_preview(*, namespace: str, release: str) -> dict:
 
 def destroy_pr_preview(*, pr_number: int, release: str = DEFAULT_PR_RELEASE_NAME) -> dict:
     return destroy_preview(namespace=preview_namespace(pr_number), release=release)
+
+
+# ---------------------------------------------------------------------------
+# Agent Job orchestration. Replaces the previous envsubst-templated YAML
+# approach, which silently over-substituted shell vars on the GHA runner's
+# gettext build. Building the Job spec as a Python dict gives us:
+#   - run-specific values as named function arguments (no string templating)
+#   - bash-side `${VAR}` refs in _AGENT_BASH_SCRIPT stay literal because
+#     this file is plain Python, not an f-string
+#   - status-field polling that fast-fails on either succeeded or failed,
+#     instead of waiting for a `Complete` condition that never fires for
+#     failed Jobs (the old `kubectl wait --for=condition=complete --timeout=30m`
+#     blocked for the full timeout on every failure).
+# ---------------------------------------------------------------------------
+
+# Bash that runs inside the agent container. Plain Python string — no
+# interpolation happens here. All `${VAR}` references are evaluated by the
+# container's bash from the env block defined in apply_agent_job below
+# (REPO_SLUG, GH_TOKEN, ISSUE_NUMBER, BRANCH_NAME, etc).
+_AGENT_BASH_SCRIPT = r"""set -euo pipefail
+
+# Seed claude state — placeholder credentials so claude never tries to
+# refresh, project trust + onboarding flags so it boots straight into the run.
+mkdir -p $HOME/.claude
+cat > $HOME/.claude/.credentials.json <<'EOF'
+{
+  "claudeAiOauth": {
+    "accessToken": "managed-by-tank-operator",
+    "refreshToken": "managed-by-tank-operator",
+    "expiresAt": 9999999999000,
+    "scopes": ["user:inference", "user:profile"],
+    "subscriptionType": "max",
+    "rateLimitTier": "max"
+  }
+}
+EOF
+chmod 600 $HOME/.claude/.credentials.json
+cat > $HOME/.claude/settings.json <<'EOF'
+{"theme":"dark","permissions":{"defaultMode":"bypassPermissions"},"skipDangerousModePermissionPrompt":true}
+EOF
+cat > $HOME/.claude.json <<'EOF'
+{
+  "hasCompletedOnboarding": true,
+  "officialMarketplaceAutoInstallAttempted": true,
+  "officialMarketplaceAutoInstalled": true,
+  "projects": {
+    "/workspace/repo": {
+      "allowedTools": [],
+      "hasTrustDialogAccepted": true,
+      "projectOnboardingSeenCount": 1
+    }
+  }
+}
+EOF
+
+git config --global user.name "ambience-agent[bot]"
+git config --global user.email "ambience-agent@romaine.life"
+
+git clone "https://x-access-token:${GH_TOKEN}@github.com/${REPO_SLUG}.git" /workspace/repo
+cd /workspace/repo
+git checkout -B "${BRANCH_NAME}"
+
+cat > /tmp/issue-context.md <<EOF
+# Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+URL: ${ISSUE_URL}
+Validation env: ${VALIDATION_URL}
+EOF
+cat /agent-config/prompt.md /tmp/issue-context.md > /tmp/agent-input.md
+
+cat /tmp/agent-input.md | claude \
+  --print \
+  --dangerously-skip-permissions \
+  2>&1 | tee /tmp/claude-stream.log
+
+git add -A
+if git diff --cached --quiet; then
+  echo "agent produced no changes; failing job so the workflow doesn't open an empty PR" >&2
+  exit 1
+fi
+git commit -m "agent: address issue #${ISSUE_NUMBER}
+
+${ISSUE_TITLE}
+
+Closes #${ISSUE_NUMBER}"
+git push origin "HEAD:${BRANCH_NAME}"
+"""
+
+
+def _agent_job_spec(
+    *,
+    namespace: str,
+    job_name: str,
+    issue_number: str,
+    issue_title: str,
+    issue_url: str,
+    validation_url: str,
+    branch_name: str,
+    proxy_ip: str,
+    claude_container_tag: str,
+    repo_slug: str = "nelsong6/ambience",
+) -> dict:
+    """Build the Job spec as a Python dict. No templating; values land directly
+    in their typed positions."""
+    return {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": job_name,
+            "namespace": namespace,
+            "labels": {
+                "app.kubernetes.io/name": "ambience-agent",
+                "ambience.io/issue": str(issue_number),
+            },
+        },
+        "spec": {
+            "backoffLimit": 0,
+            "ttlSecondsAfterFinished": 1800,
+            "template": {
+                "metadata": {
+                    "labels": {
+                        "app.kubernetes.io/name": "ambience-agent",
+                        "ambience.io/issue": str(issue_number),
+                    },
+                },
+                "spec": {
+                    "restartPolicy": "Never",
+                    "hostAliases": [
+                        {"ip": proxy_ip, "hostnames": ["api.anthropic.com"]},
+                    ],
+                    "volumes": [
+                        {
+                            "name": "claude-ca",
+                            "configMap": {
+                                "name": "claude-oauth-ca",
+                                "items": [{"key": "ca.crt", "path": "ca.crt"}],
+                            },
+                        },
+                        {"name": "workspace", "emptyDir": {}},
+                        {
+                            "name": "agent-config",
+                            "configMap": {"name": "agent-config"},
+                        },
+                    ],
+                    "containers": [
+                        {
+                            "name": "agent",
+                            "image": f"romainecr.azurecr.io/claude-container:{claude_container_tag}",
+                            "imagePullPolicy": "IfNotPresent",
+                            "command": ["/bin/bash", "-c", _AGENT_BASH_SCRIPT],
+                            "env": [
+                                {"name": "NODE_EXTRA_CA_CERTS", "value": "/etc/claude-ca/ca.crt"},
+                                {"name": "HOME", "value": "/workspace"},
+                                {"name": "ISSUE_NUMBER", "value": str(issue_number)},
+                                {"name": "ISSUE_TITLE", "value": issue_title},
+                                {"name": "ISSUE_URL", "value": issue_url},
+                                {"name": "VALIDATION_URL", "value": validation_url},
+                                {"name": "BRANCH_NAME", "value": branch_name},
+                                {"name": "REPO_SLUG", "value": repo_slug},
+                                {
+                                    "name": "GH_TOKEN",
+                                    "valueFrom": {
+                                        "secretKeyRef": {
+                                            "name": "agent-github-token",
+                                            "key": "token",
+                                        },
+                                    },
+                                },
+                                {"name": "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "value": "1"},
+                            ],
+                            "volumeMounts": [
+                                {"name": "claude-ca", "mountPath": "/etc/claude-ca", "readOnly": True},
+                                {"name": "workspace", "mountPath": "/workspace"},
+                                {"name": "agent-config", "mountPath": "/agent-config", "readOnly": True},
+                            ],
+                        },
+                    ],
+                },
+            },
+        },
+    }
+
+
+def apply_agent_job(
+    *,
+    namespace: str,
+    job_name: str,
+    issue_number: str,
+    issue_title: str,
+    issue_url: str,
+    validation_url: str,
+    branch_name: str,
+    proxy_ip: str,
+    claude_container_tag: str,
+    repo_slug: str = "nelsong6/ambience",
+) -> dict:
+    """Render the agent Job spec and `kubectl apply -f -` it."""
+    import json as _json
+    spec = _agent_job_spec(
+        namespace=namespace,
+        job_name=job_name,
+        issue_number=issue_number,
+        issue_title=issue_title,
+        issue_url=issue_url,
+        validation_url=validation_url,
+        branch_name=branch_name,
+        proxy_ip=proxy_ip,
+        claude_container_tag=claude_container_tag,
+        repo_slug=repo_slug,
+    )
+    proc = subprocess.run(
+        ["kubectl", "apply", "-f", "-"],
+        input=_json.dumps(spec),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise CommandError(
+            f"kubectl apply failed: {(proc.stderr or proc.stdout).strip()}"
+        )
+    return {
+        "namespace": namespace,
+        "job": job_name,
+        "applied": proc.stdout.strip(),
+    }
+
+
+def wait_agent_job(
+    *,
+    namespace: str,
+    job_name: str,
+    timeout_seconds: int = 1800,
+    poll_interval_seconds: int = 3,
+) -> dict:
+    """Two-stage wait, status-field driven (no `kubectl wait` for `Complete`).
+
+      1. Poll the Pod until it reaches Running | Succeeded | Failed.
+      2. Stream its logs (`kubectl logs -f`) — blocks until pod terminates.
+      3. Poll Job `.status.succeeded` / `.status.failed` until one is non-empty
+         (the Job controller can race the Pod-finished transition).
+
+    Raises CommandError on Job failure (non-zero `failed` count or pod-never-
+    appeared timeout). Returns on success."""
+    deadline = time.time() + timeout_seconds
+
+    pod_name = ""
+    phase = ""
+    while time.time() < deadline:
+        pod_name = run_command(
+            [
+                "kubectl",
+                "-n",
+                namespace,
+                "get",
+                "pods",
+                "-l",
+                f"job-name={job_name}",
+                "-o",
+                "jsonpath={.items[0].metadata.name}",
+            ],
+        )
+        if pod_name:
+            phase = run_command(
+                [
+                    "kubectl",
+                    "-n",
+                    namespace,
+                    "get",
+                    "pod",
+                    pod_name,
+                    "-o",
+                    "jsonpath={.status.phase}",
+                ],
+            )
+            if phase in ("Running", "Succeeded", "Failed"):
+                break
+        time.sleep(poll_interval_seconds)
+
+    if not pod_name:
+        raise CommandError(f"agent pod for Job {job_name!r} never appeared")
+
+    print(f"agent pod {pod_name} (phase={phase}) — streaming logs", flush=True)
+    # Stream logs directly to our stdout. Subprocess inherits FDs.
+    subprocess.run(
+        ["kubectl", "-n", namespace, "logs", "-f", pod_name],
+        check=False,
+    )
+
+    # Logs ended (pod terminated). Poll Job status to terminal.
+    succeeded = ""
+    failed = ""
+    while time.time() < deadline:
+        succeeded = run_command(
+            [
+                "kubectl",
+                "-n",
+                namespace,
+                "get",
+                "job",
+                job_name,
+                "-o",
+                "jsonpath={.status.succeeded}",
+            ],
+        )
+        failed = run_command(
+            [
+                "kubectl",
+                "-n",
+                namespace,
+                "get",
+                "job",
+                job_name,
+                "-o",
+                "jsonpath={.status.failed}",
+            ],
+        )
+        if succeeded or failed:
+            break
+        time.sleep(2)
+
+    if (int(succeeded) if succeeded else 0) >= 1:
+        return {
+            "namespace": namespace,
+            "job": job_name,
+            "pod": pod_name,
+            "succeeded": int(succeeded),
+            "failed": int(failed) if failed else 0,
+        }
+
+    raise CommandError(
+        f"agent Job {job_name!r} failed (succeeded={succeeded or 0}, failed={failed or 0})"
+    )
