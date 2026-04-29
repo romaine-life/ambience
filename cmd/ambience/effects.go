@@ -131,6 +131,11 @@ var effectRegistry = map[string]effectDefinition{
 		Schema:     sim.VolcanoSchema,
 		NewRuntime: newVolcanoRuntime,
 	},
+	"burning-trees": {
+		Type:       "burning-trees",
+		Schema:     sim.BurningTreesSchema,
+		NewRuntime: newBurningTreesRuntime,
+	},
 	"tetris": {
 		Type:       "tetris",
 		Schema:     sim.TetrisSchema,
@@ -326,6 +331,10 @@ func newUnderwaterRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRunt
 
 func newVolcanoRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
 	return newProceduralRuntime("volcano", w, h, seed, cfg)
+}
+
+func newBurningTreesRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
+	return newProceduralRuntime("burning-trees", w, h, seed, cfg)
 }
 
 func (r *rainRuntime) Type() string { return "rain" }
@@ -760,6 +769,8 @@ func (p *proceduralRuntime) Schema() sim.EffectSchema {
 		return sim.UnderwaterSchema()
 	case "volcano":
 		return sim.VolcanoSchema()
+	case "burning-trees":
+		return sim.BurningTreesSchema()
 	default:
 		return sim.EffectSchema{}
 	}

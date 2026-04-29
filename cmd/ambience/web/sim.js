@@ -2112,7 +2112,46 @@
 			flare_dur: 24,
 			flare_mult: 1.85,
 		},
+		'burning-trees': {
+			intro_dur: 70,
+			intro_grow: 0.18,
+			ending_dur: 90,
+			ending_linger: 40,
+			ending_ash: 0.20,
+			tree_count: 9,
+			horizon: 0.80,
+			tree_height: 16,
+			tree_width: 9,
+			tree_jitter: 0.30,
+			trunk_height: 3,
+			foliage_hue: 118,
+			foliage_sat: 0.42,
+			foliage_lmin: 0.18,
+			foliage_lmax: 0.46,
+			hue: 24,
+			hue_sp: 16,
+			sat: 0.86,
+			lmin: 0.32,
+			lmax: 0.94,
+			flame_height: 9,
+			flame_speed: 0.16,
+			flicker: 0.78,
+			glow: 0.5,
+			ember_rate: 0.26,
+			ember_speed: 0.55,
+			catch_dur: 20,
+			burn_dur: 180,
+			ash_dur: 220,
+			ignite_p: 0,
+			flare_p: 0,
+			lull_p: 0,
+			flare_dur: 45,
+			flare_mult: 1.7,
+			lull_dur: 75,
+			lull_mult: 0.55,
+		},
 	};
+	const BURNING_TREES_MAX_COUNT = 16;
 
 	function applyProceduralDefaults(kind, cfg) {
 		const base = PROCEDURAL_DEFAULTS[kind] || {};
@@ -2416,6 +2455,44 @@
 				if (c.flare_dur <= 0) c.flare_dur = base.flare_dur;
 				if (c.flare_mult <= 0) c.flare_mult = base.flare_mult;
 				break;
+			case 'burning-trees':
+				if (c.intro_dur <= 0) c.intro_dur = base.intro_dur;
+				c.intro_grow = clamp01(c.intro_grow);
+				if (c.ending_dur <= 0) c.ending_dur = base.ending_dur;
+				if (c.ending_linger < 0) c.ending_linger = 0;
+				c.ending_ash = clamp01(c.ending_ash);
+				if (c.tree_count < 1) c.tree_count = base.tree_count;
+				if (c.tree_count > BURNING_TREES_MAX_COUNT) c.tree_count = BURNING_TREES_MAX_COUNT;
+				if (c.horizon <= 0) c.horizon = base.horizon;
+				if (c.tree_height <= 0) c.tree_height = base.tree_height;
+				if (c.tree_width <= 0) c.tree_width = base.tree_width;
+				if (c.tree_jitter < 0) c.tree_jitter = 0;
+				if (c.trunk_height <= 0) c.trunk_height = base.trunk_height;
+				if (c.foliage_hue < 0) c.foliage_hue = base.foliage_hue;
+				if (c.foliage_sat <= 0) c.foliage_sat = base.foliage_sat;
+				if (c.foliage_lmin <= 0) c.foliage_lmin = base.foliage_lmin;
+				if (c.foliage_lmax <= 0) c.foliage_lmax = base.foliage_lmax;
+				if (c.foliage_lmax < c.foliage_lmin) [c.foliage_lmin, c.foliage_lmax] = [c.foliage_lmax, c.foliage_lmin];
+				if (c.hue < 0) c.hue = base.hue;
+				if (c.hue_sp < 0) c.hue_sp = 0;
+				if (c.sat <= 0) c.sat = base.sat;
+				if (c.lmin <= 0) c.lmin = base.lmin;
+				if (c.lmax <= 0) c.lmax = base.lmax;
+				if (c.lmax < c.lmin) [c.lmin, c.lmax] = [c.lmax, c.lmin];
+				if (c.flame_height <= 0) c.flame_height = base.flame_height;
+				if (c.flame_speed <= 0) c.flame_speed = base.flame_speed;
+				if (c.flicker <= 0) c.flicker = base.flicker;
+				if (c.glow <= 0) c.glow = base.glow;
+				if (c.ember_rate < 0) c.ember_rate = 0;
+				if (c.ember_speed <= 0) c.ember_speed = base.ember_speed;
+				if (c.catch_dur <= 0) c.catch_dur = base.catch_dur;
+				if (c.burn_dur <= 0) c.burn_dur = base.burn_dur;
+				if (c.ash_dur <= 0) c.ash_dur = base.ash_dur;
+				if (c.flare_dur <= 0) c.flare_dur = base.flare_dur;
+				if (c.flare_mult <= 0) c.flare_mult = base.flare_mult;
+				if (c.lull_dur <= 0) c.lull_dur = base.lull_dur;
+				if (c.lull_mult <= 0) c.lull_mult = base.lull_mult;
+				break;
 		}
 		return c;
 	}
@@ -2484,6 +2561,8 @@
 					return this._triggerSnow(name);
 				case 'volcano':
 					return this._triggerVolcano(name);
+				case 'burning-trees':
+					return this._triggerBurningTrees(name);
 			}
 			return false;
 		}
@@ -2556,6 +2635,11 @@
 					this.values.flare_gain = 1;
 				}
 			}
+			if (this.kind === 'burning-trees') {
+				if (!this.timers.flare || this.timers.flare <= 0) {
+					this.values.flare_gain = 1;
+				}
+			}
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
@@ -2584,6 +2668,8 @@
 					return this._renderSnow(ctx, canvasW, canvasH, opts);
 				case 'volcano':
 					return this._renderVolcano(ctx, canvasW, canvasH, opts);
+				case 'burning-trees':
+					return this._renderBurningTrees(ctx, canvasW, canvasH, opts);
 			}
 		}
 
@@ -3033,6 +3119,85 @@
 					this.timers.smolder = 0;
 					this.timers.flare = 0;
 					this.values.eruption_gain = 1;
+					this.values.flare_gain = 1;
+					this.timers.ending = Math.max(1, Math.round(this.cfg.ending_dur + Math.max(0, this.cfg.ending_linger)));
+					this.values.ending_total = this.timers.ending;
+					return true;
+			}
+			return false;
+		}
+
+		_treeCountBurningTrees() {
+			let n = Math.round(this.cfg.tree_count || 1);
+			if (n < 1) n = 1;
+			if (n > BURNING_TREES_MAX_COUNT) n = BURNING_TREES_MAX_COUNT;
+			return n;
+		}
+
+		_unlitBurningTrees() {
+			const n = this._treeCountBurningTrees();
+			const out = [];
+			for (let i = 0; i < n; i++) {
+				if (this.values['tree_' + i + '_lit_at'] == null) out.push(i);
+			}
+			return out;
+		}
+
+		_neighborBurningTrees(idx) {
+			const burnTotal = (this.cfg.burn_dur | 0) + (this.cfg.catch_dur | 0);
+			const tick = this.tick;
+			for (const n of [idx - 1, idx + 1]) {
+				if (n < 0 || n >= this._treeCountBurningTrees()) continue;
+				const v = this.values['tree_' + n + '_lit_at'];
+				if (v != null && tick - v < burnTotal) return true;
+			}
+			return false;
+		}
+
+		_triggerBurningTrees(name) {
+			const rng = this._eventRng(name.length + 113);
+			switch (name) {
+				case 'ignite': {
+					const unlit = this._unlitBurningTrees();
+					if (unlit.length === 0) return true;
+					let pickIdx = unlit[Math.floor(rng() * unlit.length)];
+					for (let i = 0; i < unlit.length; i++) {
+						const candidate = unlit[i];
+						if (this._neighborBurningTrees(candidate)) {
+							if (rng() < 0.65) {
+								const altIdx = unlit[(i + Math.floor(rng() * Math.max(1, unlit.length))) % unlit.length];
+								pickIdx = this._neighborBurningTrees(altIdx) ? altIdx : candidate;
+							}
+							break;
+						}
+					}
+					this.values['tree_' + pickIdx + '_lit_at'] = this.tick;
+					this.values.last_ignite_index = pickIdx;
+					return true;
+				}
+				case 'flare':
+					this.timers.flare = jitterInt(rng, this.cfg.flare_dur, 0.3);
+					this.values.flare_gain = this.cfg.flare_mult * (0.8 + rng() * 0.4);
+					return true;
+				case 'lull':
+					this.timers.lull = jitterInt(rng, this.cfg.lull_dur, 0.3);
+					return true;
+				case 'intro':
+					this.timers.flare = 0;
+					this.timers.lull = 0;
+					this.timers.ending = 0;
+					this.values.flare_gain = 1;
+					for (let i = 0; i < BURNING_TREES_MAX_COUNT; i++) {
+						delete this.values['tree_' + i + '_lit_at'];
+					}
+					delete this.values.last_ignite_index;
+					this.timers.intro = Math.max(1, Math.round(this.cfg.intro_dur));
+					this.values.intro_total = this.timers.intro;
+					return true;
+				case 'ending':
+					this.timers.intro = 0;
+					this.timers.flare = 0;
+					this.timers.lull = 0;
 					this.values.flare_gain = 1;
 					this.timers.ending = Math.max(1, Math.round(this.cfg.ending_dur + Math.max(0, this.cfg.ending_linger)));
 					this.values.ending_total = this.timers.ending;
@@ -4639,6 +4804,274 @@
 				}
 			}
 		}
+
+		_burningTreesPhases() {
+			const catchDur = Math.max(1, Math.round(this.cfg.catch_dur));
+			const burnDur = Math.max(1, Math.round(this.cfg.burn_dur));
+			const ashDur = Math.max(1, Math.round(this.cfg.ash_dur));
+			return { catchDur, burnDur, ashDur, burnEnd: catchDur + burnDur, ashEnd: catchDur + burnDur + ashDur };
+		}
+
+		_burningTreesIntroScale() {
+			if (!this.timers.intro || this.timers.intro <= 0) return 1;
+			const total = this.values.intro_total || this.cfg.intro_dur;
+			const progress = this._phaseProgress(total, this.timers.intro);
+			return clamp01(this.cfg.intro_grow + (1 - this.cfg.intro_grow) * progress);
+		}
+
+		_burningTreesEndingFade() {
+			if (!this.timers.ending || this.timers.ending <= 0) return 0;
+			const total = this.values.ending_total || (this.cfg.ending_dur + this.cfg.ending_linger);
+			return this._phaseProgress(total, this.timers.ending);
+		}
+
+		_renderBurningTrees(ctx, canvasW, canvasH, opts) {
+			opts = opts || {};
+			if (opts.transparent) {
+				ctx.clearRect(0, 0, canvasW, canvasH);
+			} else {
+				const sky = ctx.createLinearGradient(0, 0, 0, canvasH);
+				sky.addColorStop(0, '#0a0e14');
+				sky.addColorStop(0.55, '#181821');
+				sky.addColorStop(1, '#221a14');
+				ctx.fillStyle = sky;
+				ctx.fillRect(0, 0, canvasW, canvasH);
+			}
+
+			const sx = canvasW / this.w;
+			const sy = canvasH / this.h;
+			const ceilSx = Math.ceil(sx);
+			const ceilSy = Math.ceil(sy);
+			const groundRow = Math.max(6, Math.min(this.h - 2, Math.floor(this.h * this.cfg.horizon)));
+			const treeCount = this._treeCountBurningTrees();
+			const phases = this._burningTreesPhases();
+			const introScale = this._burningTreesIntroScale();
+			const endingFade = this._burningTreesEndingFade();
+			const flareGain = (this.timers.flare > 0 ? (this.values.flare_gain || 1) : 1);
+			const lullActive = this.timers.lull > 0;
+			const lullMult = lullActive ? this.cfg.lull_mult : 1;
+			const intensity = clamp01(flareGain * lullMult * (1 - endingFade));
+			const speed = this.tick * this.cfg.flame_speed;
+
+			// ground band
+			for (let y = groundRow; y < this.h; y++) {
+				const ratio = (y - groundRow) / Math.max(1, this.h - groundRow);
+				const ground = hslToRGB(28, 0.18, clamp01(0.07 + ratio * 0.06));
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, y, this.w, 1, `rgb(${ground.r},${ground.g},${ground.b})`, 1);
+			}
+
+			// distant horizon haze that warms when many trees are alight
+			const litCount = treeCount - this._unlitBurningTrees().length;
+			const hazeStrength = clamp01(0.08 + 0.04 * litCount + 0.06 * (intensity > 0 ? intensity : 0));
+			const hazeColor = hslToRGB(this.cfg.hue, clamp01(this.cfg.sat * 0.4), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.18));
+			const hazeGrad = ctx.createLinearGradient(0, Math.floor((groundRow - 6) * sy), 0, Math.floor((groundRow + 2) * sy));
+			hazeGrad.addColorStop(0, `rgba(${hazeColor.r},${hazeColor.g},${hazeColor.b},0)`);
+			hazeGrad.addColorStop(1, `rgba(${hazeColor.r},${hazeColor.g},${hazeColor.b},${hazeStrength})`);
+			ctx.fillStyle = hazeGrad;
+			ctx.fillRect(0, Math.floor((groundRow - 6) * sy), canvasW, Math.ceil(8 * sy));
+
+			// per-tree shape derived from seed so the row reads as a varied grove
+			// instead of a perfect picket fence
+			const trees = [];
+			for (let i = 0; i < treeCount; i++) {
+				const slot = (i + 0.5) / treeCount;
+				const xJitter = (this._hash(40000 + i * 13) * 2 - 1) * this.cfg.tree_jitter * 1.6;
+				const heightJ = (this._hash(40100 + i * 17) * 2 - 1) * this.cfg.tree_jitter;
+				const widthJ = (this._hash(40200 + i * 23) * 2 - 1) * this.cfg.tree_jitter;
+				const treeH = Math.max(3, Math.round(this.cfg.tree_height * (1 + heightJ * 0.5) * introScale));
+				const treeW = Math.max(2, Math.round(this.cfg.tree_width * (1 + widthJ * 0.5) * introScale));
+				const trunkH = Math.max(1, Math.round(this.cfg.trunk_height * introScale));
+				const colCenter = Math.round(slot * this.w + xJitter);
+				trees.push({
+					i,
+					colCenter,
+					treeH,
+					treeW,
+					trunkH,
+					litAt: this.values['tree_' + i + '_lit_at'],
+					seed: 40000 + i * 31,
+				});
+			}
+
+			// glow halos behind the canopies for any actively burning trees, drawn
+			// before the trees themselves so the shapes paint on top
+			for (const t of trees) {
+				if (t.litAt == null) continue;
+				const phase = this.tick - t.litAt;
+				if (phase < 0 || phase >= phases.burnEnd) continue;
+				const phaseT = clamp01(phase / phases.burnEnd);
+				const catchT = phase < phases.catchDur ? phase / phases.catchDur : 1;
+				const burnEnv = phase < phases.catchDur
+					? catchT * 0.5
+					: 1 - Math.pow((phase - phases.catchDur) / Math.max(1, phases.burnDur), 2) * 0.4;
+				const glowStrength = clamp01(this.cfg.glow * burnEnv * intensity);
+				if (glowStrength <= 0.04) continue;
+				const halfH = Math.floor(t.treeH * 0.55);
+				const glowX = t.colCenter * sx;
+				const glowY = (groundRow - t.trunkH - halfH) * sy;
+				const glowR = Math.max(20, Math.min(canvasW, canvasH) * (0.05 + glowStrength * 0.10));
+				const glow = ctx.createRadialGradient(glowX, glowY, 0, glowX, glowY, glowR);
+				glow.addColorStop(0, `rgba(255, 174, 84, ${0.18 + glowStrength * 0.20})`);
+				glow.addColorStop(0.5, `rgba(255, 110, 44, ${0.08 + glowStrength * 0.10})`);
+				glow.addColorStop(1, 'rgba(255, 110, 44, 0)');
+				ctx.fillStyle = glow;
+				ctx.fillRect(glowX - glowR, glowY - glowR, glowR * 2, glowR * 2);
+			}
+
+			// trunks + canopies + flames per tree
+			for (const t of trees) {
+				const phase = t.litAt == null ? -1 : this.tick - t.litAt;
+				const stage = phase < 0 ? 'unlit'
+					: phase < phases.catchDur ? 'catch'
+					: phase < phases.burnEnd ? 'burn'
+					: phase < phases.ashEnd ? 'ash'
+					: 'char';
+				const trunkBase = groundRow - 1;
+				const canopyBase = trunkBase - t.trunkH + 1;
+
+				// trunk (always drawn unless completely dust)
+				let trunkColor;
+				if (stage === 'unlit' || stage === 'catch') {
+					trunkColor = hslToRGB(22, 0.35, 0.16);
+				} else if (stage === 'burn') {
+					trunkColor = hslToRGB(18, 0.5, 0.13);
+				} else if (stage === 'ash') {
+					trunkColor = hslToRGB(20, 0.18, 0.10);
+				} else {
+					trunkColor = hslToRGB(18, 0.08, clamp01(0.10 - 0.04 * endingFade));
+				}
+				for (let r = 0; r < t.trunkH; r++) {
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, t.colCenter, trunkBase - r, 1, 1, `rgb(${trunkColor.r},${trunkColor.g},${trunkColor.b})`, 1);
+					if (t.trunkH > 2 && r === 0) {
+						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, t.colCenter - 1, trunkBase - r, 1, 1, `rgb(${trunkColor.r},${trunkColor.g},${trunkColor.b})`, 0.7);
+						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, t.colCenter + 1, trunkBase - r, 1, 1, `rgb(${trunkColor.r},${trunkColor.g},${trunkColor.b})`, 0.7);
+					}
+				}
+
+				if (stage === 'char') {
+					// burnt stump only — char hue, faded out during ending
+					const charLight = clamp01(0.10 + 0.04 * (1 - endingFade));
+					const stumpColor = hslToRGB(22, 0.12, charLight);
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, t.colCenter, canopyBase - 1, 1, 1, `rgb(${stumpColor.r},${stumpColor.g},${stumpColor.b})`, clamp01(0.7 + 0.3 * (1 - endingFade)));
+					continue;
+				}
+
+				// canopy as a triangle stack of horizontal slabs
+				for (let row = 0; row < t.treeH; row++) {
+					const upT = row / Math.max(1, t.treeH - 1);
+					const rowWidth = Math.max(1, Math.round(t.treeW * (1 - upT * 0.85)));
+					const rowHalf = Math.max(0, Math.floor((rowWidth - 1) / 2));
+					const rowY = canopyBase - 1 - row;
+					if (rowY < 0) continue;
+
+					for (let dx = -rowHalf; dx <= rowHalf; dx++) {
+						const col = t.colCenter + dx;
+						if (col < 0 || col >= this.w) continue;
+						const edge = Math.abs(dx) === rowHalf;
+						const grain = this._hash(t.seed + row * 7 + dx * 11);
+
+						if (stage === 'unlit') {
+							const hue = ((this.cfg.foliage_hue + (grain * 2 - 1) * 6) % 360 + 360) % 360;
+							const light = clamp01(this.cfg.foliage_lmin + (this.cfg.foliage_lmax - this.cfg.foliage_lmin) * (0.4 + upT * 0.6 + (edge ? -0.06 : 0.04)));
+							const color = hslToRGB(hue, this.cfg.foliage_sat, light);
+							this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col, rowY, 1, 1, `rgb(${color.r},${color.g},${color.b})`, edge ? 0.92 : 1);
+						} else if (stage === 'catch') {
+							const catchT = phase / phases.catchDur;
+							// canopy mostly green, tinged warmer at the top as the catch climbs
+							const flicker = 0.85 + 0.15 * Math.sin(speed * 1.4 + dx * 0.6 + row * 0.4 + grain * 6);
+							const blend = clamp01(catchT * (upT > 0.55 ? 1 : 0.18));
+							const greenHue = ((this.cfg.foliage_hue + (grain * 2 - 1) * 6) % 360 + 360) % 360;
+							const greenLight = clamp01(this.cfg.foliage_lmin + (this.cfg.foliage_lmax - this.cfg.foliage_lmin) * (0.4 + upT * 0.6));
+							const green = hslToRGB(greenHue, this.cfg.foliage_sat, greenLight);
+							const fireHue = ((this.cfg.hue + (grain * 2 - 1) * this.cfg.hue_sp * 0.5) % 360 + 360) % 360;
+							const fireLight = clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * (0.5 + upT * 0.4) * intensity);
+							const fire = hslToRGB(fireHue, this.cfg.sat, fireLight);
+							const r = Math.round(green.r * (1 - blend) + fire.r * blend * flicker);
+							const g = Math.round(green.g * (1 - blend) + fire.g * blend * flicker);
+							const b = Math.round(green.b * (1 - blend) + fire.b * blend * flicker);
+							this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col, rowY, 1, 1, `rgb(${r},${g},${b})`, edge ? 0.94 : 1);
+						} else if (stage === 'burn') {
+							const burnT = (phase - phases.catchDur) / Math.max(1, phases.burnDur);
+							const flicker = 0.62 + 0.38 * Math.sin(speed * 2.0 + dx * 0.7 + row * 0.5 + grain * 5);
+							const heat = clamp01((1 - burnT * 0.6) * intensity * (0.7 + flicker * 0.3));
+							const fireHue = ((this.cfg.hue + (grain * 2 - 1) * this.cfg.hue_sp * 0.6) % 360 + 360) % 360;
+							const fireLight = clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * (0.45 + upT * 0.35 + heat * 0.2));
+							const fire = hslToRGB(fireHue, this.cfg.sat, fireLight);
+							this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col, rowY, 1, 1, `rgb(${fire.r},${fire.g},${fire.b})`, clamp01(0.78 + heat * 0.2 - (edge ? 0.08 : 0)));
+							if (heat > 0.55 && upT > 0.45 && (row + dx) % 2 === 0) {
+								const core = hslToRGB((this.cfg.hue + 8) % 360, clamp01(this.cfg.sat * 0.85), clamp01(this.cfg.lmax * (0.78 + upT * 0.18)));
+								this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col, rowY, 1, 1, `rgb(${core.r},${core.g},${core.b})`, clamp01(0.36 + heat * 0.4));
+							}
+						} else if (stage === 'ash') {
+							const ashT = (phase - phases.burnEnd) / Math.max(1, phases.ashDur);
+							const fade = clamp01(1 - ashT);
+							const charHue = 24;
+							const charLight = clamp01(0.10 + fade * 0.10 + (grain * 0.04));
+							const char = hslToRGB(charHue, 0.18, charLight);
+							const alpha = clamp01(0.4 + 0.4 * fade - (edge ? 0.1 : 0));
+							this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col, rowY, 1, 1, `rgb(${char.r},${char.g},${char.b})`, alpha);
+							if (fade > 0.4 && grain > 0.78) {
+								// stray ember glowing in the still-warm canopy
+								const ember = hslToRGB((this.cfg.hue + 4) % 360, clamp01(this.cfg.sat * 0.7), clamp01(this.cfg.lmax * (0.5 + fade * 0.4)));
+								this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col, rowY, 1, 1, `rgb(${ember.r},${ember.g},${ember.b})`, clamp01(0.18 + fade * 0.4));
+							}
+						}
+					}
+				}
+
+				// flame plume above each actively burning tree
+				if (stage === 'catch' || stage === 'burn') {
+					const flameLevel = stage === 'catch'
+						? (phase / phases.catchDur) * 0.7
+						: clamp01(1 - 0.4 * (phase - phases.catchDur) / Math.max(1, phases.burnDur));
+					const flameH = Math.max(2, Math.round(this.cfg.flame_height * flameLevel * intensity));
+					const flameTopRow = canopyBase - t.treeH;
+					const flameHalf = Math.max(1, Math.round(t.treeW * 0.35));
+					for (let dx = -flameHalf; dx <= flameHalf; dx++) {
+						const nx = Math.abs(dx) / Math.max(1, flameHalf);
+						const widthShape = Math.max(0, 1 - Math.pow(nx, 1.4));
+						if (widthShape <= 0.06) continue;
+						const colJitter = Math.round(Math.sin(speed * 1.6 + dx * 0.7 + t.seed * 0.01) * this.cfg.flicker * 0.6);
+						const colH = Math.max(1, Math.round(flameH * widthShape * (0.7 + this._hash(t.seed + 600 + dx) * 0.3)));
+						for (let y = 0; y < colH; y++) {
+							const lift = y / Math.max(1, colH);
+							const taper = 1 - lift;
+							const col = t.colCenter + dx + colJitter;
+							const row = flameTopRow - 1 - y;
+							if (row < 0 || col < 0 || col >= this.w) continue;
+							const hue = ((this.cfg.hue - lift * this.cfg.hue_sp * 0.4 + (this._hash(t.seed + 700 + dx + y) * 2 - 1) * this.cfg.hue_sp * 0.1) % 360 + 360) % 360;
+							const sat = clamp01(this.cfg.sat * (0.85 + taper * 0.15));
+							const light = clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * (0.18 + taper * 0.78));
+							const color = hslToRGB(hue, sat, light);
+							const alpha = clamp01((0.18 + taper * 0.6) * (0.4 + widthShape * 0.6) * intensity);
+							this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col, row, 1, 1, `rgb(${color.r},${color.g},${color.b})`, alpha);
+						}
+					}
+				}
+
+				// embers rising off active fires
+				if (stage === 'burn' && this.cfg.ember_rate > 0) {
+					const burnT = (phase - phases.catchDur) / Math.max(1, phases.burnDur);
+					const emberCount = Math.max(0, Math.round(this.cfg.tree_width * (0.6 + this.cfg.ember_rate * 3.2) * (1 - burnT * 0.5) * intensity));
+					const maxRise = Math.max(8, Math.round(this.cfg.flame_height * 1.6 + this.cfg.ember_speed * 10));
+					for (let e = 0; e < emberCount; e++) {
+						const cycle = maxRise + 6 + Math.floor(this._hash(t.seed + 800 + e) * 12);
+						const seedRise = this._hash(t.seed + 900 + e) * cycle;
+						const progress = positiveMod(this.tick * this.cfg.ember_speed * (0.7 + this._hash(t.seed + 1000 + e) * 0.7) + seedRise, cycle);
+						if (progress > maxRise) continue;
+						const fade = 1 - progress / Math.max(1, maxRise);
+						const drift = (this._hash(t.seed + 1100 + e) * 2 - 1) * (1.2 + progress * 0.06) + Math.sin(speed + e * 0.7) * 0.5;
+						const col = Math.round(t.colCenter + drift);
+						const row = Math.round(canopyBase - t.treeH - 2 - progress);
+						if (row < 1 || col < 0 || col >= this.w) continue;
+						const hue = ((this.cfg.hue - 4 + this._hash(t.seed + 1200 + e) * 12) % 360 + 360) % 360;
+						const light = clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * (0.4 + fade * 0.5));
+						const color = hslToRGB(hue, clamp01(this.cfg.sat * 0.8), light);
+						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col, row, 1, 1, `rgb(${color.r},${color.g},${color.b})`, clamp01((0.16 + fade * 0.6) * intensity));
+					}
+				}
+			}
+		}
 	}
 
 	class WheatField extends ProceduralScene {
@@ -4710,6 +5143,12 @@
 	class Volcano extends ProceduralScene {
 		constructor(w, h, cfg, seed) {
 			super('volcano', w, h, cfg, seed);
+		}
+	}
+
+	class BurningTrees extends ProceduralScene {
+		constructor(w, h, cfg, seed) {
+			super('burning-trees', w, h, cfg, seed);
 		}
 	}
 
@@ -5197,7 +5636,7 @@
 	// server's snapshot payload — the client looks up the constructor here
 	// by name so new effects just register themselves and work without
 	// client-side changes.
-	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, beach: Beach, campfire: Campfire, windmill: Windmill, lighthouse: Lighthouse, rowboat: Rowboat, underwater: Underwater, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield, volcano: Volcano, tetris: Tetris };
+	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, beach: Beach, campfire: Campfire, windmill: Windmill, lighthouse: Lighthouse, rowboat: Rowboat, underwater: Underwater, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield, volcano: Volcano, 'burning-trees': BurningTrees, tetris: Tetris };
 	const presets = {
 		'wheat-field': [
 			{
@@ -6407,6 +6846,142 @@
 				},
 			},
 		],
+		'burning-trees': [
+			{
+				key: 'single-ignition',
+				label: 'single ignition',
+				config: {
+					tree_count: 9,
+					horizon: 0.80,
+					tree_height: 16,
+					tree_width: 9,
+					tree_jitter: 0.32,
+					trunk_height: 3,
+					foliage_hue: 118,
+					foliage_sat: 0.42,
+					foliage_lmin: 0.18,
+					foliage_lmax: 0.46,
+					hue: 24,
+					hue_sp: 16,
+					sat: 0.86,
+					lmin: 0.32,
+					lmax: 0.94,
+					flame_height: 9,
+					flame_speed: 0.16,
+					flicker: 0.78,
+					glow: 0.5,
+					ember_rate: 0.26,
+					ember_speed: 0.55,
+					catch_dur: 20,
+					burn_dur: 180,
+					ash_dur: 220,
+					ignite_p: 0,
+					flare_p: 0,
+					lull_p: 0,
+				},
+			},
+			{
+				key: 'slow-spread',
+				label: 'slow spread',
+				config: {
+					tree_count: 11,
+					horizon: 0.80,
+					tree_height: 16,
+					tree_width: 9,
+					tree_jitter: 0.34,
+					trunk_height: 3,
+					foliage_hue: 122,
+					foliage_sat: 0.46,
+					foliage_lmin: 0.20,
+					foliage_lmax: 0.48,
+					hue: 22,
+					hue_sp: 16,
+					sat: 0.84,
+					lmin: 0.30,
+					lmax: 0.92,
+					flame_height: 8,
+					flame_speed: 0.14,
+					flicker: 0.7,
+					glow: 0.45,
+					ember_rate: 0.22,
+					ember_speed: 0.5,
+					catch_dur: 26,
+					burn_dur: 220,
+					ash_dur: 260,
+					ignite_p: 0.0008,
+					flare_p: 0,
+					lull_p: 0,
+				},
+			},
+			{
+				key: 'smoldering-line',
+				label: 'smoldering line',
+				config: {
+					tree_count: 9,
+					horizon: 0.80,
+					tree_height: 14,
+					tree_width: 9,
+					tree_jitter: 0.28,
+					trunk_height: 3,
+					foliage_hue: 108,
+					foliage_sat: 0.32,
+					foliage_lmin: 0.16,
+					foliage_lmax: 0.40,
+					hue: 18,
+					hue_sp: 14,
+					sat: 0.78,
+					lmin: 0.30,
+					lmax: 0.86,
+					flame_height: 5,
+					flame_speed: 0.10,
+					flicker: 0.55,
+					glow: 0.32,
+					ember_rate: 0.18,
+					ember_speed: 0.42,
+					catch_dur: 28,
+					burn_dur: 300,
+					ash_dur: 340,
+					ignite_p: 0.0006,
+					lull_p: 0.0014,
+					lull_dur: 100,
+					lull_mult: 0.4,
+				},
+			},
+			{
+				key: 'active-burn',
+				label: 'active burn',
+				config: {
+					tree_count: 12,
+					horizon: 0.80,
+					tree_height: 16,
+					tree_width: 9,
+					tree_jitter: 0.36,
+					trunk_height: 3,
+					foliage_hue: 118,
+					foliage_sat: 0.42,
+					foliage_lmin: 0.18,
+					foliage_lmax: 0.46,
+					hue: 26,
+					hue_sp: 18,
+					sat: 0.9,
+					lmin: 0.34,
+					lmax: 0.96,
+					flame_height: 11,
+					flame_speed: 0.2,
+					flicker: 0.9,
+					glow: 0.62,
+					ember_rate: 0.35,
+					ember_speed: 0.7,
+					catch_dur: 18,
+					burn_dur: 140,
+					ash_dur: 180,
+					ignite_p: 0.0024,
+					flare_p: 0.0014,
+					flare_dur: 50,
+					flare_mult: 1.9,
+				},
+			},
+		],
 		tetris: [
 			{
 				key: 'museum-pace',
@@ -6511,5 +7086,5 @@
 		],
 	};
 
-	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Aurora, AutumnLeaves, Snow, Starfield, Volcano, Tetris, subscribe, applyDefaults, hslToRGB, effects, presets };
+	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Aurora, AutumnLeaves, Snow, Starfield, Volcano, BurningTrees, Tetris, subscribe, applyDefaults, hslToRGB, effects, presets };
 })(window);
