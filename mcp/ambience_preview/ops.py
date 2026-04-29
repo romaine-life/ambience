@@ -445,9 +445,9 @@ _AGENT_BASH_SCRIPT = r"""set -euo pipefail
 
 # Pre-create the evidence dirs the agent writes into. Sibling of
 # /workspace/repo (the clone root) so `git add -A` in the repo doesn't
-# pick PNGs/notes up. The post-Job workflow `kubectl cp`s
-# /workspace/evidence out to the runner; the dirs need to exist for that
-# cp to succeed even if the agent produced no evidence.
+# pick PNGs/notes up. The post-Job workflow extracts /workspace/evidence
+# from the agent pod's stdout (see end of script); the dirs need to
+# exist for the tar to succeed even if the agent produced no evidence.
 mkdir -p /workspace/evidence/screenshots
 
 # Seed claude state — placeholder credentials so claude never tries to
@@ -541,6 +541,18 @@ git fetch origin main
 git rebase origin/main
 
 git push origin "HEAD:${BRANCH_NAME}"
+
+# Stream the evidence dir as a base64-encoded tarball to stdout between
+# clear markers the workflow extracts via sed. We can't kubectl cp from
+# a Succeeded pod (exec-tar requires a live container; the bash exit
+# transitions the pod to Succeeded immediately), so we use kubectl logs
+# as the side-channel — it preserves stdout regardless of pod state.
+# Empty evidence dir is fine; the markers just frame an empty tar.
+if [ -d /workspace/evidence ]; then
+  echo "===EVIDENCE-TAR-START==="
+  tar -czf - -C /workspace/evidence . | base64
+  echo "===EVIDENCE-TAR-END==="
+fi
 """
 
 
