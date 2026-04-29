@@ -204,31 +204,34 @@ jobs:
       - name: Apply agent Job
         run: |
           set -euo pipefail
-          export ISSUE_NUMBER ISSUE_TITLE ISSUE_URL VALIDATION_URL BRANCH_NAME NAMESPACE JOB_NAME PROXY_IP CLAUDE_CONTAINER_TAG
-          envsubst < .github/agent/job.yaml | kubectl apply -f -
+          # Job spec is built in Python (mcp/ambience_preview/ops.py::apply_agent_job).
+          # No string templating: run-specific values are CLI args; bash-side
+          # `${VAR}` refs in the container's command stay literal because the
+          # script is a plain Python string, not an f-string.
+          python -m ambience_preview.cli apply-agent-job \
+            --namespace "${NAMESPACE}" \
+            --job-name "${JOB_NAME}" \
+            --issue-number "${ISSUE_NUMBER}" \
+            --issue-title "${ISSUE_TITLE}" \
+            --issue-url "${ISSUE_URL}" \
+            --validation-url "${VALIDATION_URL}" \
+            --branch-name "${BRANCH_NAME}" \
+            --proxy-ip "${PROXY_IP}" \
+            --claude-container-tag "${CLAUDE_CONTAINER_TAG}"
 
       - name: Stream + wait for Job
         id: job
         run: |
           set -euo pipefail
-          # Stream logs until the Job's Pod terminates.
-          pod=""
-          for _ in $(seq 1 30); do
-            pod=$(kubectl -n "${NAMESPACE}" get pods -l "job-name=${JOB_NAME}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-            [ -n "$pod" ] && break
-            sleep 2
-          done
-          if [ -z "$pod" ]; then
-            echo "::error::Job pod never appeared"
-            exit 1
-          fi
-          kubectl -n "${NAMESPACE}" logs -f "$pod" || true
-          # Wait on Job conditions; one of complete or failed lands.
-          kubectl -n "${NAMESPACE}" wait --for=condition=complete --timeout=30m "job/${JOB_NAME}" && exit 0
-          kubectl -n "${NAMESPACE}" wait --for=condition=failed --timeout=10s "job/${JOB_NAME}" && {
-            echo "::error::agent Job failed"
-            exit 1
-          }
+          # wait_agent_job polls the Pod to Running|Succeeded|Failed, streams
+          # logs to stdout, then polls Job .status.succeeded/.status.failed
+          # until terminal — fast-fails on either outcome instead of waiting
+          # the old `kubectl wait --for=condition=complete --timeout=30m`
+          # path that blocked for the full timeout on every Job failure.
+          python -m ambience_preview.cli wait-agent-job \
+            --namespace "${NAMESPACE}" \
+            --job-name "${JOB_NAME}" \
+            --timeout-seconds 1800
 
       - name: Open pull request
         if: success()
