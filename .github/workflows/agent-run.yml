@@ -42,6 +42,11 @@ permissions:
   id-token: write
   issues: write
   pull-requests: write
+  # When the agent's branch is based on a clone-time main and main has
+  # since moved, the push diff vs default-branch HEAD includes workflow
+  # files even if the agent didn't touch them. The runner-minted
+  # GITHUB_TOKEN needs this scope to push such branches.
+  workflows: write
 
 env:
   GLIMMUNG_BASE: https://glimmung.romaine.life
