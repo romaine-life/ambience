@@ -476,6 +476,14 @@ def _agent_job_spec(
                 },
                 "spec": {
                     "restartPolicy": "Never",
+                    # claude --dangerously-skip-permissions refuses to run as root
+                    # (matches tank-operator session pods' securityContext).
+                    "securityContext": {
+                        "runAsUser": 1000,
+                        "runAsGroup": 1000,
+                        "fsGroup": 1000,
+                        "runAsNonRoot": True,
+                    },
                     "hostAliases": [
                         {"ip": proxy_ip, "hostnames": ["api.anthropic.com"]},
                     ],
