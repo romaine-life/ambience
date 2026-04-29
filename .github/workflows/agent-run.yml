@@ -92,19 +92,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Start glimmung heartbeat (background)
-        env:
-          LEASE_ID: ${{ inputs.lease_id }}
-        run: |
-          set -euo pipefail
-          (
-            while true; do
-              curl -fsS -X POST "${GLIMMUNG_BASE}/v1/lease/${LEASE_ID}/heartbeat?project=${GLIMMUNG_PROJECT}" >/dev/null 2>&1 || true
-              sleep 60
-            done
-          ) &
-          echo "$!" > /tmp/heartbeat.pid
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -240,21 +227,136 @@ jobs:
             --job-name "${JOB_NAME}" \
             --timeout-seconds 1800
 
+      # ------------------------------------------------------------------
+      # Post-agent verify: rebuild the validation env from the agent's
+      # pushed branch, capture screenshots of the paths the agent picked,
+      # upload to Azure blob, and embed the URLs in the PR body. Mirrors
+      # spirelens's verify phase. Without this, the validation env still
+      # runs the pre-edit image, so the URL in the PR body would not
+      # reflect the diff under review.
+      # ------------------------------------------------------------------
+
+      - name: Fetch agent branch onto runner
+        if: success()
+        run: |
+          set -euo pipefail
+          git fetch origin "${BRANCH_NAME}"
+          git checkout -B "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
+
+      - name: Rebuild validation env from agent branch
+        if: success()
+        run: |
+          set -euo pipefail
+          # Use a distinct tag so the rebuild is auditable and so teardown
+          # can reclaim both the original and the rebuild image.
+          rebuild_tag="${IMAGE_TAG}-r2"
+          echo "REBUILT_IMAGE_TAG=${rebuild_tag}" >> "$GITHUB_ENV"
+          python -m ambience_preview.cli rebuild-validation-image \
+            --namespace "${NAMESPACE}" \
+            --branch "${BRANCH_NAME}" \
+            --image-tag "${rebuild_tag}"
+
+      - name: Wait for rebuilt validation env
+        if: success()
+        run: |
+          set -euo pipefail
+          python -m ambience_preview.cli wait-public-preview --url "${VALIDATION_URL}"
+
+      - name: Read screenshot paths from agent artifacts
+        id: shots
+        if: success()
+        run: |
+          set -euo pipefail
+          paths_file=".github/agent-artifacts/issue-${ISSUE_NUMBER}/screenshot-paths.json"
+          if [ ! -f "${paths_file}" ]; then
+            echo "agent did not emit ${paths_file}; skipping screenshot capture"
+            echo "have_shots=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          paths_json=$(jq -ec '.paths | select(type=="array")' "${paths_file}" || echo "")
+          if [ -z "${paths_json}" ] || [ "${paths_json}" = "[]" ]; then
+            echo "screenshot-paths.json present but empty; skipping"
+            echo "have_shots=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "paths=${paths_json}" >> "$GITHUB_OUTPUT"
+          echo "have_shots=true" >> "$GITHUB_OUTPUT"
+
+      - name: Capture screenshots
+        if: success() && steps.shots.outputs.have_shots == 'true'
+        env:
+          PATHS_JSON: ${{ steps.shots.outputs.paths }}
+        run: |
+          set -euo pipefail
+          out_dir="screenshots-out"
+          mkdir -p "${out_dir}"
+          # capture-validation-screenshot manages its own kubectl port-forward
+          # lifecycle per call; iterating sequentially keeps that simple.
+          while IFS= read -r p; do
+            slug=$(printf '%s' "${p}" | sed 's|^/||;s|/|-|g;s|[^a-zA-Z0-9_.-]|_|g')
+            [ -z "${slug}" ] && slug=root
+            python -m ambience_preview.cli capture-validation-screenshot \
+              --namespace "${NAMESPACE}" \
+              --page-path "${p}" \
+              --output-path "${out_dir}/${slug}.png"
+          done < <(printf '%s' "${PATHS_JSON}" | jq -r '.[]')
+
+      - name: Upload screenshots to Azure blob
+        id: upload
+        if: success() && steps.shots.outputs.have_shots == 'true'
+        env:
+          STORAGE_ACCOUNT: ${{ vars.AGENT_SCREENSHOT_STORAGE_ACCOUNT }}
+          CONTAINER: ${{ vars.AGENT_SCREENSHOT_CONTAINER }}
+          CONTAINER_URL: ${{ vars.AGENT_SCREENSHOT_CONTAINER_URL }}
+        run: |
+          set -euo pipefail
+          prefix="issue-${ISSUE_NUMBER}/${GITHUB_RUN_ID}"
+          az storage blob upload-batch \
+            --account-name "${STORAGE_ACCOUNT}" \
+            --destination "${CONTAINER}" \
+            --destination-path "${prefix}" \
+            --source screenshots-out \
+            --auth-mode login \
+            --overwrite true
+          {
+            echo "markdown<<EOF_MD"
+            echo "## Screenshots"
+            echo ""
+            for f in screenshots-out/*.png; do
+              [ -e "${f}" ] || continue
+              base=$(basename "${f}")
+              echo "### ${base%.png}"
+              echo ""
+              echo "![${base%.png}](${CONTAINER_URL}/${prefix}/${base})"
+              echo ""
+            done
+            echo "EOF_MD"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Open pull request
         if: success()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SCREENSHOTS_MD: ${{ steps.upload.outputs.markdown }}
         run: |
           set -euo pipefail
+          body_file=$(mktemp)
+          {
+            echo "Closes #${ISSUE_NUMBER}."
+            echo ""
+            echo "Validation env (until PR closes): ${VALIDATION_URL}"
+            echo ""
+            if [ -n "${SCREENSHOTS_MD:-}" ]; then
+              printf '%s\n' "${SCREENSHOTS_MD}"
+              echo ""
+            fi
+            echo "Generated by glimmung-leased agent run on host \`${{ inputs.host }}\` (lease \`${{ inputs.lease_id }}\`)."
+          } > "${body_file}"
           gh pr create \
             --base main \
             --head "${BRANCH_NAME}" \
             --title "agent: ${ISSUE_TITLE} (#${ISSUE_NUMBER})" \
-            --body "Closes #${ISSUE_NUMBER}.
-
-          Validation env (until PR closes): ${VALIDATION_URL}
-
-          Generated by glimmung-leased agent run on host \`${{ inputs.host }}\` (lease \`${{ inputs.lease_id }}\`)."
+            --body-file "${body_file}"
 
       - name: Tear down validation env
         if: always()
@@ -269,12 +371,8 @@ jobs:
           if [ -n "${IMAGE_TAG:-}" ]; then
             az acr repository delete --name romainecr --image "ambience:${IMAGE_TAG}" --yes || true
           fi
-
-      - name: Stop heartbeat
-        if: always()
-        run: |
-          if [ -f /tmp/heartbeat.pid ]; then
-            kill "$(cat /tmp/heartbeat.pid)" 2>/dev/null || true
+          if [ -n "${REBUILT_IMAGE_TAG:-}" ]; then
+            az acr repository delete --name romainecr --image "ambience:${REBUILT_IMAGE_TAG}" --yes || true
           fi
 
   release-lease:
