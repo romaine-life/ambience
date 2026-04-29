@@ -301,6 +301,16 @@ jobs:
           echo "paths=${paths_json}" >> "$GITHUB_OUTPUT"
           echo "have_shots=true" >> "$GITHUB_OUTPUT"
 
+      - name: Install Playwright + chromium
+        # capture-screenshot.mjs does a dynamic `import "playwright"`, so
+        # the package + browser bundle have to be on the runner before the
+        # capture step runs. Only installed when we actually have paths.
+        if: success() && steps.shots.outputs.have_shots == 'true'
+        run: |
+          set -euo pipefail
+          npm install --no-save playwright
+          npx --yes playwright install --with-deps chromium
+
       - name: Capture screenshots
         if: success() && steps.shots.outputs.have_shots == 'true'
         env:
