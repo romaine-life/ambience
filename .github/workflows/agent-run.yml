@@ -330,6 +330,19 @@ jobs:
               --output-path "${out_dir}/${slug}.png"
           done < <(printf '%s' "${PATHS_JSON}" | jq -r '.[]')
 
+      - name: Refresh Azure OIDC login
+        # azure/login@v2's OIDC JWT assertion is valid for 5 minutes only.
+        # The agent + rebuild + capture takes 10-15 min, so by upload time
+        # the cached JWT is stale and `az storage` hits AADSTS700024
+        # ("Client assertion is not within its valid time range"). Re-login
+        # mints a fresh JWT.
+        if: success() && steps.shots.outputs.have_shots == 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.ARM_CLIENT_ID }}
+          tenant-id: ${{ vars.ARM_TENANT_ID }}
+          subscription-id: ${{ vars.ARM_SUBSCRIPTION_ID }}
+
       - name: Upload screenshots to Azure blob
         id: upload
         if: success() && steps.shots.outputs.have_shots == 'true'
