@@ -312,6 +312,78 @@ def capture_validation_screenshot(
     }
 
 
+def rebuild_validation_image(
+    *,
+    namespace: str,
+    branch: str,
+    image_tag: str,
+    registry_name: str = DEFAULT_REGISTRY_NAME,
+    image_repository: str = DEFAULT_IMAGE_REPOSITORY,
+    repo_slug: str = "nelsong6/ambience",
+    rollout_timeout: str = "300s",
+    service_name: str = DEFAULT_SERVICE_NAME,
+) -> dict:
+    """Build a fresh image from the pushed agent branch and roll the
+    validation env onto it.
+
+    The validation env was deployed up-front (before the agent ran) so the
+    agent has a URL to reference while it works. Once the agent pushes its
+    commit, that env is stale relative to the diff that's about to be
+    proposed in the PR. We rebuild from the branch ref directly (`az acr
+    build https://...#branch`) instead of re-cloning locally, then `kubectl
+    set image` flips the workloads onto the new tag without redeploying the
+    chart (avoids re-running route/cert plumbing)."""
+    registry_server = os.environ.get("REGISTRY_SERVER", f"{registry_name}.azurecr.io")
+    image = f"{registry_server}/{image_repository}:{image_tag}"
+
+    run_command(
+        [
+            "az",
+            "acr",
+            "build",
+            "--registry",
+            registry_name,
+            "--image",
+            f"{image_repository}:{image_tag}",
+            f"https://github.com/{repo_slug}.git#{branch}",
+        ]
+    )
+
+    for kind, workload in (
+        ("deployment", f"{service_name}-edge"),
+        ("statefulset", f"{service_name}-authority"),
+    ):
+        run_command(
+            [
+                "kubectl",
+                "-n",
+                namespace,
+                "set",
+                "image",
+                f"{kind}/{workload}",
+                f"{service_name}={image}",
+            ]
+        )
+        run_command(
+            [
+                "kubectl",
+                "-n",
+                namespace,
+                "rollout",
+                "status",
+                f"{kind}/{workload}",
+                f"--timeout={rollout_timeout}",
+            ]
+        )
+
+    return {
+        "namespace": namespace,
+        "branch": branch,
+        "image": image,
+        "image_tag": image_tag,
+    }
+
+
 def upsert_pr_preview(
     *,
     pr_number: int,
