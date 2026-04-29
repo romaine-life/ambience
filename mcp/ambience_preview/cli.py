@@ -46,6 +46,30 @@ def build_parser() -> argparse.ArgumentParser:
     destroy_pr = subparsers.add_parser("destroy-pr-preview")
     destroy_pr.add_argument("--pr-number", type=int, required=True)
 
+    apply_agent = subparsers.add_parser(
+        "apply-agent-job",
+        help="Render and `kubectl apply` the agent Job for one issue run.",
+    )
+    apply_agent.add_argument("--namespace", required=True)
+    apply_agent.add_argument("--job-name", required=True)
+    apply_agent.add_argument("--issue-number", required=True)
+    apply_agent.add_argument("--issue-title", required=True)
+    apply_agent.add_argument("--issue-url", required=True)
+    apply_agent.add_argument("--validation-url", required=True)
+    apply_agent.add_argument("--branch-name", required=True)
+    apply_agent.add_argument("--proxy-ip", required=True)
+    apply_agent.add_argument("--claude-container-tag", required=True)
+    apply_agent.add_argument("--repo-slug", default="nelsong6/ambience")
+
+    wait_agent = subparsers.add_parser(
+        "wait-agent-job",
+        help="Wait for an agent Job's Pod to reach a terminal state, streaming "
+        "logs to stdout. Exits non-zero on Job failure.",
+    )
+    wait_agent.add_argument("--namespace", required=True)
+    wait_agent.add_argument("--job-name", required=True)
+    wait_agent.add_argument("--timeout-seconds", type=int, default=1800)
+
     return parser
 
 
@@ -92,6 +116,29 @@ def main() -> int:
             dump(ops.destroy_preview(namespace=namespace, release=release))
         elif args.command == "destroy-pr-preview":
             dump(ops.destroy_pr_preview(pr_number=args.pr_number))
+        elif args.command == "apply-agent-job":
+            dump(
+                ops.apply_agent_job(
+                    namespace=args.namespace,
+                    job_name=args.job_name,
+                    issue_number=args.issue_number,
+                    issue_title=args.issue_title,
+                    issue_url=args.issue_url,
+                    validation_url=args.validation_url,
+                    branch_name=args.branch_name,
+                    proxy_ip=args.proxy_ip,
+                    claude_container_tag=args.claude_container_tag,
+                    repo_slug=args.repo_slug,
+                )
+            )
+        elif args.command == "wait-agent-job":
+            dump(
+                ops.wait_agent_job(
+                    namespace=args.namespace,
+                    job_name=args.job_name,
+                    timeout_seconds=args.timeout_seconds,
+                )
+            )
         else:
             parser.error(f"unknown command: {args.command}")
     except Exception as error:
