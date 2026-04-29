@@ -419,8 +419,15 @@ Validation env: ${VALIDATION_URL}
 EOF
 cat /agent-config/prompt.md /tmp/issue-context.md > /tmp/agent-input.md
 
+# stream-json + verbose so the GHA step surfaces tool calls + partial
+# messages as they happen, instead of going silent for the whole agent
+# run and dumping the final response at exit. Each event is one JSON
+# object on its own line; the workflow's `kubectl logs -f` pipes them
+# straight to the step output.
 cat /tmp/agent-input.md | claude \
   --print \
+  --output-format stream-json \
+  --verbose \
   --dangerously-skip-permissions \
   2>&1 | tee /tmp/claude-stream.log
 
