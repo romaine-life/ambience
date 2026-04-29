@@ -79,6 +79,25 @@ jobs:
           fi
           echo "lease verified: ${LEASE_ID} active on ${HOST}"
 
+      - name: Comment with run link
+        # Best-effort one-line link from the originating issue to this run.
+        # Mirrors spirelens. Failure here never sinks the run.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HOST: ${{ inputs.host }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ISSUE_NUMBER}" ]; then
+            echo "no issue_number; skipping run-start comment"
+            exit 0
+          fi
+          body="agent run started: ${RUN_URL} (host \`${HOST}\`)"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/comments" \
+            -f "body=${body}" >/dev/null \
+            || echo "::warning::failed to post run-start comment on #${ISSUE_NUMBER}; continuing"
+
   agent:
     name: Run agent + open PR
     needs: route
