@@ -353,6 +353,43 @@ var underwaterDefaults = ProceduralConfig{
 	"calm_mult":          0.55,
 }
 
+var burningTreesDefaults = ProceduralConfig{
+	"intro_dur":     60,
+	"intro_growth":  0.22,
+	"ending_dur":    70,
+	"ending_linger": 24,
+	"ending_ashen":  0.10,
+	"horizon":       0.78,
+	"tree_count":    9,
+	"tree_height":   14,
+	"tree_width":    8,
+	"trunk_height":  3,
+	"spread":        0.32,
+	"burn_dur":      220,
+	"ash_linger":    80,
+	"smoke":         0.4,
+	"smoke_height":  16,
+	"ember_rate":    0.36,
+	"hue":           22,
+	"hue_sp":        18,
+	"sat":           0.78,
+	"lmin":          0.22,
+	"lmax":          0.94,
+	"trunk_hue":     24,
+	"trunk_sat":     0.42,
+	"trunk_light":   0.24,
+	"leaf_hue":      112,
+	"leaf_sat":      0.46,
+	"leaf_light":    0.36,
+	"ignite_p":      0.0,
+	"flare_p":       0.0,
+	"lull_p":        0.0,
+	"flare_dur":     38,
+	"flare_mult":    1.7,
+	"lull_dur":      54,
+	"lull_mult":     0.55,
+}
+
 var volcanoDefaults = ProceduralConfig{
 	"intro_dur":         55,
 	"intro_glow":        0.16,
@@ -1084,6 +1121,82 @@ func VolcanoSchema() EffectSchema {
 	}
 }
 
+func BurningTreesSchema() EffectSchema {
+	return EffectSchema{
+		Name: "burning-trees",
+		Knobs: []Knob{
+			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 10, Max: 200, Step: 5, Default: 60, Trigger: "intro",
+				Description: "Ticks spent growing the grove from saplings into a readable tree row before any ignition."},
+			{Key: "intro_growth", Label: "sapling", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0.05, Max: 0.6, Step: 0.01, Default: 0.22,
+				Description: "Starting fraction of full tree height at the beginning of the intro growth."},
+			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 70, Trigger: "ending",
+				Description: "Ticks spent collapsing the active fires back toward ash and stumps."},
+			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 160, Step: 5, Default: 24,
+				Description: "Extra quiet ticks for the last embers and ash glow to fade after the fires are out."},
+			{Key: "ending_ashen", Label: "ash residue", Slot: SlotEnd, Group: "ending", Type: KnobFloat, Min: 0.02, Max: 0.4, Step: 0.01, Default: 0.10,
+				Description: "Residual ember and ash glow that remains near the end of the outro."},
+			{Key: "horizon", Label: "horizon", Slot: SlotLever, Group: "grove", Type: KnobFloat, Min: 0.55, Max: 0.92, Step: 0.01, Default: 0.78,
+				Description: "Where the grove's ground line sits in the frame."},
+			{Key: "tree_count", Label: "tree count", Slot: SlotLever, Group: "grove", Type: KnobInt, Min: 4, Max: 16, Step: 1, Default: 9,
+				Description: "Number of trees evenly spaced along the bottom of the frame."},
+			{Key: "tree_height", Label: "tree height", Slot: SlotLever, Group: "grove", Type: KnobFloat, Min: 6, Max: 26, Step: 0.5, Default: 14,
+				Description: "Typical tree height (trunk + canopy) in pixels."},
+			{Key: "tree_width", Label: "canopy width", Slot: SlotLever, Group: "grove", Type: KnobFloat, Min: 4, Max: 16, Step: 0.5, Default: 8,
+				Description: "Width of each tree's canopy in pixels."},
+			{Key: "trunk_height", Label: "trunk height", Slot: SlotLever, Group: "grove", Type: KnobInt, Min: 1, Max: 8, Step: 1, Default: 3,
+				Description: "How tall the bare trunk segment beneath each canopy is."},
+			{Key: "smoke", Label: "smoke", Slot: SlotLever, Group: "fire", Type: KnobFloat, Min: 0, Max: 0.9, Step: 0.01, Default: 0.4,
+				Description: "How much smoke rises from each actively burning tree."},
+			{Key: "smoke_height", Label: "smoke height", Slot: SlotLever, Group: "fire", Type: KnobFloat, Min: 4, Max: 32, Step: 1, Default: 16,
+				Description: "How far smoke trails rise above each tree before fading."},
+			{Key: "ember_rate", Label: "embers", Slot: SlotLever, Group: "fire", Type: KnobFloat, Min: 0.05, Max: 0.9, Step: 0.01, Default: 0.36,
+				Description: "How many embers float upward from each burning tree."},
+			{Key: "hue", Label: "flame hue", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 6, Max: 50, Step: 1, Default: 22,
+				Description: "Base flame hue. Lower values warm toward red; higher values lean orange-yellow."},
+			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 36, Step: 1, Default: 18,
+				Description: "Variation across flame core, ember sparks, and smoke tinting."},
+			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.2, Max: 1, Step: 0.01, Default: 0.78,
+				Description: "Overall flame and ember saturation."},
+			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.6, Step: 0.01, Default: 0.22,
+				Description: "Minimum lightness used for charred trunks and dim smoke."},
+			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.4, Max: 1, Step: 0.01, Default: 0.94,
+				Description: "Maximum lightness used for the brightest flame cores."},
+			{Key: "trunk_hue", Label: "trunk hue", Slot: SlotLever, Group: "trees", Type: KnobFloat, Min: 12, Max: 60, Step: 1, Default: 24,
+				Description: "Base trunk hue. Lower values lean rusty red; higher values lean warm bark."},
+			{Key: "trunk_sat", Label: "trunk sat", Slot: SlotLever, Group: "trees", Type: KnobFloat, Min: 0.1, Max: 0.8, Step: 0.01, Default: 0.42,
+				Description: "Saturation applied to the trunks of healthy trees."},
+			{Key: "trunk_light", Label: "trunk light", Slot: SlotLever, Group: "trees", Type: KnobFloat, Min: 0.08, Max: 0.5, Step: 0.01, Default: 0.24,
+				Description: "Lightness of healthy trunks before they char."},
+			{Key: "leaf_hue", Label: "leaf hue", Slot: SlotLever, Group: "trees", Type: KnobFloat, Min: 60, Max: 160, Step: 1, Default: 112,
+				Description: "Base canopy hue. Lower values warm toward yellow-green; higher values lean evergreen."},
+			{Key: "leaf_sat", Label: "leaf sat", Slot: SlotLever, Group: "trees", Type: KnobFloat, Min: 0.1, Max: 0.9, Step: 0.01, Default: 0.46,
+				Description: "Saturation applied to healthy canopies before they ignite."},
+			{Key: "leaf_light", Label: "leaf light", Slot: SlotLever, Group: "trees", Type: KnobFloat, Min: 0.1, Max: 0.7, Step: 0.01, Default: 0.36,
+				Description: "Lightness of healthy canopies before ignition."},
+			{Key: "burn_dur", Label: "burn dur", Slot: SlotEventMod, Group: "ignite", Type: KnobInt, Min: 60, Max: 600, Step: 10, Default: 220,
+				Description: "Ticks a tree spends burning from ignition to fully charred (jittered by +/-30%)."},
+			{Key: "ash_linger", Label: "ash linger", Slot: SlotEventMod, Group: "ignite", Type: KnobInt, Min: 0, Max: 240, Step: 5, Default: 80,
+				Description: "Extra ticks of ember and ash glow after the active flame dies down on a tree."},
+			{Key: "spread", Label: "spread", Slot: SlotEventMod, Group: "ignite", Type: KnobFloat, Min: 0, Max: 0.04, Step: 0.001, Default: 0.32,
+				Description: "Chance per tick that an actively burning tree ignites a healthy direct neighbor."},
+			{Key: "ignite_p", Label: "ignite", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "ignite",
+				Description: "Per-tick chance of a fresh ignition starting on a random healthy tree."},
+			{Key: "flare_p", Label: "flare", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "flare",
+				Description: "Per-tick chance of all active fires briefly intensifying."},
+			{Key: "lull_p", Label: "lull", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "lull",
+				Description: "Per-tick chance of all active fires briefly settling into a calmer burn."},
+			{Key: "flare_dur", Label: "flare dur", Slot: SlotEventMod, Group: "flare", Type: KnobInt, Min: 8, Max: 160, Step: 4, Default: 38,
+				Description: "Duration of the brighter flare window in ticks."},
+			{Key: "flare_mult", Label: "flare x", Slot: SlotEventMod, Group: "flare", Type: KnobFloat, Min: 1.05, Max: 3, Step: 0.05, Default: 1.7,
+				Description: "Flame intensity multiplier applied during a flare."},
+			{Key: "lull_dur", Label: "lull dur", Slot: SlotEventMod, Group: "lull", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 54,
+				Description: "Duration of the quieter lower-flame window in ticks."},
+			{Key: "lull_mult", Label: "lull x", Slot: SlotEventMod, Group: "lull", Type: KnobFloat, Min: 0.1, Max: 1, Step: 0.05, Default: 0.55,
+				Description: "Flame intensity multiplier applied while a lull is active."},
+		},
+	}
+}
+
 func cloneProceduralConfig(src ProceduralConfig) ProceduralConfig {
 	if src == nil {
 		return ProceduralConfig{}
@@ -1148,6 +1261,8 @@ func proceduralDefaults(kind string) ProceduralConfig {
 		return cloneProceduralConfig(underwaterDefaults)
 	case "volcano":
 		return cloneProceduralConfig(volcanoDefaults)
+	case "burning-trees":
+		return cloneProceduralConfig(burningTreesDefaults)
 	default:
 		return ProceduralConfig{}
 	}
@@ -1945,6 +2060,99 @@ func mergeProceduralDefaults(kind string, cfg ProceduralConfig) ProceduralConfig
 		if out["flare_mult"] <= 0 {
 			out["flare_mult"] = volcanoDefaults["flare_mult"]
 		}
+	case "burning-trees":
+		if out["intro_dur"] <= 0 {
+			out["intro_dur"] = burningTreesDefaults["intro_dur"]
+		}
+		out["intro_growth"] = clamp01(out["intro_growth"])
+		if out["ending_dur"] <= 0 {
+			out["ending_dur"] = burningTreesDefaults["ending_dur"]
+		}
+		if out["ending_linger"] < 0 {
+			out["ending_linger"] = 0
+		}
+		out["ending_ashen"] = clamp01(out["ending_ashen"])
+		if out["horizon"] <= 0 {
+			out["horizon"] = burningTreesDefaults["horizon"]
+		}
+		if out["tree_count"] < 1 {
+			out["tree_count"] = burningTreesDefaults["tree_count"]
+		}
+		if out["tree_height"] <= 0 {
+			out["tree_height"] = burningTreesDefaults["tree_height"]
+		}
+		if out["tree_width"] <= 0 {
+			out["tree_width"] = burningTreesDefaults["tree_width"]
+		}
+		if out["trunk_height"] < 1 {
+			out["trunk_height"] = burningTreesDefaults["trunk_height"]
+		}
+		if out["smoke"] < 0 {
+			out["smoke"] = 0
+		}
+		if out["smoke_height"] <= 0 {
+			out["smoke_height"] = burningTreesDefaults["smoke_height"]
+		}
+		if out["ember_rate"] <= 0 {
+			out["ember_rate"] = burningTreesDefaults["ember_rate"]
+		}
+		if out["hue"] < 0 {
+			out["hue"] = burningTreesDefaults["hue"]
+		}
+		if out["hue_sp"] < 0 {
+			out["hue_sp"] = 0
+		}
+		if out["sat"] <= 0 {
+			out["sat"] = burningTreesDefaults["sat"]
+		}
+		if out["lmin"] <= 0 {
+			out["lmin"] = burningTreesDefaults["lmin"]
+		}
+		if out["lmax"] <= 0 {
+			out["lmax"] = burningTreesDefaults["lmax"]
+		}
+		if out["lmax"] < out["lmin"] {
+			out["lmin"], out["lmax"] = out["lmax"], out["lmin"]
+		}
+		if out["trunk_hue"] <= 0 {
+			out["trunk_hue"] = burningTreesDefaults["trunk_hue"]
+		}
+		if out["trunk_sat"] <= 0 {
+			out["trunk_sat"] = burningTreesDefaults["trunk_sat"]
+		}
+		if out["trunk_light"] <= 0 {
+			out["trunk_light"] = burningTreesDefaults["trunk_light"]
+		}
+		if out["leaf_hue"] <= 0 {
+			out["leaf_hue"] = burningTreesDefaults["leaf_hue"]
+		}
+		if out["leaf_sat"] <= 0 {
+			out["leaf_sat"] = burningTreesDefaults["leaf_sat"]
+		}
+		if out["leaf_light"] <= 0 {
+			out["leaf_light"] = burningTreesDefaults["leaf_light"]
+		}
+		if out["burn_dur"] <= 0 {
+			out["burn_dur"] = burningTreesDefaults["burn_dur"]
+		}
+		if out["ash_linger"] < 0 {
+			out["ash_linger"] = 0
+		}
+		if out["spread"] < 0 {
+			out["spread"] = 0
+		}
+		if out["flare_dur"] <= 0 {
+			out["flare_dur"] = burningTreesDefaults["flare_dur"]
+		}
+		if out["flare_mult"] <= 0 {
+			out["flare_mult"] = burningTreesDefaults["flare_mult"]
+		}
+		if out["lull_dur"] <= 0 {
+			out["lull_dur"] = burningTreesDefaults["lull_dur"]
+		}
+		if out["lull_mult"] <= 0 {
+			out["lull_mult"] = burningTreesDefaults["lull_mult"]
+		}
 	}
 	return out
 }
@@ -2263,6 +2471,27 @@ func (p *Procedural) TriggerEvent(name string) bool {
 			return false
 		}
 		return true
+	case "burning-trees":
+		switch name {
+		case "ignite":
+			if p.startBurningTreesIgniteLocked("triggered") {
+				return true
+			}
+			return true
+		case "flare":
+			p.startBurningTreesFlareLocked("triggered")
+		case "lull":
+			p.startBurningTreesLullLocked("triggered")
+		case "intro":
+			p.startBurningTreesIntroLocked()
+			p.appendLog("intro", fmt.Sprintf("started (dur=%d, growth=%.2f)", p.timers["intro"], p.cfg["intro_growth"]))
+		case "ending":
+			p.startBurningTreesEndingLocked()
+			p.appendLog("ending", fmt.Sprintf("started (fade=%d, linger=%d)", p.intCfg("ending_dur"), p.intCfg("ending_linger")))
+		default:
+			return false
+		}
+		return true
 	case "volcano":
 		switch name {
 		case "eruption":
@@ -2340,6 +2569,8 @@ func (p *Procedural) Step() {
 		p.stepUnderwaterLocked()
 	case "volcano":
 		p.stepVolcanoLocked()
+	case "burning-trees":
+		p.stepBurningTreesLocked()
 	}
 }
 
@@ -3152,5 +3383,169 @@ func (p *Procedural) stepVolcanoLocked() {
 	}
 	if p.timers["flare"] <= 0 && p.cfg["flare_p"] > 0 && p.rng.Float64() < p.cfg["flare_p"] {
 		p.startVolcanoFlareLocked("started")
+	}
+}
+
+func burningTreeBurnKey(i int) string  { return fmt.Sprintf("tree_%d", i) }
+func burningTreeAshKey(i int) string   { return fmt.Sprintf("ash_%d", i) }
+func burningTreeCharKey(i int) string  { return fmt.Sprintf("char_%d", i) }
+
+// igniteBurningTreeLocked starts a fresh burn timer on tree i unless it is
+// already burning, ashing, or fully charred. Returns true if it took.
+func (p *Procedural) igniteBurningTreeLocked(i int) bool {
+	if i < 0 || i >= p.intCfg("tree_count") {
+		return false
+	}
+	burnKey := burningTreeBurnKey(i)
+	ashKey := burningTreeAshKey(i)
+	charKey := burningTreeCharKey(i)
+	if p.timers[burnKey] > 0 || p.timers[ashKey] > 0 || p.values[charKey] >= 1 {
+		return false
+	}
+	p.timers[burnKey] = jitterInt(p.rng, p.intCfg("burn_dur"), 0.3)
+	return true
+}
+
+func (p *Procedural) startBurningTreesIgniteLocked(verb string) bool {
+	count := p.intCfg("tree_count")
+	if count <= 0 {
+		return false
+	}
+	// Pick a random non-charred, non-burning, non-ashing tree.
+	candidates := make([]int, 0, count)
+	for i := 0; i < count; i++ {
+		if p.timers[burningTreeBurnKey(i)] > 0 {
+			continue
+		}
+		if p.timers[burningTreeAshKey(i)] > 0 {
+			continue
+		}
+		if p.values[burningTreeCharKey(i)] >= 1 {
+			continue
+		}
+		candidates = append(candidates, i)
+	}
+	if len(candidates) == 0 {
+		// All trees are accounted for; skip silently.
+		return false
+	}
+	idx := candidates[p.rng.Intn(len(candidates))]
+	if !p.igniteBurningTreeLocked(idx) {
+		return false
+	}
+	p.values["last_ignite"] = float64(idx)
+	p.appendLog("ignite", fmt.Sprintf("%s tree=%d (dur=%d)", verb, idx, p.timers[burningTreeBurnKey(idx)]))
+	return true
+}
+
+func (p *Procedural) startBurningTreesFlareLocked(verb string) {
+	p.timers["flare"] = jitterInt(p.rng, p.intCfg("flare_dur"), 0.3)
+	p.values["flare_gain"] = p.cfg["flare_mult"] * (0.85 + p.rng.Float64()*0.3)
+	p.appendLog("flare", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["flare"], p.values["flare_gain"]))
+}
+
+func (p *Procedural) startBurningTreesLullLocked(verb string) {
+	p.timers["lull"] = jitterInt(p.rng, p.intCfg("lull_dur"), 0.3)
+	p.appendLog("lull", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["lull"], p.cfg["lull_mult"]))
+}
+
+func (p *Procedural) startBurningTreesIntroLocked() {
+	count := p.intCfg("tree_count")
+	for i := 0; i < count; i++ {
+		delete(p.timers, burningTreeBurnKey(i))
+		delete(p.timers, burningTreeAshKey(i))
+		delete(p.values, burningTreeCharKey(i))
+	}
+	p.timers["flare"] = 0
+	p.timers["lull"] = 0
+	p.timers["ending"] = 0
+	delete(p.values, "flare_gain")
+	delete(p.values, "last_ignite")
+	p.timers["intro"] = p.intCfg("intro_dur")
+	p.values["intro_total"] = float64(p.timers["intro"])
+}
+
+func (p *Procedural) startBurningTreesEndingLocked() {
+	p.timers["intro"] = 0
+	p.timers["flare"] = 0
+	p.timers["lull"] = 0
+	delete(p.values, "flare_gain")
+	endingTotal := p.intCfg("ending_dur") + max(0, p.intCfg("ending_linger"))
+	if endingTotal < 1 {
+		endingTotal = max(1, p.intCfg("ending_dur"))
+	}
+	p.timers["ending"] = endingTotal
+	p.values["ending_total"] = float64(endingTotal)
+}
+
+func (p *Procedural) stepBurningTreesLocked() {
+	count := p.intCfg("tree_count")
+	// Burn -> ash transition: detect timers that just hit zero this tick.
+	// timers were already decremented by Step(); a tree that finished burning
+	// will have its key in timers map at value 0.
+	for i := 0; i < count; i++ {
+		burnKey := burningTreeBurnKey(i)
+		if v, ok := p.timers[burnKey]; ok && v <= 0 {
+			delete(p.timers, burnKey)
+			ashLinger := p.intCfg("ash_linger")
+			if ashLinger > 0 {
+				p.timers[burningTreeAshKey(i)] = ashLinger
+			} else {
+				p.values[burningTreeCharKey(i)] = 1
+			}
+		}
+		ashKey := burningTreeAshKey(i)
+		if v, ok := p.timers[ashKey]; ok && v <= 0 {
+			delete(p.timers, ashKey)
+			p.values[burningTreeCharKey(i)] = 1
+		}
+	}
+	if p.timers["flare"] <= 0 {
+		delete(p.values, "flare_gain")
+	}
+	if p.timers["intro"] <= 0 {
+		delete(p.values, "intro_total")
+	}
+	if p.timers["ending"] <= 0 {
+		delete(p.values, "ending_total")
+	}
+	if p.timers["intro"] > 0 || p.timers["ending"] > 0 {
+		return
+	}
+	// Fresh ignites only if there is at least one healthy tree available.
+	if p.cfg["ignite_p"] > 0 && p.rng.Float64() < p.cfg["ignite_p"] {
+		p.startBurningTreesIgniteLocked("started")
+	}
+	// Localized spread: each currently burning tree may light a healthy
+	// direct neighbor with chance `spread` per tick.
+	if p.cfg["spread"] > 0 {
+		for i := 0; i < count; i++ {
+			if p.timers[burningTreeBurnKey(i)] <= 0 {
+				continue
+			}
+			// Try left then right neighbor in random order.
+			neighbors := []int{i - 1, i + 1}
+			if p.rng.Float64() < 0.5 {
+				neighbors[0], neighbors[1] = neighbors[1], neighbors[0]
+			}
+			for _, n := range neighbors {
+				if n < 0 || n >= count {
+					continue
+				}
+				if p.rng.Float64() < p.cfg["spread"] {
+					if p.igniteBurningTreeLocked(n) {
+						p.values["last_ignite"] = float64(n)
+						p.appendLog("ignite", fmt.Sprintf("spread tree=%d (from=%d, dur=%d)", n, i, p.timers[burningTreeBurnKey(n)]))
+						break
+					}
+				}
+			}
+		}
+	}
+	if p.timers["flare"] <= 0 && p.cfg["flare_p"] > 0 && p.rng.Float64() < p.cfg["flare_p"] {
+		p.startBurningTreesFlareLocked("started")
+	}
+	if p.timers["lull"] <= 0 && p.cfg["lull_p"] > 0 && p.rng.Float64() < p.cfg["lull_p"] {
+		p.startBurningTreesLullLocked("started")
 	}
 }
