@@ -19,6 +19,11 @@ def build_parser() -> argparse.ArgumentParser:
     deploy_validation.add_argument("--image", required=True)
     deploy_validation.add_argument("--namespace", default="")
     deploy_validation.add_argument("--release", default="")
+    deploy_validation.add_argument(
+        "--public-host",
+        default="",
+        help="Optional public hostname for the validation env (attached to the wildcard listener).",
+    )
 
     screenshot = subparsers.add_parser("capture-validation-screenshot")
     screenshot.add_argument("--page-path", required=True)
@@ -58,7 +63,15 @@ def main() -> int:
         elif args.command == "deploy-validation-preview":
             namespace = args.namespace or str(get_required_env("EPHEMERAL_NAMESPACE"))
             release = args.release or get_optional_env("EPHEMERAL_RELEASE", ops.DEFAULT_RELEASE_NAME)
-            dump(ops.deploy_preview(namespace=namespace, image=args.image, release=release))
+            public_host = args.public_host or None
+            dump(
+                ops.deploy_preview(
+                    namespace=namespace,
+                    image=args.image,
+                    release=release,
+                    public_host=public_host,
+                )
+            )
         elif args.command == "capture-validation-screenshot":
             namespace = args.namespace or str(get_required_env("EPHEMERAL_NAMESPACE"))
             dump(
