@@ -343,26 +343,29 @@ jobs:
           grep -E '^\{' /tmp/agent-pod.log > /tmp/agent-events.jsonl || true
           echo "captured $(wc -l < /tmp/agent-events.jsonl) event lines from ${pod}"
 
-      - name: Capture agent evidence from pod
-        # Pull /workspace/evidence out of the agent pod into the runner.
-        # The agent writes screenshots to /workspace/evidence/screenshots/
-        # and free-form notes to /workspace/evidence/notes.md (per the
-        # prompt). The bash bootstrap pre-creates the dirs, so kubectl cp
-        # always has something to copy even if the agent produced no
-        # evidence (backend/refactor change with empty screenshots dir).
+      - name: Capture agent evidence from pod log
+        # Extract the base64-encoded tarball that the agent's bash
+        # bootstrap streams to stdout right before exit, captured in
+        # /tmp/agent-pod.log by the previous "Capture agent event log"
+        # step. Why not kubectl cp? Because the bash script exits
+        # immediately after the tar block, transitioning the pod to
+        # Succeeded — and `kubectl cp` against a Succeeded pod fails
+        # (its tar-over-exec mechanism needs a live container). Streaming
+        # through stdout is timing-independent: kubectl logs preserves it.
         id: evidence
         if: success()
         run: |
           set -euo pipefail
-          pod=$(kubectl -n "${NAMESPACE}" get pods -l "job-name=${JOB_NAME}" -o jsonpath='{.items[0].metadata.name}')
           mkdir -p /tmp/evidence
-          # Absolute path required: kubectl cp's <pod>:<path> with no
-          # leading slash is relative to the container's WORKDIR
-          # (/workspace), so `workspace/evidence/.` resolves to
-          # /workspace/workspace/evidence/. and silently misses the real
-          # /workspace/evidence dir.
-          kubectl -n "${NAMESPACE}" cp "${pod}:/workspace/evidence/." /tmp/evidence/ 2>/dev/null || true
-          echo "evidence files captured:"
+          if grep -q '===EVIDENCE-TAR-START===' /tmp/agent-pod.log; then
+            sed -n '/===EVIDENCE-TAR-START===/,/===EVIDENCE-TAR-END===/{//!p;}' \
+              /tmp/agent-pod.log \
+              | base64 -d \
+              | tar -xzf - -C /tmp/evidence
+          else
+            echo "::warning::no evidence tar markers found in agent pod log"
+          fi
+          echo "evidence files extracted:"
           find /tmp/evidence -type f 2>/dev/null | sort || true
           have_screenshots=false
           if compgen -G "/tmp/evidence/screenshots/*.png" >/dev/null; then
