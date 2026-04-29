@@ -323,6 +323,21 @@ jobs:
             --job-name "${JOB_NAME}" \
             --timeout-seconds 1800
 
+      - name: Capture agent event log
+        # Re-fetch the Pod's stdout (claude `--output-format stream-json`
+        # interleaved with the bash bootstrap) into a file we can parse for
+        # the summary comment. The Pod has ttlSecondsAfterFinished=1800 so
+        # logs are still available here on success.
+        if: success()
+        run: |
+          set -euo pipefail
+          pod=$(kubectl -n "${NAMESPACE}" get pods -l "job-name=${JOB_NAME}" -o jsonpath='{.items[0].metadata.name}')
+          kubectl -n "${NAMESPACE}" logs "${pod}" > /tmp/agent-pod.log
+          # Filter to JSON-object lines (drops bash bootstrap stdout). Each
+          # line is a single claude stream-json event.
+          grep -E '^\{' /tmp/agent-pod.log > /tmp/agent-events.jsonl || true
+          echo "captured $(wc -l < /tmp/agent-events.jsonl) event lines from ${pod}"
+
       # ------------------------------------------------------------------
       # Post-agent verify: rebuild the validation env from the agent's
       # pushed branch, capture screenshots of the paths the agent picked,
@@ -460,13 +475,25 @@ jobs:
           # default secrets.GITHUB_TOKEN.
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SCREENSHOTS_MD: ${{ steps.upload.outputs.markdown }}
+          PATHS_JSON: ${{ steps.shots.outputs.paths }}
         run: |
           set -euo pipefail
           body_file=$(mktemp)
           {
             echo "Closes #${ISSUE_NUMBER}."
             echo ""
-            echo "Validation env (until PR closes): ${VALIDATION_URL}"
+            # Validation links: deep-link to each path the agent flagged
+            # for screenshots — typically `/dev/<effect>`. The root URL is
+            # only useful as a fallback when the agent emitted no paths.
+            if [ -n "${PATHS_JSON:-}" ] && [ "${PATHS_JSON}" != "null" ] && [ "${PATHS_JSON}" != "[]" ]; then
+              echo "Validation env (until PR closes):"
+              while IFS= read -r p; do
+                [ -z "$p" ] && continue
+                echo "- ${VALIDATION_URL}${p}"
+              done < <(printf '%s' "${PATHS_JSON}" | jq -r '.[]')
+            else
+              echo "Validation env (until PR closes): ${VALIDATION_URL}"
+            fi
             echo ""
             if [ -n "${SCREENSHOTS_MD:-}" ]; then
               printf '%s\n' "${SCREENSHOTS_MD}"
@@ -488,6 +515,67 @@ jobs:
           if [ -z "${pr_number}" ] || ! kubectl label namespace "${NAMESPACE}" "ambience.io/pr=${pr_number}" --overwrite; then
             echo "::warning::failed to label namespace ${NAMESPACE} with ambience.io/pr=${pr_number:-?}; manual teardown may be required when the PR closes"
           fi
+          echo "PR_NUMBER=${pr_number}" >> "$GITHUB_ENV"
+
+      - name: Summarize agent run and comment on PR
+        # Parse claude stream-json events captured earlier into a metrics
+        # table (cost, turns, tool calls, tokens) and post as a PR comment.
+        # Mirrors spirelens's summarize-issue-agent.ps1 in slim form — we
+        # only have one phase so no per-phase breakdown.
+        if: success() && env.PR_NUMBER != ''
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          events=/tmp/agent-events.jsonl
+          if [ ! -s "${events}" ]; then
+            echo "no events captured; skipping summary comment"
+            exit 0
+          fi
+          # Sum across all claude `result` events. Single-phase flows
+          # produce one, but the sum form is correct either way.
+          cost=$(jq -r 'select(.type=="result") | .total_cost_usd // 0' "${events}" \
+            | awk '{s+=$1} END {printf "%.4f", s}')
+          turns=$(jq -r 'select(.type=="result") | .num_turns // 0' "${events}" \
+            | awk '{s+=$1} END {printf "%d", s}')
+          input=$(jq -r 'select(.type=="result") | .usage.input_tokens // 0' "${events}" \
+            | awk '{s+=$1} END {printf "%d", s}')
+          output=$(jq -r 'select(.type=="result") | .usage.output_tokens // 0' "${events}" \
+            | awk '{s+=$1} END {printf "%d", s}')
+          cache_create=$(jq -r 'select(.type=="result") | .usage.cache_creation_input_tokens // 0' "${events}" \
+            | awk '{s+=$1} END {printf "%d", s}')
+          cache_read=$(jq -r 'select(.type=="result") | .usage.cache_read_input_tokens // 0' "${events}" \
+            | awk '{s+=$1} END {printf "%d", s}')
+          tools=$(jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") | .name' "${events}" \
+            | wc -l | tr -d ' ')
+          tool_breakdown=$(jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") | .name' "${events}" \
+            | sort | uniq -c | sort -rn | awk '{printf "  - %s: %d\n", $2, $1}')
+
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          body_file=$(mktemp)
+          {
+            echo "## Agent run summary"
+            echo ""
+            echo "| Metric | Value |"
+            echo "| --- | ---: |"
+            echo "| Run | [${GITHUB_RUN_ID}](${run_url}) |"
+            echo "| Issue | #${ISSUE_NUMBER} |"
+            echo "| Cost | \$${cost} |"
+            echo "| Turns | ${turns} |"
+            echo "| Tool calls | ${tools} |"
+            echo "| Input tokens | ${input} |"
+            echo "| Output tokens | ${output} |"
+            echo "| Cache creation tokens | ${cache_create} |"
+            echo "| Cache read tokens | ${cache_read} |"
+            echo ""
+            if [ -n "${tool_breakdown}" ]; then
+              echo "### Tool calls"
+              echo ""
+              printf '%s\n' "${tool_breakdown}"
+            fi
+          } > "${body_file}"
+          gh pr comment "${PR_NUMBER}" --body-file "${body_file}" \
+            || echo "::warning::failed to post summary comment on PR #${PR_NUMBER}; continuing"
 
       - name: Tear down validation env on failure
         # Successful runs leave the env alive — agent-pr-cleanup.yml reaps
