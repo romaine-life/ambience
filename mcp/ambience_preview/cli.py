@@ -68,7 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     apply_agent.add_argument("--validation-url", required=True)
     apply_agent.add_argument("--branch-name", required=True)
     apply_agent.add_argument("--proxy-ip", required=True)
-    apply_agent.add_argument("--claude-container-tag", required=True)
+    apply_agent.add_argument("--agent-container-tag", required=True)
     apply_agent.add_argument("--repo-slug", default="nelsong6/ambience")
 
     wait_agent = subparsers.add_parser(
@@ -146,7 +146,7 @@ def main() -> int:
                     validation_url=args.validation_url,
                     branch_name=args.branch_name,
                     proxy_ip=args.proxy_ip,
-                    claude_container_tag=args.claude_container_tag,
+                    agent_container_tag=args.agent_container_tag,
                     repo_slug=args.repo_slug,
                 )
             )
