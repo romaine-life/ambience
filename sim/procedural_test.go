@@ -112,8 +112,8 @@ func TestUnderwaterSchema(t *testing.T) {
 	}
 }
 
-func TestProceduralSnowSnapshotRestore(t *testing.T) {
-	p := NewProcedural("snow", 160, 80, 42, nil)
+func TestSnowSnapshotRestore(t *testing.T) {
+	p := NewSnow(160, 80, 42, nil)
 	if !p.TriggerEvent("gust") {
 		t.Fatal("expected gust trigger to succeed")
 	}
@@ -130,7 +130,7 @@ func TestProceduralSnowSnapshotRestore(t *testing.T) {
 		t.Fatal("expected intro timer in snapshot")
 	}
 
-	restored := NewProcedural("snow", 160, 80, 7, nil)
+	restored := NewSnow(160, 80, 7, nil)
 	restored.RestoreSnapshot(snap)
 	again := restored.Snapshot()
 	if again.Tick != snap.Tick {
