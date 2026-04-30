@@ -26,36 +26,6 @@ type Procedural struct {
 	log    []LogEntry
 }
 
-var lighthouseDefaults = ProceduralConfig{
-	"intro_dur":        50,
-	"intro_beam":       0.16,
-	"ending_dur":       65,
-	"ending_linger":    18,
-	"ending_beam":      0.08,
-	"sweep_speed":      0.08,
-	"beam_width":       0.22,
-	"beam_softness":    0.42,
-	"tower_height":     22.0,
-	"tower_width":      6.5,
-	"horizon":          0.74,
-	"haze":             0.14,
-	"glow":             0.22,
-	"hue":              214,
-	"hue_sp":           18,
-	"sat":              0.34,
-	"lmin":             0.12,
-	"lmax":             0.84,
-	"bright_pass_p":    0.0,
-	"fog_thicken_p":    0.0,
-	"calm_p":           0.0,
-	"bright_pass_dur":  42,
-	"bright_pass_mult": 1.75,
-	"fog_thicken_dur":  72,
-	"fog_thicken_mult": 1.85,
-	"calm_dur":         64,
-	"calm_mult":        0.55,
-}
-
 var rowboatDefaults = ProceduralConfig{
 	"intro_dur":     50,
 	"intro_drift":   0.18,
@@ -270,67 +240,6 @@ func MysteriousManSchema() EffectSchema {
 }
 
 
-func LighthouseSchema() EffectSchema {
-	return EffectSchema{
-		Name: "lighthouse",
-		Knobs: []Knob{
-			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 10, Max: 180, Step: 5, Default: 50, Trigger: "intro",
-				Description: "Ticks spent bringing the first sweep up from a dim narrow beam."},
-			{Key: "intro_beam", Label: "intro beam", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0.05, Max: 0.5, Step: 0.01, Default: 0.16,
-				Description: "Starting fraction of the full beam presence before the lighthouse settles into rhythm."},
-			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 65, Trigger: "ending",
-				Description: "Ticks spent fading the sweep down toward darkness."},
-			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 160, Step: 5, Default: 18,
-				Description: "Extra quiet ticks after the beam has mostly faded."},
-			{Key: "ending_beam", Label: "ending beam", Slot: SlotEnd, Group: "ending", Type: KnobFloat, Min: 0.02, Max: 0.35, Step: 0.01, Default: 0.08,
-				Description: "Residual beam presence near the end of the outro."},
-			{Key: "sweep_speed", Label: "sweep speed", Slot: SlotLever, Group: "beam", Type: KnobFloat, Min: 0.02, Max: 0.2, Step: 0.01, Default: 0.08,
-				Description: "How quickly the beam sweeps back across the scene."},
-			{Key: "beam_width", Label: "beam width", Slot: SlotLever, Group: "beam", Type: KnobFloat, Min: 0.06, Max: 0.45, Step: 0.01, Default: 0.22,
-				Description: "Angular width of the sweeping light wedge."},
-			{Key: "beam_softness", Label: "beam soft", Slot: SlotLever, Group: "beam", Type: KnobFloat, Min: 0.1, Max: 1.2, Step: 0.05, Default: 0.42,
-				Description: "Soft falloff from the beam core into surrounding haze."},
-			{Key: "tower_height", Label: "tower height", Slot: SlotLever, Group: "tower", Type: KnobFloat, Min: 10, Max: 30, Step: 0.5, Default: 22,
-				Description: "Height of the lighthouse silhouette above the horizon."},
-			{Key: "tower_width", Label: "tower width", Slot: SlotLever, Group: "tower", Type: KnobFloat, Min: 3, Max: 10, Step: 0.5, Default: 6.5,
-				Description: "Width of the lighthouse tower silhouette."},
-			{Key: "horizon", Label: "horizon", Slot: SlotLever, Group: "tower", Type: KnobFloat, Min: 0.56, Max: 0.86, Step: 0.01, Default: 0.74,
-				Description: "Height of the horizon and coastline in frame."},
-			{Key: "haze", Label: "haze", Slot: SlotLever, Group: "beam", Type: KnobFloat, Min: 0.02, Max: 0.5, Step: 0.01, Default: 0.14,
-				Description: "Base atmospheric haze around the beam and horizon."},
-			{Key: "glow", Label: "glow", Slot: SlotLever, Group: "beam", Type: KnobFloat, Min: 0.02, Max: 0.5, Step: 0.01, Default: 0.22,
-				Description: "Strength of the lamp glow near the tower head."},
-			{Key: "hue", Label: "hue", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 180, Max: 240, Step: 1, Default: 214,
-				Description: "Base night-sky hue. Lower values lean teal; higher values lean deeper blue."},
-			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 30, Step: 1, Default: 18,
-				Description: "Variation between upper sky, beam haze, and horizon glow."},
-			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.7, Step: 0.01, Default: 0.34,
-				Description: "Overall scene saturation for sky and beam haze."},
-			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.5, Step: 0.01, Default: 0.12,
-				Description: "Minimum lightness used for the darkest sky and sea areas."},
-			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.25, Max: 0.95, Step: 0.01, Default: 0.84,
-				Description: "Maximum lightness used for the beam and horizon glow."},
-			{Key: "bright_pass_p", Label: "bright pass", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "bright-pass",
-				Description: "Per-tick chance of a brighter beam pass cutting across the scene."},
-			{Key: "fog_thicken_p", Label: "fog thicken", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "fog-thicken",
-				Description: "Per-tick chance of the air thickening into a hazier softer sweep."},
-			{Key: "calm_p", Label: "calm", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "calm",
-				Description: "Per-tick chance of a quieter lower-intensity interval between brighter passes."},
-			{Key: "bright_pass_dur", Label: "bright dur", Slot: SlotEventMod, Group: "bright-pass", Type: KnobInt, Min: 10, Max: 180, Step: 5, Default: 42,
-				Description: "Duration of a brighter beam pass."},
-			{Key: "bright_pass_mult", Label: "bright x", Slot: SlotEventMod, Group: "bright-pass", Type: KnobFloat, Min: 1.05, Max: 3, Step: 0.05, Default: 1.75,
-				Description: "Brightness multiplier applied during a bright pass."},
-			{Key: "fog_thicken_dur", Label: "fog dur", Slot: SlotEventMod, Group: "fog-thicken", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 72,
-				Description: "Duration of the thicker fog window."},
-			{Key: "fog_thicken_mult", Label: "fog x", Slot: SlotEventMod, Group: "fog-thicken", Type: KnobFloat, Min: 1.05, Max: 3, Step: 0.05, Default: 1.85,
-				Description: "Haze multiplier applied while fog thickening is active."},
-			{Key: "calm_dur", Label: "calm dur", Slot: SlotEventMod, Group: "calm", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 64,
-				Description: "Duration of the quieter lower-beam interval."},
-			{Key: "calm_mult", Label: "calm x", Slot: SlotEventMod, Group: "calm", Type: KnobFloat, Min: 0.1, Max: 1, Step: 0.05, Default: 0.55,
-				Description: "Beam intensity multiplier applied while calm is active."},
-		},
-	}
-}
 
 func RowboatSchema() EffectSchema {
 	return EffectSchema{
@@ -524,8 +433,6 @@ func VolcanoSchema() EffectSchema {
 
 func proceduralDefaults(kind string) ProceduralConfig {
 	switch kind {
-	case "lighthouse":
-		return cloneConfig(lighthouseDefaults)
 	case "rowboat":
 		return cloneConfig(rowboatDefaults)
 	case "underwater":
@@ -545,78 +452,6 @@ func mergeProceduralDefaults(kind string, cfg ProceduralConfig) ProceduralConfig
 		out[k] = v
 	}
 	switch kind {
-	case "lighthouse":
-		if out["intro_dur"] <= 0 {
-			out["intro_dur"] = lighthouseDefaults["intro_dur"]
-		}
-		out["intro_beam"] = clamp01(out["intro_beam"])
-		if out["ending_dur"] <= 0 {
-			out["ending_dur"] = lighthouseDefaults["ending_dur"]
-		}
-		if out["ending_linger"] < 0 {
-			out["ending_linger"] = 0
-		}
-		out["ending_beam"] = clamp01(out["ending_beam"])
-		if out["sweep_speed"] <= 0 {
-			out["sweep_speed"] = lighthouseDefaults["sweep_speed"]
-		}
-		if out["beam_width"] <= 0 {
-			out["beam_width"] = lighthouseDefaults["beam_width"]
-		}
-		if out["beam_softness"] <= 0 {
-			out["beam_softness"] = lighthouseDefaults["beam_softness"]
-		}
-		if out["tower_height"] <= 0 {
-			out["tower_height"] = lighthouseDefaults["tower_height"]
-		}
-		if out["tower_width"] <= 0 {
-			out["tower_width"] = lighthouseDefaults["tower_width"]
-		}
-		if out["horizon"] <= 0 {
-			out["horizon"] = lighthouseDefaults["horizon"]
-		}
-		if out["haze"] <= 0 {
-			out["haze"] = lighthouseDefaults["haze"]
-		}
-		if out["glow"] <= 0 {
-			out["glow"] = lighthouseDefaults["glow"]
-		}
-		if out["hue"] == 0 {
-			out["hue"] = lighthouseDefaults["hue"]
-		}
-		if out["hue_sp"] < 0 {
-			out["hue_sp"] = 0
-		}
-		if out["sat"] <= 0 {
-			out["sat"] = lighthouseDefaults["sat"]
-		}
-		if out["lmin"] <= 0 {
-			out["lmin"] = lighthouseDefaults["lmin"]
-		}
-		if out["lmax"] <= 0 {
-			out["lmax"] = lighthouseDefaults["lmax"]
-		}
-		if out["lmax"] < out["lmin"] {
-			out["lmin"], out["lmax"] = out["lmax"], out["lmin"]
-		}
-		if out["bright_pass_dur"] <= 0 {
-			out["bright_pass_dur"] = lighthouseDefaults["bright_pass_dur"]
-		}
-		if out["bright_pass_mult"] <= 0 {
-			out["bright_pass_mult"] = lighthouseDefaults["bright_pass_mult"]
-		}
-		if out["fog_thicken_dur"] <= 0 {
-			out["fog_thicken_dur"] = lighthouseDefaults["fog_thicken_dur"]
-		}
-		if out["fog_thicken_mult"] <= 0 {
-			out["fog_thicken_mult"] = lighthouseDefaults["fog_thicken_mult"]
-		}
-		if out["calm_dur"] <= 0 {
-			out["calm_dur"] = lighthouseDefaults["calm_dur"]
-		}
-		if out["calm_mult"] <= 0 {
-			out["calm_mult"] = lighthouseDefaults["calm_mult"]
-		}
 	case "rowboat":
 		if out["intro_dur"] <= 0 {
 			out["intro_dur"] = rowboatDefaults["intro_dur"]
@@ -1056,24 +891,6 @@ func (p *Procedural) TriggerEvent(name string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	switch p.Kind {
-	case "lighthouse":
-		switch name {
-		case "bright-pass":
-			p.startLighthouseBrightPassLocked("triggered")
-		case "fog-thicken":
-			p.startLighthouseFogThickenLocked("triggered")
-		case "calm":
-			p.startLighthouseCalmLocked("triggered")
-		case "intro":
-			p.startLighthouseIntroLocked()
-			p.appendLog("intro", fmt.Sprintf("started (dur=%d, beam=%.2f)", p.timers["intro"], p.cfg["intro_beam"]))
-		case "ending":
-			p.startLighthouseEndingLocked()
-			p.appendLog("ending", fmt.Sprintf("started (fade=%d, linger=%d)", p.intCfg("ending_dur"), p.intCfg("ending_linger")))
-		default:
-			return false
-		}
-		return true
 	case "rowboat":
 		switch name {
 		case "wake":
@@ -1183,8 +1000,6 @@ func (p *Procedural) Step() {
 	}
 
 	switch p.Kind {
-	case "lighthouse":
-		p.stepLighthouseLocked()
 	case "rowboat":
 		p.stepRowboatLocked()
 	case "underwater":
@@ -1206,78 +1021,6 @@ func (p *Procedural) intCfg(key string) int {
 
 
 
-func (p *Procedural) startLighthouseBrightPassLocked(verb string) {
-	p.timers["bright-pass"] = jitterInt(p.rng, p.intCfg("bright_pass_dur"), 0.3)
-	p.values["bright_gain"] = p.cfg["bright_pass_mult"] * (0.8 + p.rng.Float64()*0.4)
-	p.appendLog("bright-pass", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["bright-pass"], p.values["bright_gain"]))
-}
-
-func (p *Procedural) startLighthouseFogThickenLocked(verb string) {
-	p.timers["fog-thicken"] = jitterInt(p.rng, p.intCfg("fog_thicken_dur"), 0.3)
-	p.timers["calm"] = 0
-	p.values["fog_gain"] = p.cfg["fog_thicken_mult"] * (0.8 + p.rng.Float64()*0.45)
-	p.appendLog("fog-thicken", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["fog-thicken"], p.values["fog_gain"]))
-}
-
-func (p *Procedural) startLighthouseCalmLocked(verb string) {
-	p.timers["calm"] = jitterInt(p.rng, p.intCfg("calm_dur"), 0.3)
-	p.timers["fog-thicken"] = 0
-	p.values["fog_gain"] = 1
-	p.appendLog("calm", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["calm"], p.cfg["calm_mult"]))
-}
-
-func (p *Procedural) startLighthouseIntroLocked() {
-	p.timers["bright-pass"] = 0
-	p.timers["fog-thicken"] = 0
-	p.timers["calm"] = 0
-	p.timers["ending"] = 0
-	p.values["bright_gain"] = 1
-	p.values["fog_gain"] = 1
-	p.timers["intro"] = p.intCfg("intro_dur")
-	p.values["intro_total"] = float64(p.timers["intro"])
-}
-
-func (p *Procedural) startLighthouseEndingLocked() {
-	p.timers["intro"] = 0
-	p.timers["bright-pass"] = 0
-	p.timers["fog-thicken"] = 0
-	p.timers["calm"] = 0
-	p.values["bright_gain"] = 1
-	p.values["fog_gain"] = 1
-	endingTotal := p.intCfg("ending_dur") + max(0, p.intCfg("ending_linger"))
-	if endingTotal < 1 {
-		endingTotal = max(1, p.intCfg("ending_dur"))
-	}
-	p.timers["ending"] = endingTotal
-	p.values["ending_total"] = float64(endingTotal)
-}
-
-func (p *Procedural) stepLighthouseLocked() {
-	if p.timers["bright-pass"] <= 0 {
-		p.values["bright_gain"] = 1
-	}
-	if p.timers["fog-thicken"] <= 0 {
-		p.values["fog_gain"] = 1
-	}
-	if p.timers["intro"] <= 0 {
-		delete(p.values, "intro_total")
-	}
-	if p.timers["ending"] <= 0 {
-		delete(p.values, "ending_total")
-	}
-	if p.timers["intro"] > 0 || p.timers["ending"] > 0 {
-		return
-	}
-	if p.timers["bright-pass"] <= 0 && p.cfg["bright_pass_p"] > 0 && p.rng.Float64() < p.cfg["bright_pass_p"] {
-		p.startLighthouseBrightPassLocked("started")
-	}
-	if p.timers["fog-thicken"] <= 0 && p.timers["calm"] <= 0 && p.cfg["fog_thicken_p"] > 0 && p.rng.Float64() < p.cfg["fog_thicken_p"] {
-		p.startLighthouseFogThickenLocked("started")
-	}
-	if p.timers["calm"] <= 0 && p.timers["fog-thicken"] <= 0 && p.cfg["calm_p"] > 0 && p.rng.Float64() < p.cfg["calm_p"] {
-		p.startLighthouseCalmLocked("started")
-	}
-}
 
 func (p *Procedural) startRowboatWakeLocked(verb string) {
 	p.timers["wake"] = jitterInt(p.rng, p.intCfg("wake_dur"), 0.3)

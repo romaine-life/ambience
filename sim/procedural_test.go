@@ -335,8 +335,8 @@ func TestWindmillSnapshotRestore(t *testing.T) {
 	}
 }
 
-func TestProceduralLighthouseSnapshotRestore(t *testing.T) {
-	p := NewProcedural("lighthouse", 160, 80, 55, nil)
+func TestLighthouseSnapshotRestore(t *testing.T) {
+	p := NewLighthouse(160, 80, 55, nil)
 	if !p.TriggerEvent("bright-pass") {
 		t.Fatal("expected bright-pass trigger to succeed")
 	}
@@ -359,7 +359,7 @@ func TestProceduralLighthouseSnapshotRestore(t *testing.T) {
 		t.Fatal("expected fog gain value in snapshot")
 	}
 
-	restored := NewProcedural("lighthouse", 160, 80, 7, nil)
+	restored := NewLighthouse(160, 80, 7, nil)
 	restored.RestoreSnapshot(snap)
 	again := restored.Snapshot()
 	if again.Timers["bright-pass"] != snap.Timers["bright-pass"] {
