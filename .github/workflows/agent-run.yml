@@ -332,12 +332,19 @@ jobs:
         # Re-fetch the Pod's stdout (claude `--output-format stream-json`
         # interleaved with the bash bootstrap) into a file we can parse for
         # the summary comment. The Pod has ttlSecondsAfterFinished=1800 so
-        # logs are still available here on success.
-        if: success()
+        # logs are still available on success and on failure — failure is
+        # when we want this evidence the most, so this runs on always().
+        if: always()
         run: |
           set -euo pipefail
-          pod=$(kubectl -n "${NAMESPACE}" get pods -l "job-name=${JOB_NAME}" -o jsonpath='{.items[0].metadata.name}')
-          kubectl -n "${NAMESPACE}" logs "${pod}" > /tmp/agent-pod.log
+          pod=$(kubectl -n "${NAMESPACE}" get pods -l "job-name=${JOB_NAME}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+          if [ -z "${pod}" ]; then
+            echo "no pod found for job ${JOB_NAME}; skipping event capture"
+            : > /tmp/agent-pod.log
+            : > /tmp/agent-events.jsonl
+            exit 0
+          fi
+          kubectl -n "${NAMESPACE}" logs "${pod}" > /tmp/agent-pod.log || true
           # Filter to JSON-object lines (drops bash bootstrap stdout). Each
           # line is a single claude stream-json event.
           grep -E '^\{' /tmp/agent-pod.log > /tmp/agent-events.jsonl || true
@@ -426,34 +433,68 @@ jobs:
           subscription-id: ${{ vars.ARM_SUBSCRIPTION_ID }}
 
       - name: Upload screenshots to Azure blob
+        # Non-fatal: a flaky storage account or transient AAD blip should
+        # not abort the PR open. If upload fails we still emit a degraded
+        # markdown block so the PR body explains why screenshots are
+        # missing instead of silently dropping them. Capped at
+        # MAX_SCREENSHOTS sorted PNGs to bound blast radius of an agent
+        # loop bug that floods the screenshot dir.
         id: upload
         if: success() && steps.evidence.outputs.have_screenshots == 'true'
+        continue-on-error: true
         env:
           STORAGE_ACCOUNT: ${{ vars.AGENT_SCREENSHOT_STORAGE_ACCOUNT }}
           CONTAINER: ${{ vars.AGENT_SCREENSHOT_CONTAINER }}
           CONTAINER_URL: ${{ vars.AGENT_SCREENSHOT_CONTAINER_URL }}
+          MAX_SCREENSHOTS: "20"
         run: |
           set -euo pipefail
           prefix="issue-${ISSUE_NUMBER}/${GITHUB_RUN_ID}"
-          az storage blob upload-batch \
-            --account-name "${STORAGE_ACCOUNT}" \
-            --destination "${CONTAINER}" \
-            --destination-path "${prefix}" \
-            --source /tmp/evidence/screenshots \
-            --auth-mode login \
-            --overwrite true
+
+          staging=$(mktemp -d)
+          mapfile -t pngs < <(find /tmp/evidence/screenshots -maxdepth 1 -type f -name '*.png' | sort)
+          total=${#pngs[@]}
+          taken=0
+          for f in "${pngs[@]}"; do
+            [ "${taken}" -lt "${MAX_SCREENSHOTS}" ] || break
+            cp "${f}" "${staging}/"
+            taken=$((taken + 1))
+          done
+          echo "uploading ${taken}/${total} screenshots (cap ${MAX_SCREENSHOTS})"
+
+          upload_ok=true
+          if ! az storage blob upload-batch \
+              --account-name "${STORAGE_ACCOUNT}" \
+              --destination "${CONTAINER}" \
+              --destination-path "${prefix}" \
+              --source "${staging}" \
+              --auth-mode login \
+              --overwrite true; then
+            upload_ok=false
+            echo "::warning::screenshot upload failed; PR body will note this"
+          fi
+
           {
             echo "markdown<<EOF_MD"
             echo "## Screenshots"
             echo ""
-            for f in /tmp/evidence/screenshots/*.png; do
-              [ -e "${f}" ] || continue
-              base=$(basename "${f}")
-              echo "### ${base%.png}"
+            if [ "${upload_ok}" = "false" ]; then
+              echo "_Screenshot upload failed — see [run logs](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})._"
               echo ""
-              echo "![${base%.png}](${CONTAINER_URL}/${prefix}/${base})"
-              echo ""
-            done
+            else
+              if [ "${total}" -gt "${taken}" ]; then
+                echo "_Showing first ${taken} of ${total} screenshots._"
+                echo ""
+              fi
+              for f in "${staging}"/*.png; do
+                [ -e "${f}" ] || continue
+                base=$(basename "${f}")
+                echo "### ${base%.png}"
+                echo ""
+                echo "![${base%.png}](${CONTAINER_URL}/${prefix}/${base})"
+                echo ""
+              done
+            fi
             echo "EOF_MD"
           } >> "$GITHUB_OUTPUT"
 
@@ -503,65 +544,95 @@ jobs:
           fi
           echo "PR_NUMBER=${pr_number}" >> "$GITHUB_ENV"
 
-      - name: Summarize agent run and comment on PR
-        # Parse claude stream-json events captured earlier into a metrics
-        # table (cost, turns, tool calls, tokens) and post as a PR comment.
-        # Mirrors spirelens's summarize-issue-agent.ps1 in slim form — we
-        # only have one phase so no per-phase breakdown.
-        if: success() && env.PR_NUMBER != ''
+      - name: Summarize agent run
+        # Parse claude stream-json events into a metrics table (cost,
+        # turns, tool calls, tokens). Always runs — on failure the issue
+        # still gets a closing-the-loop comment with the run link instead
+        # of going silent. Posts to: $GITHUB_STEP_SUMMARY (run page), the
+        # originating issue, and the PR if one was opened. Mirrors
+        # spirelens's summarize-issue-agent.ps1.
+        if: always()
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           set -euo pipefail
           events=/tmp/agent-events.jsonl
-          if [ ! -s "${events}" ]; then
-            echo "no events captured; skipping summary comment"
-            exit 0
-          fi
-          # Sum across all claude `result` events. Single-phase flows
-          # produce one, but the sum form is correct either way.
-          cost=$(jq -r 'select(.type=="result") | .total_cost_usd // 0' "${events}" \
-            | awk '{s+=$1} END {printf "%.4f", s}')
-          turns=$(jq -r 'select(.type=="result") | .num_turns // 0' "${events}" \
-            | awk '{s+=$1} END {printf "%d", s}')
-          input=$(jq -r 'select(.type=="result") | .usage.input_tokens // 0' "${events}" \
-            | awk '{s+=$1} END {printf "%d", s}')
-          output=$(jq -r 'select(.type=="result") | .usage.output_tokens // 0' "${events}" \
-            | awk '{s+=$1} END {printf "%d", s}')
-          cache_create=$(jq -r 'select(.type=="result") | .usage.cache_creation_input_tokens // 0' "${events}" \
-            | awk '{s+=$1} END {printf "%d", s}')
-          cache_read=$(jq -r 'select(.type=="result") | .usage.cache_read_input_tokens // 0' "${events}" \
-            | awk '{s+=$1} END {printf "%d", s}')
-          tools=$(jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") | .name' "${events}" \
-            | wc -l | tr -d ' ')
-          tool_breakdown=$(jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") | .name' "${events}" \
-            | sort | uniq -c | sort -rn | awk '{printf "  - %s: %d\n", $2, $1}')
-
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           body_file=$(mktemp)
-          {
-            echo "## Agent run summary"
-            echo ""
-            echo "| Metric | Value |"
-            echo "| --- | ---: |"
-            echo "| Run | [${GITHUB_RUN_ID}](${run_url}) |"
-            echo "| Issue | #${ISSUE_NUMBER} |"
-            echo "| Cost | \$${cost} |"
-            echo "| Turns | ${turns} |"
-            echo "| Tool calls | ${tools} |"
-            echo "| Input tokens | ${input} |"
-            echo "| Output tokens | ${output} |"
-            echo "| Cache creation tokens | ${cache_create} |"
-            echo "| Cache read tokens | ${cache_read} |"
-            echo ""
-            if [ -n "${tool_breakdown}" ]; then
-              echo "### Tool calls"
+
+          if [ -s "${events}" ]; then
+            # Sum across all claude `result` events. Single-phase flows
+            # produce one, but the sum form is correct either way.
+            cost=$(jq -r 'select(.type=="result") | .total_cost_usd // 0' "${events}" \
+              | awk '{s+=$1} END {printf "%.4f", s}')
+            turns=$(jq -r 'select(.type=="result") | .num_turns // 0' "${events}" \
+              | awk '{s+=$1} END {printf "%d", s}')
+            input=$(jq -r 'select(.type=="result") | .usage.input_tokens // 0' "${events}" \
+              | awk '{s+=$1} END {printf "%d", s}')
+            output=$(jq -r 'select(.type=="result") | .usage.output_tokens // 0' "${events}" \
+              | awk '{s+=$1} END {printf "%d", s}')
+            cache_create=$(jq -r 'select(.type=="result") | .usage.cache_creation_input_tokens // 0' "${events}" \
+              | awk '{s+=$1} END {printf "%d", s}')
+            cache_read=$(jq -r 'select(.type=="result") | .usage.cache_read_input_tokens // 0' "${events}" \
+              | awk '{s+=$1} END {printf "%d", s}')
+            tools=$(jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") | .name' "${events}" \
+              | wc -l | tr -d ' ')
+            tool_breakdown=$(jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use") | .name' "${events}" \
+              | sort | uniq -c | sort -rn | awk '{printf "  - %s: %d\n", $2, $1}')
+            {
+              echo "## Agent run summary"
               echo ""
-              printf '%s\n' "${tool_breakdown}"
-            fi
-          } > "${body_file}"
-          gh pr comment "${PR_NUMBER}" --body-file "${body_file}" \
-            || echo "::warning::failed to post summary comment on PR #${PR_NUMBER}; continuing"
+              echo "| Metric | Value |"
+              echo "| --- | ---: |"
+              echo "| Status | ${JOB_STATUS} |"
+              echo "| Run | [${GITHUB_RUN_ID}](${run_url}) |"
+              echo "| Issue | #${ISSUE_NUMBER} |"
+              echo "| Cost | \$${cost} |"
+              echo "| Turns | ${turns} |"
+              echo "| Tool calls | ${tools} |"
+              echo "| Input tokens | ${input} |"
+              echo "| Output tokens | ${output} |"
+              echo "| Cache creation tokens | ${cache_create} |"
+              echo "| Cache read tokens | ${cache_read} |"
+              echo ""
+              if [ -n "${tool_breakdown}" ]; then
+                echo "### Tool calls"
+                echo ""
+                printf '%s\n' "${tool_breakdown}"
+              fi
+            } > "${body_file}"
+          else
+            # No events captured — agent likely failed before producing
+            # any stream-json output. Still post a closing-the-loop note
+            # so the issue isn't left dangling.
+            {
+              echo "## Agent run summary"
+              echo ""
+              echo "| Metric | Value |"
+              echo "| --- | ---: |"
+              echo "| Status | ${JOB_STATUS} |"
+              echo "| Run | [${GITHUB_RUN_ID}](${run_url}) |"
+              echo "| Issue | #${ISSUE_NUMBER} |"
+              echo ""
+              echo "_No agent events captured — see run logs for failure detail._"
+            } > "${body_file}"
+          fi
+
+          # 1. Always render to the run page summary.
+          cat "${body_file}" >> "${GITHUB_STEP_SUMMARY}"
+
+          # 2. Always close the loop on the originating issue.
+          if [ -n "${ISSUE_NUMBER:-}" ]; then
+            gh issue comment "${ISSUE_NUMBER}" --body-file "${body_file}" \
+              || echo "::warning::failed to post summary on issue #${ISSUE_NUMBER}; continuing"
+          fi
+
+          # 3. Mirror to the PR if one was opened.
+          if [ -n "${PR_NUMBER:-}" ]; then
+            gh pr comment "${PR_NUMBER}" --body-file "${body_file}" \
+              || echo "::warning::failed to post summary comment on PR #${PR_NUMBER}; continuing"
+          fi
 
       - name: Tear down validation env on failure
         # Successful runs leave the env alive — agent-pr-cleanup.yml reaps
