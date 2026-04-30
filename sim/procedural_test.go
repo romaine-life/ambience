@@ -236,8 +236,8 @@ func TestWheatFieldSnapshotRestore(t *testing.T) {
 	}
 }
 
-func TestProceduralBeachSnapshotRestore(t *testing.T) {
-	p := NewProcedural("beach", 160, 80, 91, nil)
+func TestBeachSnapshotRestore(t *testing.T) {
+	p := NewBeach(160, 80, 91, nil)
 	if !p.TriggerEvent("foam-burst") {
 		t.Fatal("expected foam-burst trigger to succeed")
 	}
@@ -254,7 +254,7 @@ func TestProceduralBeachSnapshotRestore(t *testing.T) {
 		t.Fatal("expected high-tide timer in snapshot")
 	}
 
-	restored := NewProcedural("beach", 160, 80, 7, nil)
+	restored := NewBeach(160, 80, 7, nil)
 	restored.RestoreSnapshot(snap)
 	again := restored.Snapshot()
 	if again.Timers["foam-burst"] != snap.Timers["foam-burst"] {

@@ -26,36 +26,6 @@ type Procedural struct {
 	log    []LogEntry
 }
 
-var beachDefaults = ProceduralConfig{
-	"intro_dur":       55,
-	"intro_tide":      0.18,
-	"ending_dur":      65,
-	"ending_linger":   18,
-	"ending_wet":      0.10,
-	"shoreline":       0.58,
-	"tide_amp":        6.0,
-	"wave_amp":        2.4,
-	"wave_freq":       0.18,
-	"speed":           0.10,
-	"slope":           0.16,
-	"foam":            0.36,
-	"shimmer":         0.22,
-	"hue":             198,
-	"hue_sp":          16,
-	"sat":             0.50,
-	"lmin":            0.28,
-	"lmax":            0.82,
-	"high_tide_p":     0.0,
-	"low_tide_p":      0.0,
-	"foam_burst_p":    0.0,
-	"high_tide_dur":   60,
-	"high_tide_push":  1.40,
-	"low_tide_dur":    58,
-	"low_tide_pull":   1.20,
-	"foam_burst_dur":  34,
-	"foam_burst_mult": 1.90,
-}
-
 var campfireDefaults = ProceduralConfig{
 	"intro_dur":     45,
 	"intro_glow":    0.14,
@@ -269,67 +239,6 @@ var volcanoDefaults = ProceduralConfig{
 	"flare_mult":        1.85,
 }
 
-func BeachSchema() EffectSchema {
-	return EffectSchema{
-		Name: "beach",
-		Knobs: []Knob{
-			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 55, Trigger: "intro",
-				Description: "Ticks spent establishing the first advancing tide rhythm from a calmer shoreline."},
-			{Key: "intro_tide", Label: "intro tide", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0.05, Max: 0.5, Step: 0.01, Default: 0.18,
-				Description: "Starting fraction of the full tide motion before the shoreline settles into rhythm."},
-			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 65, Trigger: "ending",
-				Description: "Ticks spent easing the waterline back out toward a calmer shore."},
-			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 140, Step: 5, Default: 18,
-				Description: "Extra quiet ticks for wet sand and foam remnants to fade after the retreat."},
-			{Key: "ending_wet", Label: "ending wet", Slot: SlotEnd, Group: "ending", Type: KnobFloat, Min: 0.02, Max: 0.35, Step: 0.01, Default: 0.10,
-				Description: "Residual shoreline motion and wet-sand presence near the end of the outro."},
-			{Key: "shoreline", Label: "shoreline", Slot: SlotLever, Group: "shore", Type: KnobFloat, Min: 0.42, Max: 0.76, Step: 0.01, Default: 0.58,
-				Description: "Base shoreline height in the frame."},
-			{Key: "tide_amp", Label: "tide amp", Slot: SlotLever, Group: "shore", Type: KnobFloat, Min: 1, Max: 14, Step: 0.5, Default: 6,
-				Description: "How far the tide line advances and retreats."},
-			{Key: "wave_amp", Label: "wave amp", Slot: SlotLever, Group: "shore", Type: KnobFloat, Min: 0.5, Max: 6, Step: 0.1, Default: 2.4,
-				Description: "Height of the small shoreline ripples layered on top of the tide."},
-			{Key: "wave_freq", Label: "wave freq", Slot: SlotLever, Group: "shore", Type: KnobFloat, Min: 0.05, Max: 0.35, Step: 0.01, Default: 0.18,
-				Description: "Horizontal frequency of the shoreline wiggle."},
-			{Key: "speed", Label: "tide speed", Slot: SlotLever, Group: "shore", Type: KnobFloat, Min: 0.02, Max: 0.3, Step: 0.01, Default: 0.10,
-				Description: "How quickly the tide rhythm moves in and out."},
-			{Key: "slope", Label: "shore slope", Slot: SlotLever, Group: "shore", Type: KnobFloat, Min: -0.35, Max: 0.35, Step: 0.01, Default: 0.16,
-				Description: "Diagonal slant of the shoreline across the frame."},
-			{Key: "foam", Label: "foam", Slot: SlotLever, Group: "shore", Type: KnobFloat, Min: 0.05, Max: 0.8, Step: 0.01, Default: 0.36,
-				Description: "Brightness and thickness of the foam edge at the waterline."},
-			{Key: "shimmer", Label: "shimmer", Slot: SlotLever, Group: "shore", Type: KnobFloat, Min: 0.02, Max: 0.6, Step: 0.01, Default: 0.22,
-				Description: "Strength of the water-surface shimmer away from the foam line."},
-			{Key: "hue", Label: "water hue", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 180, Max: 220, Step: 1, Default: 198,
-				Description: "Base water hue. Lower values lean teal; higher values lean deep blue."},
-			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 28, Step: 1, Default: 16,
-				Description: "Variation across water and foam accents."},
-			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.1, Max: 0.9, Step: 0.01, Default: 0.50,
-				Description: "Overall water color saturation."},
-			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.1, Max: 0.6, Step: 0.01, Default: 0.28,
-				Description: "Minimum lightness used for deeper water and wet sand."},
-			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.4, Max: 0.95, Step: 0.01, Default: 0.82,
-				Description: "Maximum lightness used for foam and bright shore reflections."},
-			{Key: "high_tide_p", Label: "high tide", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "high-tide",
-				Description: "Per-tick chance of the shoreline pushing farther inland for a while."},
-			{Key: "low_tide_p", Label: "low tide", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "low-tide",
-				Description: "Per-tick chance of the shoreline pulling farther back down the beach."},
-			{Key: "foam_burst_p", Label: "foam burst", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "foam-burst",
-				Description: "Per-tick chance of a brighter foamy wash crossing the edge."},
-			{Key: "high_tide_dur", Label: "high dur", Slot: SlotEventMod, Group: "high-tide", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 60,
-				Description: "Duration of the stronger high-tide push."},
-			{Key: "high_tide_push", Label: "high push", Slot: SlotEventMod, Group: "high-tide", Type: KnobFloat, Min: 0.2, Max: 3, Step: 0.05, Default: 1.4,
-				Description: "Additional inward shoreline offset during high tide."},
-			{Key: "low_tide_dur", Label: "low dur", Slot: SlotEventMod, Group: "low-tide", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 58,
-				Description: "Duration of the lower-tide retreat."},
-			{Key: "low_tide_pull", Label: "low pull", Slot: SlotEventMod, Group: "low-tide", Type: KnobFloat, Min: 0.2, Max: 3, Step: 0.05, Default: 1.2,
-				Description: "Additional outward shoreline offset during low tide."},
-			{Key: "foam_burst_dur", Label: "foam dur", Slot: SlotEventMod, Group: "foam-burst", Type: KnobInt, Min: 8, Max: 120, Step: 2, Default: 34,
-				Description: "Duration of a brighter foamy edge."},
-			{Key: "foam_burst_mult", Label: "foam x", Slot: SlotEventMod, Group: "foam-burst", Type: KnobFloat, Min: 1.05, Max: 3, Step: 0.05, Default: 1.9,
-				Description: "Brightness multiplier applied during a foam burst."},
-		},
-	}
-}
 
 func CampfireSchema() EffectSchema {
 	return EffectSchema{
@@ -773,8 +682,6 @@ func VolcanoSchema() EffectSchema {
 
 func proceduralDefaults(kind string) ProceduralConfig {
 	switch kind {
-	case "beach":
-		return cloneConfig(beachDefaults)
 	case "campfire":
 		return cloneConfig(campfireDefaults)
 	case "windmill":
@@ -800,75 +707,6 @@ func mergeProceduralDefaults(kind string, cfg ProceduralConfig) ProceduralConfig
 		out[k] = v
 	}
 	switch kind {
-	case "beach":
-		if out["intro_dur"] <= 0 {
-			out["intro_dur"] = beachDefaults["intro_dur"]
-		}
-		out["intro_tide"] = clamp01(out["intro_tide"])
-		if out["ending_dur"] <= 0 {
-			out["ending_dur"] = beachDefaults["ending_dur"]
-		}
-		if out["ending_linger"] < 0 {
-			out["ending_linger"] = 0
-		}
-		out["ending_wet"] = clamp01(out["ending_wet"])
-		if out["shoreline"] <= 0 {
-			out["shoreline"] = beachDefaults["shoreline"]
-		}
-		if out["tide_amp"] <= 0 {
-			out["tide_amp"] = beachDefaults["tide_amp"]
-		}
-		if out["wave_amp"] <= 0 {
-			out["wave_amp"] = beachDefaults["wave_amp"]
-		}
-		if out["wave_freq"] <= 0 {
-			out["wave_freq"] = beachDefaults["wave_freq"]
-		}
-		if out["speed"] <= 0 {
-			out["speed"] = beachDefaults["speed"]
-		}
-		if out["foam"] <= 0 {
-			out["foam"] = beachDefaults["foam"]
-		}
-		if out["shimmer"] <= 0 {
-			out["shimmer"] = beachDefaults["shimmer"]
-		}
-		if out["hue"] == 0 {
-			out["hue"] = beachDefaults["hue"]
-		}
-		if out["hue_sp"] < 0 {
-			out["hue_sp"] = 0
-		}
-		if out["sat"] <= 0 {
-			out["sat"] = beachDefaults["sat"]
-		}
-		if out["lmin"] <= 0 {
-			out["lmin"] = beachDefaults["lmin"]
-		}
-		if out["lmax"] <= 0 {
-			out["lmax"] = beachDefaults["lmax"]
-		}
-		if out["lmax"] < out["lmin"] {
-			out["lmin"], out["lmax"] = out["lmax"], out["lmin"]
-		}
-		if out["high_tide_dur"] <= 0 {
-			out["high_tide_dur"] = beachDefaults["high_tide_dur"]
-		}
-		if out["high_tide_push"] <= 0 {
-			out["high_tide_push"] = beachDefaults["high_tide_push"]
-		}
-		if out["low_tide_dur"] <= 0 {
-			out["low_tide_dur"] = beachDefaults["low_tide_dur"]
-		}
-		if out["low_tide_pull"] <= 0 {
-			out["low_tide_pull"] = beachDefaults["low_tide_pull"]
-		}
-		if out["foam_burst_dur"] <= 0 {
-			out["foam_burst_dur"] = beachDefaults["foam_burst_dur"]
-		}
-		if out["foam_burst_mult"] <= 0 {
-			out["foam_burst_mult"] = beachDefaults["foam_burst_mult"]
-		}
 	case "campfire":
 		if out["intro_dur"] <= 0 {
 			out["intro_dur"] = campfireDefaults["intro_dur"]
@@ -1506,24 +1344,6 @@ func (p *Procedural) TriggerEvent(name string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	switch p.Kind {
-	case "beach":
-		switch name {
-		case "high-tide":
-			p.startBeachHighTideLocked("triggered")
-		case "low-tide":
-			p.startBeachLowTideLocked("triggered")
-		case "foam-burst":
-			p.startBeachFoamBurstLocked("triggered")
-		case "intro":
-			p.startBeachIntroLocked()
-			p.appendLog("intro", fmt.Sprintf("started (dur=%d, tide=%.2f)", p.timers["intro"], p.cfg["intro_tide"]))
-		case "ending":
-			p.startBeachEndingLocked()
-			p.appendLog("ending", fmt.Sprintf("started (fade=%d, linger=%d)", p.intCfg("ending_dur"), p.intCfg("ending_linger")))
-		default:
-			return false
-		}
-		return true
 	case "campfire":
 		switch name {
 		case "crackle":
@@ -1683,8 +1503,6 @@ func (p *Procedural) Step() {
 	}
 
 	switch p.Kind {
-	case "beach":
-		p.stepBeachLocked()
 	case "campfire":
 		p.stepCampfireLocked()
 	case "windmill":
@@ -1709,78 +1527,6 @@ func (p *Procedural) intCfg(key string) int {
 
 
 
-func (p *Procedural) startBeachHighTideLocked(verb string) {
-	p.timers["high-tide"] = jitterInt(p.rng, p.intCfg("high_tide_dur"), 0.3)
-	p.timers["low-tide"] = 0
-	p.values["tide_bias"] = p.cfg["high_tide_push"] * (0.65 + p.rng.Float64()*0.55)
-	p.appendLog("high-tide", fmt.Sprintf("%s (dur=%d, bias=+%.2f)", verb, p.timers["high-tide"], p.values["tide_bias"]))
-}
-
-func (p *Procedural) startBeachLowTideLocked(verb string) {
-	p.timers["low-tide"] = jitterInt(p.rng, p.intCfg("low_tide_dur"), 0.3)
-	p.timers["high-tide"] = 0
-	p.values["tide_bias"] = -p.cfg["low_tide_pull"] * (0.65 + p.rng.Float64()*0.55)
-	p.appendLog("low-tide", fmt.Sprintf("%s (dur=%d, bias=%.2f)", verb, p.timers["low-tide"], p.values["tide_bias"]))
-}
-
-func (p *Procedural) startBeachFoamBurstLocked(verb string) {
-	p.timers["foam-burst"] = jitterInt(p.rng, p.intCfg("foam_burst_dur"), 0.3)
-	p.values["foam_gain"] = p.cfg["foam_burst_mult"] * (0.85 + p.rng.Float64()*0.35)
-	p.appendLog("foam-burst", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["foam-burst"], p.values["foam_gain"]))
-}
-
-func (p *Procedural) startBeachIntroLocked() {
-	p.timers["high-tide"] = 0
-	p.timers["low-tide"] = 0
-	p.timers["foam-burst"] = 0
-	p.timers["ending"] = 0
-	p.values["tide_bias"] = 0
-	p.values["foam_gain"] = 1
-	p.timers["intro"] = p.intCfg("intro_dur")
-	p.values["intro_total"] = float64(p.timers["intro"])
-}
-
-func (p *Procedural) startBeachEndingLocked() {
-	p.timers["intro"] = 0
-	p.timers["high-tide"] = 0
-	p.timers["low-tide"] = 0
-	p.timers["foam-burst"] = 0
-	p.values["tide_bias"] = 0
-	p.values["foam_gain"] = 1
-	endingTotal := p.intCfg("ending_dur") + max(0, p.intCfg("ending_linger"))
-	if endingTotal < 1 {
-		endingTotal = max(1, p.intCfg("ending_dur"))
-	}
-	p.timers["ending"] = endingTotal
-	p.values["ending_total"] = float64(endingTotal)
-}
-
-func (p *Procedural) stepBeachLocked() {
-	if p.timers["high-tide"] <= 0 && p.timers["low-tide"] <= 0 {
-		p.values["tide_bias"] = 0
-	}
-	if p.timers["foam-burst"] <= 0 {
-		p.values["foam_gain"] = 1
-	}
-	if p.timers["intro"] <= 0 {
-		delete(p.values, "intro_total")
-	}
-	if p.timers["ending"] <= 0 {
-		delete(p.values, "ending_total")
-	}
-	if p.timers["intro"] > 0 || p.timers["ending"] > 0 {
-		return
-	}
-	if p.timers["high-tide"] <= 0 && p.timers["low-tide"] <= 0 && p.cfg["high_tide_p"] > 0 && p.rng.Float64() < p.cfg["high_tide_p"] {
-		p.startBeachHighTideLocked("started")
-	}
-	if p.timers["low-tide"] <= 0 && p.timers["high-tide"] <= 0 && p.cfg["low_tide_p"] > 0 && p.rng.Float64() < p.cfg["low_tide_p"] {
-		p.startBeachLowTideLocked("started")
-	}
-	if p.timers["foam-burst"] <= 0 && p.cfg["foam_burst_p"] > 0 && p.rng.Float64() < p.cfg["foam_burst_p"] {
-		p.startBeachFoamBurstLocked("started")
-	}
-}
 
 func (p *Procedural) startCampfireCrackleLocked(verb string) {
 	p.timers["crackle"] = jitterInt(p.rng, p.intCfg("crackle_dur"), 0.3)
