@@ -359,16 +359,28 @@ jobs:
         # Succeeded — and `kubectl cp` against a Succeeded pod fails
         # (its tar-over-exec mechanism needs a live container). Streaming
         # through stdout is timing-independent: kubectl logs preserves it.
+        #
+        # Non-fatal: an extraction failure here (corrupted tar, missing
+        # markers, log truncation) shouldn't block PR creation. If we
+        # can't extract evidence, we still want the PR opened with a
+        # warning rather than aborting the whole run.
         id: evidence
         if: success()
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mkdir -p /tmp/evidence
           if grep -q '===EVIDENCE-TAR-START===' /tmp/agent-pod.log; then
-            sed -n '/===EVIDENCE-TAR-START===/,/===EVIDENCE-TAR-END===/{//!p;}' \
-              /tmp/agent-pod.log \
-              | base64 -d \
-              | tar -xzf - -C /tmp/evidence
+            if ! sed -n '/===EVIDENCE-TAR-START===/,/===EVIDENCE-TAR-END===/{//!p;}' \
+                /tmp/agent-pod.log \
+                | base64 -d 2>/tmp/extract.err \
+                | tar -xzf - -C /tmp/evidence 2>>/tmp/extract.err; then
+              echo "::warning::evidence tarball extraction failed; PR will open without screenshots/notes. stderr:"
+              cat /tmp/extract.err >&2 || true
+              # Wipe whatever partial files landed so downstream globs
+              # don't pick up half-extracted junk.
+              rm -rf /tmp/evidence
+              mkdir -p /tmp/evidence
+            fi
           else
             echo "::warning::no evidence tar markers found in agent pod log"
           fi
