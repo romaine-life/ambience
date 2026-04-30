@@ -10,9 +10,18 @@ run-name: "Cleanup #${{ github.event.pull_request.number }} (${{ github.event.pu
 #
 # Only fires for PRs whose head ref starts with `agent/issue-` — manual
 # PRs don't have an agent env and the job is a no-op anyway.
+#
+# Trigger: pull_request_target rather than pull_request. The pull_request
+# trigger needs a merge commit context to fire and silently drops events
+# when a PR closes without merging (clean or conflicting), which is
+# exactly the case for failed-and-closed agent runs. pull_request_target
+# runs against the base branch directly, so it fires reliably on every
+# close. No security tradeoff here: agent PRs always come from same-repo
+# branches (never forks), and this job needs Azure/cluster credentials
+# anyway, so running in trusted base context is correct.
 
 on:
-  pull_request:
+  pull_request_target:
     types: [closed]
 
 permissions:
