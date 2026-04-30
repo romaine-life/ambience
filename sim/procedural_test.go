@@ -376,8 +376,8 @@ func TestLighthouseSnapshotRestore(t *testing.T) {
 	}
 }
 
-func TestProceduralRowboatSnapshotRestore(t *testing.T) {
-	p := NewProcedural("rowboat", 160, 80, 66, nil)
+func TestRowboatSnapshotRestore(t *testing.T) {
+	p := NewRowboat(160, 80, 66, nil)
 	if !p.TriggerEvent("wake") {
 		t.Fatal("expected wake trigger to succeed")
 	}
@@ -400,7 +400,7 @@ func TestProceduralRowboatSnapshotRestore(t *testing.T) {
 		t.Fatal("expected drift push value in snapshot")
 	}
 
-	restored := NewProcedural("rowboat", 160, 80, 7, nil)
+	restored := NewRowboat(160, 80, 7, nil)
 	restored.RestoreSnapshot(snap)
 	again := restored.Snapshot()
 	if again.Timers["wake"] != snap.Timers["wake"] {

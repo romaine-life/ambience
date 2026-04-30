@@ -26,37 +26,6 @@ type Procedural struct {
 	log    []LogEntry
 }
 
-var rowboatDefaults = ProceduralConfig{
-	"intro_dur":     50,
-	"intro_drift":   0.18,
-	"ending_dur":    65,
-	"ending_linger": 18,
-	"ending_ripple": 0.08,
-	"waterline":     0.58,
-	"drift_speed":   0.08,
-	"bob_amp":       1.20,
-	"wave_amp":      1.60,
-	"wave_freq":     0.16,
-	"ripple":        0.24,
-	"reflection":    0.22,
-	"boat_len":      14.0,
-	"boat_height":   3.5,
-	"hue":           206,
-	"hue_sp":        16,
-	"sat":           0.36,
-	"lmin":          0.16,
-	"lmax":          0.82,
-	"wake_p":        0.0,
-	"drift_p":       0.0,
-	"calm_p":        0.0,
-	"wake_dur":      40,
-	"wake_mult":     1.85,
-	"drift_dur":     58,
-	"drift_push":    1.30,
-	"calm_dur":      72,
-	"calm_mult":     0.50,
-}
-
 var underwaterDefaults = ProceduralConfig{
 	"intro_dur":          55,
 	"intro_reveal":       0.14,
@@ -241,69 +210,6 @@ func MysteriousManSchema() EffectSchema {
 
 
 
-func RowboatSchema() EffectSchema {
-	return EffectSchema{
-		Name: "rowboat",
-		Knobs: []Knob{
-			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 10, Max: 180, Step: 5, Default: 50, Trigger: "intro",
-				Description: "Ticks spent easing the boat and its first ripples into view."},
-			{Key: "intro_drift", Label: "intro drift", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0.05, Max: 0.5, Step: 0.01, Default: 0.18,
-				Description: "Starting fraction of the final drift and bob motion before the scene settles."},
-			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 65, Trigger: "ending",
-				Description: "Ticks spent flattening the ripples and easing the boat toward stillness."},
-			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 160, Step: 5, Default: 18,
-				Description: "Extra quiet ticks after the visible motion has mostly faded."},
-			{Key: "ending_ripple", Label: "ending ripple", Slot: SlotEnd, Group: "ending", Type: KnobFloat, Min: 0.02, Max: 0.35, Step: 0.01, Default: 0.08,
-				Description: "Residual motion and ripple presence near the end of the outro."},
-			{Key: "waterline", Label: "waterline", Slot: SlotLever, Group: "lake", Type: KnobFloat, Min: 0.42, Max: 0.76, Step: 0.01, Default: 0.58,
-				Description: "Height of the lake surface in the frame."},
-			{Key: "drift_speed", Label: "drift speed", Slot: SlotLever, Group: "lake", Type: KnobFloat, Min: 0.02, Max: 0.2, Step: 0.01, Default: 0.08,
-				Description: "How quickly the boat drifts and the wave phase rolls underneath it."},
-			{Key: "bob_amp", Label: "bob amp", Slot: SlotLever, Group: "lake", Type: KnobFloat, Min: 0.2, Max: 3, Step: 0.1, Default: 1.2,
-				Description: "Vertical bobbing amplitude of the hull."},
-			{Key: "wave_amp", Label: "wave amp", Slot: SlotLever, Group: "lake", Type: KnobFloat, Min: 0.2, Max: 4, Step: 0.1, Default: 1.6,
-				Description: "Amplitude of the wider surface undulation behind the boat."},
-			{Key: "wave_freq", Label: "wave freq", Slot: SlotLever, Group: "lake", Type: KnobFloat, Min: 0.05, Max: 0.35, Step: 0.01, Default: 0.16,
-				Description: "Horizontal frequency of the lake surface wiggle."},
-			{Key: "ripple", Label: "ripple", Slot: SlotLever, Group: "lake", Type: KnobFloat, Min: 0.05, Max: 0.8, Step: 0.01, Default: 0.24,
-				Description: "Strength and number of the local ripples around the boat."},
-			{Key: "reflection", Label: "reflection", Slot: SlotLever, Group: "lake", Type: KnobFloat, Min: 0.05, Max: 0.6, Step: 0.01, Default: 0.22,
-				Description: "Visibility of the boat and ripple reflection in the water."},
-			{Key: "boat_len", Label: "boat len", Slot: SlotLever, Group: "boat", Type: KnobFloat, Min: 6, Max: 24, Step: 0.5, Default: 14,
-				Description: "Length of the rowboat hull."},
-			{Key: "boat_height", Label: "boat height", Slot: SlotLever, Group: "boat", Type: KnobFloat, Min: 1, Max: 8, Step: 0.5, Default: 3.5,
-				Description: "Height of the rowboat silhouette above the waterline."},
-			{Key: "hue", Label: "hue", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 180, Max: 230, Step: 1, Default: 206,
-				Description: "Base water and sky hue. Lower values lean teal; higher values lean deeper blue."},
-			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 24, Step: 1, Default: 16,
-				Description: "Variation between the upper sky, water, and reflected highlights."},
-			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.7, Step: 0.01, Default: 0.36,
-				Description: "Overall scene saturation."},
-			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.08, Max: 0.5, Step: 0.01, Default: 0.16,
-				Description: "Minimum lightness used for darker water and hull shadow."},
-			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.35, Max: 0.95, Step: 0.01, Default: 0.82,
-				Description: "Maximum lightness used for sky glow and water highlights."},
-			{Key: "wake_p", Label: "wake", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "wake",
-				Description: "Per-tick chance of a more pronounced wake rippling out behind the boat."},
-			{Key: "drift_p", Label: "drift", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "drift",
-				Description: "Per-tick chance of the boat being pushed gently farther to one side."},
-			{Key: "calm_p", Label: "calm", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "calm",
-				Description: "Per-tick chance of the lake briefly flattening into calmer motion."},
-			{Key: "wake_dur", Label: "wake dur", Slot: SlotEventMod, Group: "wake", Type: KnobInt, Min: 10, Max: 180, Step: 5, Default: 40,
-				Description: "Duration of the more pronounced wake window."},
-			{Key: "wake_mult", Label: "wake x", Slot: SlotEventMod, Group: "wake", Type: KnobFloat, Min: 1.05, Max: 3, Step: 0.05, Default: 1.85,
-				Description: "Ripple multiplier applied while wake is active."},
-			{Key: "drift_dur", Label: "drift dur", Slot: SlotEventMod, Group: "drift", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 58,
-				Description: "Duration of the stronger side drift window."},
-			{Key: "drift_push", Label: "drift push", Slot: SlotEventMod, Group: "drift", Type: KnobFloat, Min: 0.2, Max: 3, Step: 0.05, Default: 1.3,
-				Description: "Additional sideways push applied during a drift event."},
-			{Key: "calm_dur", Label: "calm dur", Slot: SlotEventMod, Group: "calm", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 72,
-				Description: "Duration of the calmer low-motion interval."},
-			{Key: "calm_mult", Label: "calm x", Slot: SlotEventMod, Group: "calm", Type: KnobFloat, Min: 0.1, Max: 1, Step: 0.05, Default: 0.5,
-				Description: "Motion and ripple multiplier applied while calm is active."},
-		},
-	}
-}
 
 func UnderwaterSchema() EffectSchema {
 	return EffectSchema{
@@ -433,8 +339,6 @@ func VolcanoSchema() EffectSchema {
 
 func proceduralDefaults(kind string) ProceduralConfig {
 	switch kind {
-	case "rowboat":
-		return cloneConfig(rowboatDefaults)
 	case "underwater":
 		return cloneConfig(underwaterDefaults)
 	case "volcano":
@@ -452,81 +356,6 @@ func mergeProceduralDefaults(kind string, cfg ProceduralConfig) ProceduralConfig
 		out[k] = v
 	}
 	switch kind {
-	case "rowboat":
-		if out["intro_dur"] <= 0 {
-			out["intro_dur"] = rowboatDefaults["intro_dur"]
-		}
-		out["intro_drift"] = clamp01(out["intro_drift"])
-		if out["ending_dur"] <= 0 {
-			out["ending_dur"] = rowboatDefaults["ending_dur"]
-		}
-		if out["ending_linger"] < 0 {
-			out["ending_linger"] = 0
-		}
-		out["ending_ripple"] = clamp01(out["ending_ripple"])
-		if out["waterline"] <= 0 {
-			out["waterline"] = rowboatDefaults["waterline"]
-		}
-		if out["drift_speed"] <= 0 {
-			out["drift_speed"] = rowboatDefaults["drift_speed"]
-		}
-		if out["bob_amp"] <= 0 {
-			out["bob_amp"] = rowboatDefaults["bob_amp"]
-		}
-		if out["wave_amp"] <= 0 {
-			out["wave_amp"] = rowboatDefaults["wave_amp"]
-		}
-		if out["wave_freq"] <= 0 {
-			out["wave_freq"] = rowboatDefaults["wave_freq"]
-		}
-		if out["ripple"] <= 0 {
-			out["ripple"] = rowboatDefaults["ripple"]
-		}
-		if out["reflection"] <= 0 {
-			out["reflection"] = rowboatDefaults["reflection"]
-		}
-		if out["boat_len"] <= 0 {
-			out["boat_len"] = rowboatDefaults["boat_len"]
-		}
-		if out["boat_height"] <= 0 {
-			out["boat_height"] = rowboatDefaults["boat_height"]
-		}
-		if out["hue"] == 0 {
-			out["hue"] = rowboatDefaults["hue"]
-		}
-		if out["hue_sp"] < 0 {
-			out["hue_sp"] = 0
-		}
-		if out["sat"] <= 0 {
-			out["sat"] = rowboatDefaults["sat"]
-		}
-		if out["lmin"] <= 0 {
-			out["lmin"] = rowboatDefaults["lmin"]
-		}
-		if out["lmax"] <= 0 {
-			out["lmax"] = rowboatDefaults["lmax"]
-		}
-		if out["lmax"] < out["lmin"] {
-			out["lmin"], out["lmax"] = out["lmax"], out["lmin"]
-		}
-		if out["wake_dur"] <= 0 {
-			out["wake_dur"] = rowboatDefaults["wake_dur"]
-		}
-		if out["wake_mult"] <= 0 {
-			out["wake_mult"] = rowboatDefaults["wake_mult"]
-		}
-		if out["drift_dur"] <= 0 {
-			out["drift_dur"] = rowboatDefaults["drift_dur"]
-		}
-		if out["drift_push"] <= 0 {
-			out["drift_push"] = rowboatDefaults["drift_push"]
-		}
-		if out["calm_dur"] <= 0 {
-			out["calm_dur"] = rowboatDefaults["calm_dur"]
-		}
-		if out["calm_mult"] <= 0 {
-			out["calm_mult"] = rowboatDefaults["calm_mult"]
-		}
 	case "underwater":
 		if out["intro_dur"] <= 0 {
 			out["intro_dur"] = underwaterDefaults["intro_dur"]
@@ -891,24 +720,6 @@ func (p *Procedural) TriggerEvent(name string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	switch p.Kind {
-	case "rowboat":
-		switch name {
-		case "wake":
-			p.startRowboatWakeLocked("triggered")
-		case "drift":
-			p.startRowboatDriftLocked("triggered")
-		case "calm":
-			p.startRowboatCalmLocked("triggered")
-		case "intro":
-			p.startRowboatIntroLocked()
-			p.appendLog("intro", fmt.Sprintf("started (dur=%d, drift=%.2f)", p.timers["intro"], p.cfg["intro_drift"]))
-		case "ending":
-			p.startRowboatEndingLocked()
-			p.appendLog("ending", fmt.Sprintf("started (fade=%d, linger=%d)", p.intCfg("ending_dur"), p.intCfg("ending_linger")))
-		default:
-			return false
-		}
-		return true
 	case "underwater":
 		switch name {
 		case "bubble-burst":
@@ -1000,8 +811,6 @@ func (p *Procedural) Step() {
 	}
 
 	switch p.Kind {
-	case "rowboat":
-		p.stepRowboatLocked()
 	case "underwater":
 		p.stepUnderwaterLocked()
 	case "volcano":
@@ -1022,79 +831,6 @@ func (p *Procedural) intCfg(key string) int {
 
 
 
-func (p *Procedural) startRowboatWakeLocked(verb string) {
-	p.timers["wake"] = jitterInt(p.rng, p.intCfg("wake_dur"), 0.3)
-	p.values["wake_gain"] = p.cfg["wake_mult"] * (0.8 + p.rng.Float64()*0.45)
-	p.appendLog("wake", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["wake"], p.values["wake_gain"]))
-}
-
-func (p *Procedural) startRowboatDriftLocked(verb string) {
-	p.timers["drift"] = jitterInt(p.rng, p.intCfg("drift_dur"), 0.3)
-	sign := 1.0
-	if p.rng.Float64() < 0.5 {
-		sign = -1
-	}
-	p.values["drift_push"] = sign * p.cfg["drift_push"] * (0.65 + p.rng.Float64()*0.55)
-	p.appendLog("drift", fmt.Sprintf("%s (dur=%d, push=%+.2f)", verb, p.timers["drift"], p.values["drift_push"]))
-}
-
-func (p *Procedural) startRowboatCalmLocked(verb string) {
-	p.timers["calm"] = jitterInt(p.rng, p.intCfg("calm_dur"), 0.3)
-	p.appendLog("calm", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["calm"], p.cfg["calm_mult"]))
-}
-
-func (p *Procedural) startRowboatIntroLocked() {
-	p.timers["wake"] = 0
-	p.timers["drift"] = 0
-	p.timers["calm"] = 0
-	p.timers["ending"] = 0
-	p.values["wake_gain"] = 1
-	p.values["drift_push"] = 0
-	p.timers["intro"] = p.intCfg("intro_dur")
-	p.values["intro_total"] = float64(p.timers["intro"])
-}
-
-func (p *Procedural) startRowboatEndingLocked() {
-	p.timers["intro"] = 0
-	p.timers["wake"] = 0
-	p.timers["drift"] = 0
-	p.timers["calm"] = 0
-	p.values["wake_gain"] = 1
-	p.values["drift_push"] = 0
-	endingTotal := p.intCfg("ending_dur") + max(0, p.intCfg("ending_linger"))
-	if endingTotal < 1 {
-		endingTotal = max(1, p.intCfg("ending_dur"))
-	}
-	p.timers["ending"] = endingTotal
-	p.values["ending_total"] = float64(endingTotal)
-}
-
-func (p *Procedural) stepRowboatLocked() {
-	if p.timers["wake"] <= 0 {
-		p.values["wake_gain"] = 1
-	}
-	if p.timers["drift"] <= 0 {
-		p.values["drift_push"] = 0
-	}
-	if p.timers["intro"] <= 0 {
-		delete(p.values, "intro_total")
-	}
-	if p.timers["ending"] <= 0 {
-		delete(p.values, "ending_total")
-	}
-	if p.timers["intro"] > 0 || p.timers["ending"] > 0 {
-		return
-	}
-	if p.timers["wake"] <= 0 && p.cfg["wake_p"] > 0 && p.rng.Float64() < p.cfg["wake_p"] {
-		p.startRowboatWakeLocked("started")
-	}
-	if p.timers["drift"] <= 0 && p.cfg["drift_p"] > 0 && p.rng.Float64() < p.cfg["drift_p"] {
-		p.startRowboatDriftLocked("started")
-	}
-	if p.timers["calm"] <= 0 && p.cfg["calm_p"] > 0 && p.rng.Float64() < p.cfg["calm_p"] {
-		p.startRowboatCalmLocked("started")
-	}
-}
 
 func (p *Procedural) startUnderwaterBubbleBurstLocked(verb string) {
 	p.timers["bubble-burst"] = jitterInt(p.rng, p.intCfg("bubble_burst_dur"), 0.3)
