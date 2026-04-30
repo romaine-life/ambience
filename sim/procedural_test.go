@@ -164,8 +164,8 @@ func TestAutumnLeavesSnapshotRestore(t *testing.T) {
 	}
 }
 
-func TestProceduralStarfieldSnapshotRestore(t *testing.T) {
-	p := NewProcedural("starfield", 160, 80, 12, nil)
+func TestStarfieldSnapshotRestore(t *testing.T) {
+	p := NewStarfield(160, 80, 12, nil)
 	if !p.TriggerEvent("shooting-star") {
 		t.Fatal("expected shooting-star trigger to succeed")
 	}
@@ -176,7 +176,7 @@ func TestProceduralStarfieldSnapshotRestore(t *testing.T) {
 		t.Fatal("expected shooting-star timer in snapshot")
 	}
 
-	restored := NewProcedural("starfield", 160, 80, 7, nil)
+	restored := NewStarfield(160, 80, 7, nil)
 	restored.RestoreSnapshot(snap)
 	again := restored.Snapshot()
 	if again.Timers["shooting-star"] != snap.Timers["shooting-star"] {
