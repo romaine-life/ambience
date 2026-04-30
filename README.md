@@ -131,6 +131,12 @@ broadcasts — so adding Sand / Fire / Tetris is a sim-side change with
 no consumer-side update. The `/dev` page reads the same registry to
 switch effects without page-specific wiring.
 
+For backlog candidates not yet promoted to their own implementation
+issue, see [`docs/effect-candidates.md`](docs/effect-candidates.md) —
+in-repo companion to
+[#9](https://github.com/nelsong6/ambience/issues/9), with 5-slot fit
+notes and promotion status per candidate.
+
 ## Guiding principle
 
 One of ambience's guiding principles is to copy the *boundaries* that
