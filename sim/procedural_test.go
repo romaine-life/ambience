@@ -300,8 +300,8 @@ func TestCampfireSnapshotRestore(t *testing.T) {
 	}
 }
 
-func TestProceduralWindmillSnapshotRestore(t *testing.T) {
-	p := NewProcedural("windmill", 160, 80, 44, nil)
+func TestWindmillSnapshotRestore(t *testing.T) {
+	p := NewWindmill(160, 80, 44, nil)
 	if !p.TriggerEvent("gust") {
 		t.Fatal("expected gust trigger to succeed")
 	}
@@ -321,7 +321,7 @@ func TestProceduralWindmillSnapshotRestore(t *testing.T) {
 		t.Fatal("expected gust gain value in snapshot")
 	}
 
-	restored := NewProcedural("windmill", 160, 80, 7, nil)
+	restored := NewWindmill(160, 80, 7, nil)
 	restored.RestoreSnapshot(snap)
 	again := restored.Snapshot()
 	if again.Timers["gust"] != snap.Timers["gust"] {

@@ -26,32 +26,6 @@ type Procedural struct {
 	log    []LogEntry
 }
 
-var windmillDefaults = ProceduralConfig{
-	"intro_dur":     45,
-	"intro_turn":    0.12,
-	"ending_dur":    60,
-	"ending_linger": 20,
-	"ending_turn":   0.05,
-	"turn_speed":    0.08,
-	"blade_len":     14.0,
-	"blade_width":   1.8,
-	"tower_height":  20.0,
-	"tower_width":   6.0,
-	"horizon":       0.72,
-	"glow":          0.18,
-	"hue":           28,
-	"hue_sp":        18,
-	"sat":           0.42,
-	"lmin":          0.18,
-	"lmax":          0.82,
-	"gust_p":        0.0,
-	"lull_p":        0.0,
-	"gust_dur":      50,
-	"gust_mult":     1.90,
-	"lull_dur":      72,
-	"lull_mult":     0.45,
-}
-
 var lighthouseDefaults = ProceduralConfig{
 	"intro_dur":        50,
 	"intro_beam":       0.16,
@@ -295,59 +269,6 @@ func MysteriousManSchema() EffectSchema {
 	}
 }
 
-func WindmillSchema() EffectSchema {
-	return EffectSchema{
-		Name: "windmill",
-		Knobs: []Knob{
-			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 10, Max: 180, Step: 5, Default: 45, Trigger: "intro",
-				Description: "Ticks spent easing the blades from stillness into a readable turn."},
-			{Key: "intro_turn", Label: "intro turn", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0.02, Max: 0.5, Step: 0.01, Default: 0.12,
-				Description: "Starting fraction of the final rotation speed before the mill settles into motion."},
-			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 60, Trigger: "ending",
-				Description: "Ticks spent coasting the blades back down toward stillness."},
-			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 160, Step: 5, Default: 20,
-				Description: "Extra quiet ticks after the blades have mostly stopped."},
-			{Key: "ending_turn", Label: "ending turn", Slot: SlotEnd, Group: "ending", Type: KnobFloat, Min: 0.01, Max: 0.35, Step: 0.01, Default: 0.05,
-				Description: "Residual blade motion near the end of the outro."},
-			{Key: "turn_speed", Label: "turn speed", Slot: SlotLever, Group: "mill", Type: KnobFloat, Min: 0.02, Max: 0.25, Step: 0.01, Default: 0.08,
-				Description: "Base blade rotation speed."},
-			{Key: "blade_len", Label: "blade len", Slot: SlotLever, Group: "mill", Type: KnobFloat, Min: 6, Max: 22, Step: 0.5, Default: 14,
-				Description: "Length of the windmill blades."},
-			{Key: "blade_width", Label: "blade width", Slot: SlotLever, Group: "mill", Type: KnobFloat, Min: 0.5, Max: 4, Step: 0.1, Default: 1.8,
-				Description: "Thickness of each blade arm."},
-			{Key: "tower_height", Label: "tower height", Slot: SlotLever, Group: "mill", Type: KnobFloat, Min: 10, Max: 30, Step: 0.5, Default: 20,
-				Description: "Height of the windmill tower above the hill."},
-			{Key: "tower_width", Label: "tower width", Slot: SlotLever, Group: "mill", Type: KnobFloat, Min: 3, Max: 10, Step: 0.5, Default: 6,
-				Description: "Width of the windmill tower silhouette."},
-			{Key: "horizon", Label: "horizon", Slot: SlotLever, Group: "mill", Type: KnobFloat, Min: 0.56, Max: 0.86, Step: 0.01, Default: 0.72,
-				Description: "Height of the ground line and hill in frame."},
-			{Key: "glow", Label: "glow", Slot: SlotLever, Group: "mill", Type: KnobFloat, Min: 0.02, Max: 0.5, Step: 0.01, Default: 0.18,
-				Description: "Strength of the dusk haze and tiny warm window glow."},
-			{Key: "hue", Label: "hue", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 10, Max: 240, Step: 1, Default: 28,
-				Description: "Base sky hue spanning cool night blues through warm dusk."},
-			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 28, Step: 1, Default: 18,
-				Description: "Variation between the upper sky and the horizon glow."},
-			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.7, Step: 0.01, Default: 0.42,
-				Description: "Overall sky and glow saturation."},
-			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.5, Step: 0.01, Default: 0.18,
-				Description: "Minimum lightness used for the upper sky and dark ground."},
-			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.25, Max: 0.95, Step: 0.01, Default: 0.82,
-				Description: "Maximum lightness used for the horizon and glow."},
-			{Key: "gust_p", Label: "gust", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "gust",
-				Description: "Per-tick chance of the blades briefly spinning faster."},
-			{Key: "lull_p", Label: "lull", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "lull",
-				Description: "Per-tick chance of the wind settling into a slower turn."},
-			{Key: "gust_dur", Label: "gust dur", Slot: SlotEventMod, Group: "gust", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 50,
-				Description: "Duration of a faster-turning gust."},
-			{Key: "gust_mult", Label: "gust x", Slot: SlotEventMod, Group: "gust", Type: KnobFloat, Min: 1.05, Max: 3, Step: 0.05, Default: 1.9,
-				Description: "Rotation multiplier applied during a gust."},
-			{Key: "lull_dur", Label: "lull dur", Slot: SlotEventMod, Group: "lull", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 72,
-				Description: "Duration of the calmer slower-turning window."},
-			{Key: "lull_mult", Label: "lull x", Slot: SlotEventMod, Group: "lull", Type: KnobFloat, Min: 0.1, Max: 1, Step: 0.05, Default: 0.45,
-				Description: "Rotation multiplier applied while lull is active."},
-		},
-	}
-}
 
 func LighthouseSchema() EffectSchema {
 	return EffectSchema{
@@ -603,8 +524,6 @@ func VolcanoSchema() EffectSchema {
 
 func proceduralDefaults(kind string) ProceduralConfig {
 	switch kind {
-	case "windmill":
-		return cloneConfig(windmillDefaults)
 	case "lighthouse":
 		return cloneConfig(lighthouseDefaults)
 	case "rowboat":
@@ -626,69 +545,6 @@ func mergeProceduralDefaults(kind string, cfg ProceduralConfig) ProceduralConfig
 		out[k] = v
 	}
 	switch kind {
-	case "windmill":
-		if out["intro_dur"] <= 0 {
-			out["intro_dur"] = windmillDefaults["intro_dur"]
-		}
-		out["intro_turn"] = clamp01(out["intro_turn"])
-		if out["ending_dur"] <= 0 {
-			out["ending_dur"] = windmillDefaults["ending_dur"]
-		}
-		if out["ending_linger"] < 0 {
-			out["ending_linger"] = 0
-		}
-		out["ending_turn"] = clamp01(out["ending_turn"])
-		if out["turn_speed"] <= 0 {
-			out["turn_speed"] = windmillDefaults["turn_speed"]
-		}
-		if out["blade_len"] <= 0 {
-			out["blade_len"] = windmillDefaults["blade_len"]
-		}
-		if out["blade_width"] <= 0 {
-			out["blade_width"] = windmillDefaults["blade_width"]
-		}
-		if out["tower_height"] <= 0 {
-			out["tower_height"] = windmillDefaults["tower_height"]
-		}
-		if out["tower_width"] <= 0 {
-			out["tower_width"] = windmillDefaults["tower_width"]
-		}
-		if out["horizon"] <= 0 {
-			out["horizon"] = windmillDefaults["horizon"]
-		}
-		if out["glow"] <= 0 {
-			out["glow"] = windmillDefaults["glow"]
-		}
-		if out["hue"] == 0 {
-			out["hue"] = windmillDefaults["hue"]
-		}
-		if out["hue_sp"] < 0 {
-			out["hue_sp"] = 0
-		}
-		if out["sat"] <= 0 {
-			out["sat"] = windmillDefaults["sat"]
-		}
-		if out["lmin"] <= 0 {
-			out["lmin"] = windmillDefaults["lmin"]
-		}
-		if out["lmax"] <= 0 {
-			out["lmax"] = windmillDefaults["lmax"]
-		}
-		if out["lmax"] < out["lmin"] {
-			out["lmin"], out["lmax"] = out["lmax"], out["lmin"]
-		}
-		if out["gust_dur"] <= 0 {
-			out["gust_dur"] = windmillDefaults["gust_dur"]
-		}
-		if out["gust_mult"] <= 0 {
-			out["gust_mult"] = windmillDefaults["gust_mult"]
-		}
-		if out["lull_dur"] <= 0 {
-			out["lull_dur"] = windmillDefaults["lull_dur"]
-		}
-		if out["lull_mult"] <= 0 {
-			out["lull_mult"] = windmillDefaults["lull_mult"]
-		}
 	case "lighthouse":
 		if out["intro_dur"] <= 0 {
 			out["intro_dur"] = lighthouseDefaults["intro_dur"]
@@ -1200,22 +1056,6 @@ func (p *Procedural) TriggerEvent(name string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	switch p.Kind {
-	case "windmill":
-		switch name {
-		case "gust":
-			p.startWindmillGustLocked("triggered")
-		case "lull":
-			p.startWindmillLullLocked("triggered")
-		case "intro":
-			p.startWindmillIntroLocked()
-			p.appendLog("intro", fmt.Sprintf("started (dur=%d, turn=%.2f)", p.timers["intro"], p.cfg["intro_turn"]))
-		case "ending":
-			p.startWindmillEndingLocked()
-			p.appendLog("ending", fmt.Sprintf("started (fade=%d, linger=%d)", p.intCfg("ending_dur"), p.intCfg("ending_linger")))
-		default:
-			return false
-		}
-		return true
 	case "lighthouse":
 		switch name {
 		case "bright-pass":
@@ -1343,8 +1183,6 @@ func (p *Procedural) Step() {
 	}
 
 	switch p.Kind {
-	case "windmill":
-		p.stepWindmillLocked()
 	case "lighthouse":
 		p.stepLighthouseLocked()
 	case "rowboat":
@@ -1367,59 +1205,6 @@ func (p *Procedural) intCfg(key string) int {
 
 
 
-func (p *Procedural) startWindmillGustLocked(verb string) {
-	p.timers["gust"] = jitterInt(p.rng, p.intCfg("gust_dur"), 0.3)
-	p.values["gust_gain"] = p.cfg["gust_mult"] * (0.75 + p.rng.Float64()*0.45)
-	p.appendLog("gust", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["gust"], p.values["gust_gain"]))
-}
-
-func (p *Procedural) startWindmillLullLocked(verb string) {
-	p.timers["lull"] = jitterInt(p.rng, p.intCfg("lull_dur"), 0.3)
-	p.appendLog("lull", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["lull"], p.cfg["lull_mult"]))
-}
-
-func (p *Procedural) startWindmillIntroLocked() {
-	p.timers["gust"] = 0
-	p.timers["lull"] = 0
-	p.timers["ending"] = 0
-	p.values["gust_gain"] = 1
-	p.timers["intro"] = p.intCfg("intro_dur")
-	p.values["intro_total"] = float64(p.timers["intro"])
-}
-
-func (p *Procedural) startWindmillEndingLocked() {
-	p.timers["intro"] = 0
-	p.timers["gust"] = 0
-	p.timers["lull"] = 0
-	p.values["gust_gain"] = 1
-	endingTotal := p.intCfg("ending_dur") + max(0, p.intCfg("ending_linger"))
-	if endingTotal < 1 {
-		endingTotal = max(1, p.intCfg("ending_dur"))
-	}
-	p.timers["ending"] = endingTotal
-	p.values["ending_total"] = float64(endingTotal)
-}
-
-func (p *Procedural) stepWindmillLocked() {
-	if p.timers["gust"] <= 0 {
-		p.values["gust_gain"] = 1
-	}
-	if p.timers["intro"] <= 0 {
-		delete(p.values, "intro_total")
-	}
-	if p.timers["ending"] <= 0 {
-		delete(p.values, "ending_total")
-	}
-	if p.timers["intro"] > 0 || p.timers["ending"] > 0 {
-		return
-	}
-	if p.timers["gust"] <= 0 && p.cfg["gust_p"] > 0 && p.rng.Float64() < p.cfg["gust_p"] {
-		p.startWindmillGustLocked("started")
-	}
-	if p.timers["lull"] <= 0 && p.cfg["lull_p"] > 0 && p.rng.Float64() < p.cfg["lull_p"] {
-		p.startWindmillLullLocked("started")
-	}
-}
 
 func (p *Procedural) startLighthouseBrightPassLocked(verb string) {
 	p.timers["bright-pass"] = jitterInt(p.rng, p.intCfg("bright_pass_dur"), 0.3)
