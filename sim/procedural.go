@@ -26,33 +26,6 @@ type Procedural struct {
 	log    []LogEntry
 }
 
-var wheatFieldDefaults = ProceduralConfig{
-	"intro_dur":     60,
-	"intro_breeze":  0.16,
-	"ending_dur":    70,
-	"ending_linger": 20,
-	"ending_sway":   0.08,
-	"density":       0.48,
-	"speed":         0.12,
-	"drift":         0.16,
-	"sway":          0.68,
-	"wave_freq":     0.18,
-	"field_top":     0.62,
-	"stalk_h":       18,
-	"layers":        3,
-	"hue":           46,
-	"hue_sp":        18,
-	"sat":           0.64,
-	"lmin":          0.30,
-	"lmax":          0.76,
-	"gust_p":        0.0,
-	"calm_p":        0.0,
-	"gust_dur":      50,
-	"gust_mult":     1.85,
-	"calm_dur":      72,
-	"calm_mult":     0.40,
-}
-
 var beachDefaults = ProceduralConfig{
 	"intro_dur":       55,
 	"intro_tide":      0.18,
@@ -294,65 +267,6 @@ var volcanoDefaults = ProceduralConfig{
 	"smolder_mult":      0.55,
 	"flare_dur":         24,
 	"flare_mult":        1.85,
-}
-
-
-
-
-func WheatFieldSchema() EffectSchema {
-	return EffectSchema{
-		Name: "wheat-field",
-		Knobs: []Knob{
-			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 10, Max: 240, Step: 5, Default: 60, Trigger: "intro",
-				Description: "Ticks spent spreading motion through the field from near-stillness into full waves."},
-			{Key: "intro_breeze", Label: "intro breeze", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0.08, Max: 0.5, Step: 0.02, Default: 0.16,
-				Description: "Starting fraction of the full sway before the waves finish arriving."},
-			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 10, Max: 240, Step: 5, Default: 70, Trigger: "ending",
-				Description: "Ticks spent damping the field back toward calm."},
-			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 140, Step: 5, Default: 20,
-				Description: "Extra quiet ticks for the last residual motion to settle out."},
-			{Key: "ending_sway", Label: "ending sway", Slot: SlotEnd, Group: "ending", Type: KnobFloat, Min: 0.04, Max: 0.28, Step: 0.02, Default: 0.08,
-				Description: "Residual sway fraction that remains near the end of the outro."},
-			{Key: "density", Label: "density", Slot: SlotLever, Group: "field", Type: KnobFloat, Min: 0.24, Max: 0.92, Step: 0.02, Default: 0.48,
-				Description: "How densely the field is packed with visible stalk highlights."},
-			{Key: "speed", Label: "wave speed", Slot: SlotLever, Group: "field", Type: KnobFloat, Min: 0.02, Max: 0.4, Step: 0.01, Default: 0.12,
-				Description: "How quickly the broad waves travel through the field."},
-			{Key: "drift", Label: "drift", Slot: SlotLever, Group: "field", Type: KnobFloat, Min: -0.5, Max: 0.5, Step: 0.01, Default: 0.16,
-				Description: "Preferred direction of the wave travel. Positive values push right."},
-			{Key: "sway", Label: "sway", Slot: SlotLever, Group: "field", Type: KnobFloat, Min: 0.25, Max: 1.35, Step: 0.02, Default: 0.68,
-				Description: "How far the stalk tips lean and recover."},
-			{Key: "wave_freq", Label: "wave freq", Slot: SlotLever, Group: "field", Type: KnobFloat, Min: 0.06, Max: 0.35, Step: 0.01, Default: 0.18,
-				Description: "Horizontal frequency of the passing field waves."},
-			{Key: "field_top", Label: "field top", Slot: SlotLever, Group: "field", Type: KnobFloat, Min: 0.54, Max: 0.74, Step: 0.01, Default: 0.62,
-				Description: "Where the top of the wheat band sits in the frame."},
-			{Key: "stalk_h", Label: "stalk height", Slot: SlotLever, Group: "field", Type: KnobFloat, Min: 8, Max: 28, Step: 1, Default: 18,
-				Description: "Apparent height of the stalks rising above the field base."},
-			{Key: "layers", Label: "layers", Slot: SlotLever, Group: "field", Type: KnobInt, Min: 1, Max: 4, Step: 1, Default: 3,
-				Description: "Number of depth layers used to build the field."},
-			{Key: "hue", Label: "hue", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 38, Max: 66, Step: 1, Default: 46,
-				Description: "Base wheat hue. Lower values warm toward amber; higher values lean green-gold."},
-			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 32, Step: 1, Default: 18,
-				Description: "Variation across stalk highlights and shadow bands."},
-			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.32, Max: 0.95, Step: 0.01, Default: 0.64,
-				Description: "Overall color saturation of the field."},
-			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.18, Max: 0.55, Step: 0.01, Default: 0.30,
-				Description: "Minimum lightness used for deeper shadowed wheat."},
-			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.55, Max: 0.92, Step: 0.01, Default: 0.76,
-				Description: "Maximum lightness used for sunstruck stalk tips."},
-			{Key: "gust_p", Label: "gust", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "gust",
-				Description: "Per-tick chance of a stronger wind wave crossing the field."},
-			{Key: "calm_p", Label: "calm", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "calm",
-				Description: "Per-tick chance of the field settling into a quieter, lighter sway."},
-			{Key: "gust_dur", Label: "gust dur", Slot: SlotEventMod, Group: "gust", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 50,
-				Description: "Typical duration of a stronger wind pulse."},
-			{Key: "gust_mult", Label: "gust x", Slot: SlotEventMod, Group: "gust", Type: KnobFloat, Min: 1.05, Max: 4, Step: 0.05, Default: 1.85,
-				Description: "Sway multiplier applied during a gust."},
-			{Key: "calm_dur", Label: "calm dur", Slot: SlotEventMod, Group: "calm", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 72,
-				Description: "Duration of the quieter low-amplitude window."},
-			{Key: "calm_mult", Label: "calm x", Slot: SlotEventMod, Group: "calm", Type: KnobFloat, Min: 0.05, Max: 1, Step: 0.05, Default: 0.4,
-				Description: "Sway multiplier applied while calm is active."},
-		},
-	}
 }
 
 func BeachSchema() EffectSchema {
@@ -859,8 +773,6 @@ func VolcanoSchema() EffectSchema {
 
 func proceduralDefaults(kind string) ProceduralConfig {
 	switch kind {
-	case "wheat-field":
-		return cloneConfig(wheatFieldDefaults)
 	case "beach":
 		return cloneConfig(beachDefaults)
 	case "campfire":
@@ -888,69 +800,6 @@ func mergeProceduralDefaults(kind string, cfg ProceduralConfig) ProceduralConfig
 		out[k] = v
 	}
 	switch kind {
-	case "wheat-field":
-		if out["intro_dur"] <= 0 {
-			out["intro_dur"] = wheatFieldDefaults["intro_dur"]
-		}
-		out["intro_breeze"] = clamp01(out["intro_breeze"])
-		if out["ending_dur"] <= 0 {
-			out["ending_dur"] = wheatFieldDefaults["ending_dur"]
-		}
-		if out["ending_linger"] < 0 {
-			out["ending_linger"] = 0
-		}
-		out["ending_sway"] = clamp01(out["ending_sway"])
-		if out["density"] <= 0 {
-			out["density"] = wheatFieldDefaults["density"]
-		}
-		if out["speed"] <= 0 {
-			out["speed"] = wheatFieldDefaults["speed"]
-		}
-		if out["sway"] <= 0 {
-			out["sway"] = wheatFieldDefaults["sway"]
-		}
-		if out["wave_freq"] <= 0 {
-			out["wave_freq"] = wheatFieldDefaults["wave_freq"]
-		}
-		if out["field_top"] <= 0 {
-			out["field_top"] = wheatFieldDefaults["field_top"]
-		}
-		if out["stalk_h"] <= 0 {
-			out["stalk_h"] = wheatFieldDefaults["stalk_h"]
-		}
-		if out["layers"] < 1 {
-			out["layers"] = wheatFieldDefaults["layers"]
-		}
-		if out["hue"] == 0 {
-			out["hue"] = wheatFieldDefaults["hue"]
-		}
-		if out["hue_sp"] < 0 {
-			out["hue_sp"] = 0
-		}
-		if out["sat"] <= 0 {
-			out["sat"] = wheatFieldDefaults["sat"]
-		}
-		if out["lmin"] <= 0 {
-			out["lmin"] = wheatFieldDefaults["lmin"]
-		}
-		if out["lmax"] <= 0 {
-			out["lmax"] = wheatFieldDefaults["lmax"]
-		}
-		if out["lmax"] < out["lmin"] {
-			out["lmin"], out["lmax"] = out["lmax"], out["lmin"]
-		}
-		if out["gust_dur"] <= 0 {
-			out["gust_dur"] = wheatFieldDefaults["gust_dur"]
-		}
-		if out["gust_mult"] <= 0 {
-			out["gust_mult"] = wheatFieldDefaults["gust_mult"]
-		}
-		if out["calm_dur"] <= 0 {
-			out["calm_dur"] = wheatFieldDefaults["calm_dur"]
-		}
-		if out["calm_mult"] <= 0 {
-			out["calm_mult"] = wheatFieldDefaults["calm_mult"]
-		}
 	case "beach":
 		if out["intro_dur"] <= 0 {
 			out["intro_dur"] = beachDefaults["intro_dur"]
@@ -1657,22 +1506,6 @@ func (p *Procedural) TriggerEvent(name string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	switch p.Kind {
-	case "wheat-field":
-		switch name {
-		case "gust":
-			p.startWheatFieldGustLocked("triggered")
-		case "calm":
-			p.startWheatFieldCalmLocked("triggered")
-		case "intro":
-			p.startWheatFieldIntroLocked()
-			p.appendLog("intro", fmt.Sprintf("started (dur=%d, breeze=%.2f)", p.timers["intro"], p.cfg["intro_breeze"]))
-		case "ending":
-			p.startWheatFieldEndingLocked()
-			p.appendLog("ending", fmt.Sprintf("started (fade=%d, linger=%d)", p.intCfg("ending_dur"), p.intCfg("ending_linger")))
-		default:
-			return false
-		}
-		return true
 	case "beach":
 		switch name {
 		case "high-tide":
@@ -1850,8 +1683,6 @@ func (p *Procedural) Step() {
 	}
 
 	switch p.Kind {
-	case "wheat-field":
-		p.stepWheatFieldLocked()
 	case "beach":
 		p.stepBeachLocked()
 	case "campfire":
@@ -1877,63 +1708,6 @@ func (p *Procedural) intCfg(key string) int {
 
 
 
-func (p *Procedural) startWheatFieldGustLocked(verb string) {
-	p.timers["gust"] = jitterInt(p.rng, p.intCfg("gust_dur"), 0.3)
-	sign := 1.0
-	if p.rng.Float64() < 0.35 {
-		sign = -1
-	}
-	p.values["gust_push"] = sign * p.cfg["gust_mult"] * (0.55 + p.rng.Float64()*0.55)
-	p.appendLog("gust", fmt.Sprintf("%s (dur=%d, push=%+.2f)", verb, p.timers["gust"], p.values["gust_push"]))
-}
-
-func (p *Procedural) startWheatFieldCalmLocked(verb string) {
-	p.timers["calm"] = jitterInt(p.rng, p.intCfg("calm_dur"), 0.3)
-	p.appendLog("calm", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["calm"], p.cfg["calm_mult"]))
-}
-
-func (p *Procedural) startWheatFieldIntroLocked() {
-	p.timers["gust"] = 0
-	p.timers["calm"] = 0
-	p.timers["ending"] = 0
-	p.values["gust_push"] = 0
-	p.timers["intro"] = p.intCfg("intro_dur")
-	p.values["intro_total"] = float64(p.timers["intro"])
-}
-
-func (p *Procedural) startWheatFieldEndingLocked() {
-	p.timers["intro"] = 0
-	p.timers["gust"] = 0
-	p.timers["calm"] = 0
-	p.values["gust_push"] = 0
-	endingTotal := p.intCfg("ending_dur") + max(0, p.intCfg("ending_linger"))
-	if endingTotal < 1 {
-		endingTotal = max(1, p.intCfg("ending_dur"))
-	}
-	p.timers["ending"] = endingTotal
-	p.values["ending_total"] = float64(endingTotal)
-}
-
-func (p *Procedural) stepWheatFieldLocked() {
-	if p.timers["gust"] <= 0 {
-		p.values["gust_push"] = 0
-	}
-	if p.timers["intro"] <= 0 {
-		delete(p.values, "intro_total")
-	}
-	if p.timers["ending"] <= 0 {
-		delete(p.values, "ending_total")
-	}
-	if p.timers["intro"] > 0 || p.timers["ending"] > 0 {
-		return
-	}
-	if p.timers["gust"] <= 0 && p.cfg["gust_p"] > 0 && p.rng.Float64() < p.cfg["gust_p"] {
-		p.startWheatFieldGustLocked("started")
-	}
-	if p.timers["calm"] <= 0 && p.cfg["calm_p"] > 0 && p.rng.Float64() < p.cfg["calm_p"] {
-		p.startWheatFieldCalmLocked("started")
-	}
-}
 
 func (p *Procedural) startBeachHighTideLocked(verb string) {
 	p.timers["high-tide"] = jitterInt(p.rng, p.intCfg("high_tide_dur"), 0.3)

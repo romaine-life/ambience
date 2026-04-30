@@ -210,8 +210,8 @@ func TestAuroraSnapshotRestore(t *testing.T) {
 	}
 }
 
-func TestProceduralWheatFieldSnapshotRestore(t *testing.T) {
-	p := NewProcedural("wheat-field", 160, 80, 88, nil)
+func TestWheatFieldSnapshotRestore(t *testing.T) {
+	p := NewWheatField(160, 80, 88, nil)
 	if !p.TriggerEvent("gust") {
 		t.Fatal("expected gust trigger to succeed")
 	}
@@ -225,7 +225,7 @@ func TestProceduralWheatFieldSnapshotRestore(t *testing.T) {
 		t.Fatal("expected gust push value in snapshot")
 	}
 
-	restored := NewProcedural("wheat-field", 160, 80, 7, nil)
+	restored := NewWheatField(160, 80, 7, nil)
 	restored.RestoreSnapshot(snap)
 	again := restored.Snapshot()
 	if again.Timers["gust"] != snap.Timers["gust"] {
