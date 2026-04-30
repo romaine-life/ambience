@@ -26,36 +26,6 @@ type Procedural struct {
 	log    []LogEntry
 }
 
-var auroraDefaults = ProceduralConfig{
-	"intro_dur":     70,
-	"intro_glow":    0.18,
-	"ending_dur":    80,
-	"ending_linger": 20,
-	"ending_glow":   0.05,
-	"intensity":     0.56,
-	"speed":         0.11,
-	"drift":         0.08,
-	"bands":         3,
-	"thickness":     9,
-	"wave_amp":      6,
-	"wave_freq":     0.16,
-	"curtain_len":   15,
-	"hue":           138,
-	"hue_sp":        26,
-	"sat":           0.72,
-	"lmin":          0.20,
-	"lmax":          0.74,
-	"brighten_p":    0.0,
-	"shift_p":       0.0,
-	"fade_p":        0.0,
-	"brighten_dur":  42,
-	"brighten_mult": 1.45,
-	"shift_dur":     64,
-	"shift_amt":     1.10,
-	"fade_dur":      58,
-	"fade_mult":     0.60,
-}
-
 var wheatFieldDefaults = ProceduralConfig{
 	"intro_dur":     60,
 	"intro_breeze":  0.16,
@@ -328,67 +298,6 @@ var volcanoDefaults = ProceduralConfig{
 
 
 
-func AuroraSchema() EffectSchema {
-	return EffectSchema{
-		Name: "aurora",
-		Knobs: []Knob{
-			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 10, Max: 260, Step: 5, Default: 70, Trigger: "intro",
-				Description: "Ticks spent blooming from a faint horizon glow into the full aurora."},
-			{Key: "intro_glow", Label: "intro glow", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 0.01, Max: 0.6, Step: 0.01, Default: 0.18,
-				Description: "Starting brightness fraction before the ribbons fully form."},
-			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 10, Max: 260, Step: 5, Default: 80, Trigger: "ending",
-				Description: "Ticks spent dimming and narrowing back toward a dark sky."},
-			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 160, Step: 5, Default: 20,
-				Description: "Extra quiet ticks for the last faint glow to hang over the horizon."},
-			{Key: "ending_glow", Label: "ending glow", Slot: SlotEnd, Group: "ending", Type: KnobFloat, Min: 0, Max: 0.4, Step: 0.01, Default: 0.05,
-				Description: "Residual brightness fraction that remains near the end of the outro."},
-			{Key: "intensity", Label: "intensity", Slot: SlotLever, Group: "sky", Type: KnobFloat, Min: 0.05, Max: 1.2, Step: 0.01, Default: 0.56,
-				Description: "Overall luminance of the aurora ribbons."},
-			{Key: "speed", Label: "motion", Slot: SlotLever, Group: "sky", Type: KnobFloat, Min: 0.02, Max: 0.45, Step: 0.01, Default: 0.11,
-				Description: "How quickly the ribbons undulate across the sky."},
-			{Key: "drift", Label: "drift", Slot: SlotLever, Group: "sky", Type: KnobFloat, Min: -0.5, Max: 0.5, Step: 0.01, Default: 0.08,
-				Description: "Baseline sideways drift for the whole veil field."},
-			{Key: "bands", Label: "bands", Slot: SlotLever, Group: "sky", Type: KnobInt, Min: 1, Max: 5, Step: 1, Default: 3,
-				Description: "Number of main aurora ribbons."},
-			{Key: "thickness", Label: "thickness", Slot: SlotLever, Group: "sky", Type: KnobFloat, Min: 2, Max: 18, Step: 0.5, Default: 9,
-				Description: "Vertical thickness of each bright ribbon core."},
-			{Key: "wave_amp", Label: "wave amp", Slot: SlotLever, Group: "sky", Type: KnobFloat, Min: 1, Max: 18, Step: 0.5, Default: 6,
-				Description: "How far each ribbon arches and sways."},
-			{Key: "wave_freq", Label: "wave freq", Slot: SlotLever, Group: "sky", Type: KnobFloat, Min: 0.04, Max: 0.4, Step: 0.01, Default: 0.16,
-				Description: "Horizontal frequency of the ribbon arches."},
-			{Key: "curtain_len", Label: "curtain", Slot: SlotLever, Group: "sky", Type: KnobFloat, Min: 2, Max: 28, Step: 0.5, Default: 15,
-				Description: "How far the glow trails downward from each ribbon."},
-			{Key: "hue", Label: "hue", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 100, Max: 220, Step: 1, Default: 138,
-				Description: "Base aurora hue. Lower values lean green; higher values tip toward cyan-violet."},
-			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 60, Step: 1, Default: 26,
-				Description: "Variation between the different bands and edge glow."},
-			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.05, Max: 1, Step: 0.01, Default: 0.72,
-				Description: "Overall color saturation of the sky glow."},
-			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.7, Step: 0.01, Default: 0.20,
-				Description: "Minimum lightness used for the faint outer glow."},
-			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.15, Max: 0.95, Step: 0.01, Default: 0.74,
-				Description: "Maximum lightness used for the brightest ribbon centers."},
-			{Key: "brighten_p", Label: "brighten", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "brighten",
-				Description: "Per-tick chance of the sky blooming into a brighter curtain."},
-			{Key: "shift_p", Label: "shift", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "shift",
-				Description: "Per-tick chance of the aurora sliding into a new wave alignment."},
-			{Key: "fade_p", Label: "fade", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.02, Step: 0.0005, Default: 0, Trigger: "fade",
-				Description: "Per-tick chance of the ribbons briefly thinning into a dimmer phase."},
-			{Key: "brighten_dur", Label: "bright dur", Slot: SlotEventMod, Group: "brighten", Type: KnobInt, Min: 10, Max: 200, Step: 5, Default: 42,
-				Description: "How long a brighten bloom lasts."},
-			{Key: "brighten_mult", Label: "bright x", Slot: SlotEventMod, Group: "brighten", Type: KnobFloat, Min: 1.05, Max: 3, Step: 0.05, Default: 1.45,
-				Description: "Brightness multiplier applied during a bloom."},
-			{Key: "shift_dur", Label: "shift dur", Slot: SlotEventMod, Group: "shift", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 64,
-				Description: "How long the shifted alignment remains active."},
-			{Key: "shift_amt", Label: "shift amt", Slot: SlotEventMod, Group: "shift", Type: KnobFloat, Min: 0.1, Max: 3, Step: 0.05, Default: 1.1,
-				Description: "How strongly a shift event pulls the ribbons into a new phase."},
-			{Key: "fade_dur", Label: "fade dur", Slot: SlotEventMod, Group: "fade", Type: KnobInt, Min: 10, Max: 220, Step: 5, Default: 58,
-				Description: "How long the dimmer phase lasts."},
-			{Key: "fade_mult", Label: "fade x", Slot: SlotEventMod, Group: "fade", Type: KnobFloat, Min: 0.05, Max: 1, Step: 0.05, Default: 0.6,
-				Description: "Brightness multiplier applied during a fade event."},
-		},
-	}
-}
 
 func WheatFieldSchema() EffectSchema {
 	return EffectSchema{
@@ -950,8 +859,6 @@ func VolcanoSchema() EffectSchema {
 
 func proceduralDefaults(kind string) ProceduralConfig {
 	switch kind {
-	case "aurora":
-		return cloneConfig(auroraDefaults)
 	case "wheat-field":
 		return cloneConfig(wheatFieldDefaults)
 	case "beach":
@@ -981,75 +888,6 @@ func mergeProceduralDefaults(kind string, cfg ProceduralConfig) ProceduralConfig
 		out[k] = v
 	}
 	switch kind {
-	case "aurora":
-		if out["intro_dur"] <= 0 {
-			out["intro_dur"] = auroraDefaults["intro_dur"]
-		}
-		out["intro_glow"] = clamp01(out["intro_glow"])
-		if out["ending_dur"] <= 0 {
-			out["ending_dur"] = auroraDefaults["ending_dur"]
-		}
-		if out["ending_linger"] < 0 {
-			out["ending_linger"] = 0
-		}
-		out["ending_glow"] = clamp01(out["ending_glow"])
-		if out["intensity"] <= 0 {
-			out["intensity"] = auroraDefaults["intensity"]
-		}
-		if out["speed"] <= 0 {
-			out["speed"] = auroraDefaults["speed"]
-		}
-		if out["bands"] < 1 {
-			out["bands"] = auroraDefaults["bands"]
-		}
-		if out["thickness"] <= 0 {
-			out["thickness"] = auroraDefaults["thickness"]
-		}
-		if out["wave_amp"] <= 0 {
-			out["wave_amp"] = auroraDefaults["wave_amp"]
-		}
-		if out["wave_freq"] <= 0 {
-			out["wave_freq"] = auroraDefaults["wave_freq"]
-		}
-		if out["curtain_len"] <= 0 {
-			out["curtain_len"] = auroraDefaults["curtain_len"]
-		}
-		if out["hue"] == 0 {
-			out["hue"] = auroraDefaults["hue"]
-		}
-		if out["hue_sp"] < 0 {
-			out["hue_sp"] = 0
-		}
-		if out["sat"] <= 0 {
-			out["sat"] = auroraDefaults["sat"]
-		}
-		if out["lmin"] <= 0 {
-			out["lmin"] = auroraDefaults["lmin"]
-		}
-		if out["lmax"] <= 0 {
-			out["lmax"] = auroraDefaults["lmax"]
-		}
-		if out["lmax"] < out["lmin"] {
-			out["lmin"], out["lmax"] = out["lmax"], out["lmin"]
-		}
-		if out["brighten_dur"] <= 0 {
-			out["brighten_dur"] = auroraDefaults["brighten_dur"]
-		}
-		if out["brighten_mult"] <= 0 {
-			out["brighten_mult"] = auroraDefaults["brighten_mult"]
-		}
-		if out["shift_dur"] <= 0 {
-			out["shift_dur"] = auroraDefaults["shift_dur"]
-		}
-		if out["shift_amt"] <= 0 {
-			out["shift_amt"] = auroraDefaults["shift_amt"]
-		}
-		if out["fade_dur"] <= 0 {
-			out["fade_dur"] = auroraDefaults["fade_dur"]
-		}
-		if out["fade_mult"] <= 0 {
-			out["fade_mult"] = auroraDefaults["fade_mult"]
-		}
 	case "wheat-field":
 		if out["intro_dur"] <= 0 {
 			out["intro_dur"] = wheatFieldDefaults["intro_dur"]
@@ -1819,24 +1657,6 @@ func (p *Procedural) TriggerEvent(name string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	switch p.Kind {
-	case "aurora":
-		switch name {
-		case "brighten":
-			p.startAuroraBrightenLocked("triggered")
-		case "shift":
-			p.startAuroraShiftLocked("triggered")
-		case "fade":
-			p.startAuroraFadeLocked("triggered")
-		case "intro":
-			p.startAuroraIntroLocked()
-			p.appendLog("intro", fmt.Sprintf("started (dur=%d, glow=%.2f)", p.timers["intro"], p.cfg["intro_glow"]))
-		case "ending":
-			p.startAuroraEndingLocked()
-			p.appendLog("ending", fmt.Sprintf("started (fade=%d, linger=%d)", p.intCfg("ending_dur"), p.intCfg("ending_linger")))
-		default:
-			return false
-		}
-		return true
 	case "wheat-field":
 		switch name {
 		case "gust":
@@ -2030,8 +1850,6 @@ func (p *Procedural) Step() {
 	}
 
 	switch p.Kind {
-	case "aurora":
-		p.stepAuroraLocked()
 	case "wheat-field":
 		p.stepWheatFieldLocked()
 	case "beach":
@@ -2058,83 +1876,6 @@ func (p *Procedural) intCfg(key string) int {
 }
 
 
-func (p *Procedural) startAuroraBrightenLocked(verb string) {
-	p.timers["brighten"] = jitterInt(p.rng, p.intCfg("brighten_dur"), 0.3)
-	p.values["brighten_gain"] = p.cfg["brighten_mult"] * (0.85 + p.rng.Float64()*0.35)
-	p.appendLog("brighten", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["brighten"], p.values["brighten_gain"]))
-}
-
-func (p *Procedural) startAuroraShiftLocked(verb string) {
-	p.timers["shift"] = jitterInt(p.rng, p.intCfg("shift_dur"), 0.3)
-	sign := 1.0
-	if p.rng.Float64() < 0.5 {
-		sign = -1
-	}
-	p.values["shift_push"] = sign * p.cfg["shift_amt"] * (0.55 + p.rng.Float64()*0.55)
-	p.values["shift_seed"] = p.rng.Float64() * math.Pi * 2
-	p.appendLog("shift", fmt.Sprintf("%s (dur=%d, push=%+.2f)", verb, p.timers["shift"], p.values["shift_push"]))
-}
-
-func (p *Procedural) startAuroraFadeLocked(verb string) {
-	p.timers["fade"] = jitterInt(p.rng, p.intCfg("fade_dur"), 0.3)
-	p.appendLog("fade", fmt.Sprintf("%s (dur=%d, x%.2f)", verb, p.timers["fade"], p.cfg["fade_mult"]))
-}
-
-func (p *Procedural) startAuroraIntroLocked() {
-	p.timers["brighten"] = 0
-	p.timers["shift"] = 0
-	p.timers["fade"] = 0
-	p.timers["ending"] = 0
-	p.values["brighten_gain"] = 0
-	p.values["shift_push"] = 0
-	p.values["shift_seed"] = 0
-	p.timers["intro"] = p.intCfg("intro_dur")
-	p.values["intro_total"] = float64(p.timers["intro"])
-}
-
-func (p *Procedural) startAuroraEndingLocked() {
-	p.timers["intro"] = 0
-	p.timers["brighten"] = 0
-	p.timers["shift"] = 0
-	p.timers["fade"] = 0
-	p.values["brighten_gain"] = 0
-	p.values["shift_push"] = 0
-	p.values["shift_seed"] = 0
-	endingTotal := p.intCfg("ending_dur") + max(0, p.intCfg("ending_linger"))
-	if endingTotal < 1 {
-		endingTotal = max(1, p.intCfg("ending_dur"))
-	}
-	p.timers["ending"] = endingTotal
-	p.values["ending_total"] = float64(endingTotal)
-}
-
-func (p *Procedural) stepAuroraLocked() {
-	if p.timers["brighten"] <= 0 {
-		p.values["brighten_gain"] = 0
-	}
-	if p.timers["shift"] <= 0 {
-		p.values["shift_push"] = 0
-		p.values["shift_seed"] = 0
-	}
-	if p.timers["intro"] <= 0 {
-		delete(p.values, "intro_total")
-	}
-	if p.timers["ending"] <= 0 {
-		delete(p.values, "ending_total")
-	}
-	if p.timers["intro"] > 0 || p.timers["ending"] > 0 {
-		return
-	}
-	if p.timers["brighten"] <= 0 && p.cfg["brighten_p"] > 0 && p.rng.Float64() < p.cfg["brighten_p"] {
-		p.startAuroraBrightenLocked("started")
-	}
-	if p.timers["shift"] <= 0 && p.cfg["shift_p"] > 0 && p.rng.Float64() < p.cfg["shift_p"] {
-		p.startAuroraShiftLocked("started")
-	}
-	if p.timers["fade"] <= 0 && p.cfg["fade_p"] > 0 && p.rng.Float64() < p.cfg["fade_p"] {
-		p.startAuroraFadeLocked("started")
-	}
-}
 
 func (p *Procedural) startWheatFieldGustLocked(verb string) {
 	p.timers["gust"] = jitterInt(p.rng, p.intCfg("gust_dur"), 0.3)

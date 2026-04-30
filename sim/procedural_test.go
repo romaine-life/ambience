@@ -184,8 +184,8 @@ func TestStarfieldSnapshotRestore(t *testing.T) {
 	}
 }
 
-func TestProceduralAuroraSnapshotRestore(t *testing.T) {
-	p := NewProcedural("aurora", 160, 80, 77, nil)
+func TestAuroraSnapshotRestore(t *testing.T) {
+	p := NewAurora(160, 80, 77, nil)
 	if !p.TriggerEvent("shift") {
 		t.Fatal("expected shift trigger to succeed")
 	}
@@ -199,7 +199,7 @@ func TestProceduralAuroraSnapshotRestore(t *testing.T) {
 		t.Fatal("expected shift push value in snapshot")
 	}
 
-	restored := NewProcedural("aurora", 160, 80, 7, nil)
+	restored := NewAurora(160, 80, 7, nil)
 	restored.RestoreSnapshot(snap)
 	again := restored.Snapshot()
 	if again.Timers["shift"] != snap.Timers["shift"] {
