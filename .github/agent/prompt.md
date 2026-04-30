@@ -88,9 +88,19 @@ the fixed behavior). If the bug is invisible (perf, logic, race), use
 
 - `/workspace/evidence/screenshots/*.png` — visual evidence; uploaded
   to blob storage and embedded as `![](url)` in the PR body.
+- `/workspace/evidence/validation-path.txt` — single line: the path the
+  reviewer should open to see the change (e.g. `/dev/burning-trees`,
+  `/dev/water-pipe`, `/`). Must start with `/`. The wrapper appends
+  this to the validation host so the PR-body "Validation env" link
+  deep-links straight to your feature instead of the bare env root.
+  **Required for any change with a specific route** (effects, settings
+  panels, dev pages); omit for refactors / docs / non-visible behavior
+  and the link will fall back to the bare host.
 - `/workspace/evidence/notes.md` — markdown text included **verbatim**
-  at the top of the PR body. Use this for context, deep-link URLs to
-  validation pages, reasoning, command output, anything else.
+  at the top of the PR body. Use this for context, reasoning, command
+  output, secondary deep-links, or anything else worth showing the
+  reviewer. The primary validation deep-link belongs in
+  `validation-path.txt`, not here.
 - `/workspace/repo/` — your actual code changes; committed and pushed.
 
 ## Constraints
