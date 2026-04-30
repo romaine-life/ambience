@@ -141,8 +141,8 @@ func TestSnowSnapshotRestore(t *testing.T) {
 	}
 }
 
-func TestProceduralAutumnLeavesSnapshotRestore(t *testing.T) {
-	p := NewProcedural("autumn-leaves", 160, 80, 99, nil)
+func TestAutumnLeavesSnapshotRestore(t *testing.T) {
+	p := NewAutumnLeaves(160, 80, 99, nil)
 	if !p.TriggerEvent("swirl") {
 		t.Fatal("expected swirl trigger to succeed")
 	}
@@ -156,7 +156,7 @@ func TestProceduralAutumnLeavesSnapshotRestore(t *testing.T) {
 		t.Fatal("expected swirl timer in snapshot")
 	}
 
-	restored := NewProcedural("autumn-leaves", 160, 80, 7, nil)
+	restored := NewAutumnLeaves(160, 80, 7, nil)
 	restored.RestoreSnapshot(snap)
 	again := restored.Snapshot()
 	if again.Timers["swirl"] != snap.Timers["swirl"] {
