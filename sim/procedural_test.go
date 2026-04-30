@@ -417,8 +417,8 @@ func TestRowboatSnapshotRestore(t *testing.T) {
 	}
 }
 
-func TestProceduralUnderwaterSnapshotRestore(t *testing.T) {
-	p := NewProcedural("underwater", 160, 80, 77, nil)
+func TestUnderwaterSnapshotRestore(t *testing.T) {
+	p := NewUnderwater(160, 80, 77, nil)
 	if !p.TriggerEvent("bubble-burst") {
 		t.Fatal("expected bubble-burst trigger to succeed")
 	}
@@ -441,7 +441,7 @@ func TestProceduralUnderwaterSnapshotRestore(t *testing.T) {
 		t.Fatal("expected current push value in snapshot")
 	}
 
-	restored := NewProcedural("underwater", 160, 80, 7, nil)
+	restored := NewUnderwater(160, 80, 7, nil)
 	restored.RestoreSnapshot(snap)
 	again := restored.Snapshot()
 	if again.Timers["bubble-burst"] != snap.Timers["bubble-burst"] {
