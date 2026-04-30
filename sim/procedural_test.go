@@ -265,8 +265,8 @@ func TestBeachSnapshotRestore(t *testing.T) {
 	}
 }
 
-func TestProceduralCampfireSnapshotRestore(t *testing.T) {
-	p := NewProcedural("campfire", 160, 80, 33, nil)
+func TestCampfireSnapshotRestore(t *testing.T) {
+	p := NewCampfire(160, 80, 33, nil)
 	if !p.TriggerEvent("crackle") {
 		t.Fatal("expected crackle trigger to succeed")
 	}
@@ -286,7 +286,7 @@ func TestProceduralCampfireSnapshotRestore(t *testing.T) {
 		t.Fatal("expected crackle gain value in snapshot")
 	}
 
-	restored := NewProcedural("campfire", 160, 80, 7, nil)
+	restored := NewCampfire(160, 80, 7, nil)
 	restored.RestoreSnapshot(snap)
 	again := restored.Snapshot()
 	if again.Timers["crackle"] != snap.Timers["crackle"] {
