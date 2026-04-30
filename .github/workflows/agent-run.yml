@@ -375,8 +375,23 @@ jobs:
           if [ -s /tmp/evidence/notes.md ]; then
             have_notes=true
           fi
+          # Deep-link contract: the agent writes the path the reviewer
+          # should open (e.g. `/dev/burning-trees`) to validation-path.txt.
+          # We append it to VALIDATION_URL so the PR-body "Validation env"
+          # link lands on the feature instead of the bare host. Missing /
+          # malformed file → fall back to the bare host (refactors, docs).
+          deep_validation_url=""
+          if [ -s /tmp/evidence/validation-path.txt ]; then
+            path=$(head -1 /tmp/evidence/validation-path.txt | tr -d '[:space:]')
+            case "${path}" in
+              /*) deep_validation_url="${VALIDATION_URL}${path}" ;;
+              "") ;;
+              *) echo "::warning::validation-path.txt content '${path}' missing leading slash; falling back to bare host" ;;
+            esac
+          fi
           echo "have_screenshots=${have_screenshots}" >> "$GITHUB_OUTPUT"
           echo "have_notes=${have_notes}" >> "$GITHUB_OUTPUT"
+          echo "deep_validation_url=${deep_validation_url}" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------------
       # Post-agent verify: rebuild the validation env from the agent's
@@ -466,17 +481,29 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SCREENSHOTS_MD: ${{ steps.upload.outputs.markdown }}
           HAVE_NOTES: ${{ steps.evidence.outputs.have_notes }}
+          DEEP_VALIDATION_URL: ${{ steps.evidence.outputs.deep_validation_url }}
         run: |
           set -euo pipefail
+          # Prefer the agent-declared deep-link (e.g.
+          # https://<host>/dev/burning-trees) so reviewers click straight
+          # into the feature; fall back to the bare host when the agent
+          # didn't write validation-path.txt (refactors, docs).
+          if [ -n "${DEEP_VALIDATION_URL}" ]; then
+            link_url="${DEEP_VALIDATION_URL}"
+          else
+            link_url="${VALIDATION_URL}"
+          fi
           body_file=$(mktemp)
           {
             echo "Closes #${ISSUE_NUMBER}."
             echo ""
-            echo "Validation env (until PR closes): ${VALIDATION_URL}"
+            echo "Validation env (until PR closes): ${link_url}"
             echo ""
             # Agent-authored notes go first — the agent owns the framing
-            # and may include deep-link URLs, command output, or non-
-            # screenshot evidence in here.
+            # and may include secondary deep-link URLs, command output, or
+            # non-screenshot evidence in here. The primary validation
+            # deep-link is already on the line above via
+            # validation-path.txt.
             if [ "${HAVE_NOTES}" = "true" ]; then
               cat /tmp/evidence/notes.md
               echo ""
