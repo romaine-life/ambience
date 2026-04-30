@@ -7044,6 +7044,85 @@
 		return es;
 	}
 
+	// EffectTransition wraps two sims (an outgoing and an incoming) and
+	// presents the same step/render surface as a single sim while smoothly
+	// crossfading the visual output across `durationTicks`. Both sims keep
+	// stepping during the window so neither freezes mid-fade. Config and
+	// trigger commands that arrive while a transition is active flow to the
+	// incoming sim — they describe the new effect, not the one we're leaving.
+	class EffectTransition {
+		constructor(outgoing, incoming, opts) {
+			opts = opts || {};
+			this.outgoing = outgoing;
+			this.incoming = incoming;
+			this.duration = Math.max(1, opts.durationTicks | 0 || 30);
+			this.elapsed = 0;
+			this._scratch = null;
+		}
+		step() {
+			if (this.outgoing && typeof this.outgoing.step === 'function') this.outgoing.step();
+			if (this.incoming && typeof this.incoming.step === 'function') this.incoming.step();
+			this.elapsed++;
+		}
+		// Smoothstep eases the alpha curve so the crossover doesn't feel linear.
+		progress() {
+			const t = clamp01(this.elapsed / this.duration);
+			return t * t * (3 - 2 * t);
+		}
+		done() { return this.elapsed >= this.duration; }
+		setConfig(cfg) {
+			if (this.incoming && typeof this.incoming.setConfig === 'function') this.incoming.setConfig(cfg);
+		}
+		triggerEvent(name) {
+			if (this.incoming && typeof this.incoming.triggerEvent === 'function') this.incoming.triggerEvent(name);
+		}
+		restoreSnapshot(snap) {
+			if (this.incoming && typeof this.incoming.restoreSnapshot === 'function') this.incoming.restoreSnapshot(snap);
+		}
+		render(ctx, w, h, opts) {
+			opts = opts || {};
+			const t = this.progress();
+			const transparentOpts = Object.assign({}, opts, { transparent: true });
+
+			// Paint the requested background ourselves so each effect can be
+			// alpha-composited on top without each one trying to clear the
+			// canvas independently.
+			if (opts.transparent) {
+				ctx.clearRect(0, 0, w, h);
+			} else {
+				ctx.fillStyle = opts.bg || '#0a0a0a';
+				ctx.fillRect(0, 0, w, h);
+			}
+
+			// Outgoing renders into an offscreen scratch so we can blend it
+			// onto the main canvas at decreasing alpha.
+			if (!this._scratch || this._scratch.width !== w || this._scratch.height !== h) {
+				this._scratch = (typeof OffscreenCanvas !== 'undefined')
+					? new OffscreenCanvas(w, h)
+					: document.createElement('canvas');
+				this._scratch.width = w;
+				this._scratch.height = h;
+			}
+			const sctx = this._scratch.getContext('2d');
+			this.outgoing.render(sctx, w, h, transparentOpts);
+
+			// Incoming directly onto main with rising alpha. globalAlpha
+			// multiplies through every draw call inside render().
+			ctx.save();
+			ctx.globalAlpha = t;
+			this.incoming.render(ctx, w, h, transparentOpts);
+			ctx.restore();
+
+			// Outgoing on top with falling alpha. The two layers' alphas sum
+			// across their visible-pixel union so neither dips to bg mid-fade.
+			ctx.save();
+			ctx.globalAlpha = 1 - t;
+			ctx.drawImage(this._scratch, 0, 0);
+			ctx.restore();
+		}
+	}
+	EffectTransition.prototype.isTransition = true;
+
 	// Effect registry. Keyed by the effect type string broadcast in the
 	// server's snapshot payload — the client looks up the constructor here
 	// by name so new effects just register themselves and work without
@@ -8747,5 +8826,5 @@
 		],
 	};
 
-	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, Sand, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Aurora, AutumnLeaves, Snow, Starfield, Volcano, Tetris, BurningTrees, subscribe, applyDefaults, hslToRGB, effects, presets };
+	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, Sand, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Aurora, AutumnLeaves, Snow, Starfield, Volcano, Tetris, BurningTrees, EffectTransition, subscribe, applyDefaults, hslToRGB, effects, presets };
 })(window);

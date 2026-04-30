@@ -170,6 +170,11 @@
 	let currentSchema = null;
 	let effect = effectFromLocation();
 	let sim = newEffectInstance(effect);
+	// currentSimType tracks the type of the actual `sim` instance we're
+	// running. Soft-switching to a different effect updates `effect` (and
+	// the URL) before the new SSE delivers its first snapshot — so the
+	// snapshot handler compares against currentSimType, not effect.
+	let currentSimType = effect;
 	let ready = false;
 
 	function effectFromLocation() {
@@ -534,8 +539,23 @@
 	effectSelect.addEventListener('change', () => {
 		const next = effectSelect.value;
 		if (!next || next === effect) return;
-		window.location.assign(effectPath(next));
+		softSwitchEffect(next);
 	});
+
+	// Soft-switch the dev effect without a full page reload so the
+	// crossfade transition between the outgoing and incoming sims is
+	// visible. The new SSE for `next` delivers a snapshot whose `type`
+	// differs from currentSimType — that mismatch is what triggers the
+	// EffectTransition wrap inside the snapshot handler below.
+	function softSwitchEffect(next) {
+		effect = next;
+		history.replaceState(null, '', effectPath(next));
+		title.textContent = 'ambience dev — ' + next;
+		syncEffectSwitcher();
+		ready = false;
+		if (es) es.close();
+		es = openDevStream(next);
+	}
 	presetSelect.addEventListener('change', () => {
 		if (presetSelect.value === CUSTOM_PRESET) return;
 		applyPresetSelection(presetSelect.value);
@@ -551,30 +571,41 @@
 	});
 
 	// Local tick + render loops
-	setInterval(() => { if (ready) sim.step(); }, 100);
+	setInterval(() => {
+		if (!ready) return;
+		sim.step();
+		// Unwrap a finished crossfade so we drop the outgoing sim and stop
+		// paying its render cost.
+		if (sim.isTransition && sim.done()) sim = sim.incoming;
+	}, 100);
 	(function draw() {
 		sim.render(ctx, canvas.width, canvas.height);
 		requestAnimationFrame(draw);
 	})();
 
-	// Subscribe to dev events — also funnels triggers into the log panel.
-	// We wrap AmbienceSim.subscribe to catch trigger messages for log display.
-	const es = new EventSource('/dev/events?session=' + encodeURIComponent(SESSION_ID) +
-		'&effect=' + encodeURIComponent(effect));
-	es.addEventListener('message', (e) => {
-		let cmd;
-		try { cmd = JSON.parse(e.data); } catch (_) { return; }
+	function handleDevCommand(cmd) {
 		switch (cmd.kind) {
 			case 'snapshot':
 				try {
 					const snap = typeof cmd.data === 'string' ? JSON.parse(cmd.data) : cmd.data;
-					const snapType = (snap && snap.type) || effect;
-					if (snapType !== effect) {
+					const snapType = (snap && snap.type) || currentSimType;
+					if (snapType !== currentSimType) {
+						// Crossfade the previous sim into the new one. The
+						// outgoing sim keeps stepping during the fade window,
+						// so it doesn't freeze mid-blend.
+						const incoming = newEffectInstance(snapType);
+						try { incoming.restoreSnapshot(snap); } catch (err) { console.error('bad snapshot', err); }
+						sim = AmbienceSim.EffectTransition
+							? new AmbienceSim.EffectTransition(sim, incoming, { durationTicks: 30 })
+							: incoming;
+						currentSimType = snapType;
 						effect = snapType;
-						sim = newEffectInstance(effect);
 						loadSchema(effect);
+						syncEffectSwitcher();
+						appendLog({ tick: cmd.tick, type: 'effect-switch', desc: snapType });
+					} else {
+						sim.restoreSnapshot(snap);
 					}
-					sim.restoreSnapshot(snap);
 					ready = true;
 					// Initialize sliders to the server's current config.
 					applyServerConfig(snap.config);
@@ -588,11 +619,24 @@
 				} catch (err) { console.error('bad config', err); }
 				break;
 			case 'trigger':
-				sim.triggerEvent(cmd.event);
+				if (sim.triggerEvent) sim.triggerEvent(cmd.event);
 				appendLog({ tick: cmd.tick, type: cmd.event, desc: cmd.desc });
 				break;
 		}
-	});
+	}
+
+	function openDevStream(effectName) {
+		const stream = new EventSource('/dev/events?session=' + encodeURIComponent(SESSION_ID) +
+			'&effect=' + encodeURIComponent(effectName));
+		stream.addEventListener('message', (e) => {
+			let cmd;
+			try { cmd = JSON.parse(e.data); } catch (_) { return; }
+			handleDevCommand(cmd);
+		});
+		return stream;
+	}
+
+	let es = openDevStream(effect);
 
 	function loadSchema(effectName) {
 		fetch('/effects/' + encodeURIComponent(effectName) + '/schema')

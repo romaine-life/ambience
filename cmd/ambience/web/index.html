@@ -657,15 +657,23 @@
     const nextType = (snap && snap.type) || 'rain';
     const typeChanged = nextType !== effectType;
     if (typeChanged) {
+      // Crossfade from the previous effect into the new one. The outgoing
+      // sim keeps stepping during the fade so it doesn't freeze mid-blend.
+      const incoming = newEffectInstance(nextType);
+      try { incoming.restoreSnapshot(snap); } catch (err) { console.error('restoreSnapshot failed', err); }
+      effect = AmbienceSim.EffectTransition
+        ? new AmbienceSim.EffectTransition(effect, incoming, { durationTicks: 30 })
+        : incoming;
       effectType = nextType;
       controls.setEffect(effectType);
-      effect = newEffectInstance(effectType);
       loadSchema(effectType);
-    }
-    try {
-      effect.restoreSnapshot(snap);
-    } catch (err) {
-      console.error('restoreSnapshot failed', err);
+      log('effect -> ' + effectType, 'scene');
+    } else {
+      try {
+        effect.restoreSnapshot(snap);
+      } catch (err) {
+        console.error('restoreSnapshot failed', err);
+      }
     }
     latestConfig = snap.config || null;
     if (!typeChanged && latestConfig && controls.getSchema()) controls.setValues(latestConfig);
@@ -740,7 +748,11 @@
   };
 
   setInterval(() => {
-    if (ready) effect.step();
+    if (!ready) return;
+    effect.step();
+    // Unwrap a finished crossfade so we drop the outgoing sim once the
+    // incoming one is fully visible.
+    if (effect.isTransition && effect.done()) effect = effect.incoming;
   }, 100);
 
   (function draw() {
