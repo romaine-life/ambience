@@ -547,11 +547,43 @@ git push origin "HEAD:${BRANCH_NAME}"
 # a Succeeded pod (exec-tar requires a live container; the bash exit
 # transitions the pod to Succeeded immediately), so we use kubectl logs
 # as the side-channel — it preserves stdout regardless of pod state.
+#
+# Two failure modes we observed in earlier runs and now defend against:
+#
+#   1. Stderr from tar/gzip (e.g. "file changed as we read it" warnings,
+#      or harmless info messages) was interleaving with the base64
+#      stdout, corrupting the byte stream the workflow then tries to
+#      decode. Fix: write the tarball to a temp file first, with stderr
+#      fully redirected, then base64-encode the file in a separate step.
+#
+#   2. Lingering writers from the agent's own bash subprocesses (servers
+#      it spawned, playwright finalizing screenshot writes, etc.) were
+#      still emitting stdout when the EVIDENCE-TAR markers were printed,
+#      so other text could land between them. Fix: `wait` for any bash
+#      jobs and `sync` the filesystem before running tar.
+#
 # Empty evidence dir is fine; the markers just frame an empty tar.
 if [ -d /workspace/evidence ]; then
-  echo "===EVIDENCE-TAR-START==="
-  tar -czf - -C /workspace/evidence . | base64
-  echo "===EVIDENCE-TAR-END==="
+  # Settle background work the agent might have left behind.
+  wait 2>/dev/null || true
+  sync || true
+
+  # Stage the tarball on disk first. Stderr from tar/gzip is captured
+  # to a sidecar file so it can never interleave with the base64 stream.
+  if ! tar -czf /tmp/evidence.tgz -C /workspace/evidence . 2>/tmp/tar.err; then
+    echo "evidence tar FAILED; stderr was:" >&2
+    cat /tmp/tar.err >&2 || true
+    # Continue anyway with whatever (possibly partial) tarball was written.
+  fi
+
+  # Emit markers and base64 from the staged file. base64's input is the
+  # local file (no pipes that could interleave), and stderr for the
+  # whole block is suppressed so any stragglers can't poison the stream.
+  {
+    echo "===EVIDENCE-TAR-START==="
+    base64 < /tmp/evidence.tgz
+    echo "===EVIDENCE-TAR-END==="
+  } 2>/dev/null
 fi
 """
 
