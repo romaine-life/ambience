@@ -69,6 +69,87 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 		return ((value % mod) + mod) % mod;
 	}
 
+	// EffectTransition wraps two sims (an outgoing one and an incoming one)
+	// behind the same step / render / setConfig / triggerEvent / restoreSnapshot
+	// surface, smoothly crossfading the visual output across `durationTicks`.
+	// Both sims keep stepping during the window so neither freezes mid-fade;
+	// config and trigger commands flow to the incoming sim because they
+	// describe the new effect, not the one we're leaving. Callers unwrap the
+	// transition once `done()` returns true to drop the outgoing sim.
+	class EffectTransition {
+		constructor(outgoing, incoming, opts) {
+			opts = opts || {};
+			this.outgoing = outgoing;
+			this.incoming = incoming;
+			this.duration = Math.max(1, (opts.durationTicks | 0) || 50);
+			this.elapsed = 0;
+			this._scratch = null;
+		}
+		step() {
+			if (this.outgoing && typeof this.outgoing.step === 'function') this.outgoing.step();
+			if (this.incoming && typeof this.incoming.step === 'function') this.incoming.step();
+			this.elapsed++;
+		}
+		// Smoothstep so the alpha curve isn't a hard linear ramp.
+		progress() {
+			const t = clamp01(this.elapsed / this.duration);
+			return t * t * (3 - 2 * t);
+		}
+		done() { return this.elapsed >= this.duration; }
+		setConfig(cfg) {
+			if (this.incoming && typeof this.incoming.setConfig === 'function') {
+				this.incoming.setConfig(cfg);
+			}
+		}
+		triggerEvent(name) {
+			if (this.incoming && typeof this.incoming.triggerEvent === 'function') {
+				this.incoming.triggerEvent(name);
+			}
+		}
+		restoreSnapshot(snap) {
+			if (this.incoming && typeof this.incoming.restoreSnapshot === 'function') {
+				this.incoming.restoreSnapshot(snap);
+			}
+		}
+		render(ctx, w, h, opts) {
+			opts = opts || {};
+			const t = this.progress();
+			// Force the inner renders to skip painting their own backgrounds —
+			// we paint the shared bg ourselves so both layers can be alpha-
+			// composited on top without each one stomping the other.
+			const transparentOpts = Object.assign({}, opts, { transparent: true });
+
+			if (opts.transparent) {
+				ctx.clearRect(0, 0, w, h);
+			} else {
+				ctx.fillStyle = opts.bg || '#0a0a0a';
+				ctx.fillRect(0, 0, w, h);
+			}
+
+			if (!this._scratch || this._scratch.width !== w || this._scratch.height !== h) {
+				this._scratch = (typeof OffscreenCanvas !== 'undefined')
+					? new OffscreenCanvas(w, h)
+					: document.createElement('canvas');
+				this._scratch.width = w;
+				this._scratch.height = h;
+			}
+			const sctx = this._scratch.getContext('2d');
+			sctx.clearRect(0, 0, w, h);
+			this.outgoing.render(sctx, w, h, transparentOpts);
+
+			ctx.save();
+			ctx.globalAlpha = t;
+			this.incoming.render(ctx, w, h, transparentOpts);
+			ctx.restore();
+
+			ctx.save();
+			ctx.globalAlpha = 1 - t;
+			ctx.drawImage(this._scratch, 0, 0);
+			ctx.restore();
+		}
+	}
+	EffectTransition.prototype.isTransition = true;
+
 	function subscribe(url, rain, onReady) {
 		const es = new EventSource(url);
 		es.addEventListener('message', (e) => {
@@ -2956,6 +3037,7 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 	api._ProceduralScene = ProceduralScene;
 	api._applyProceduralDefaults = applyProceduralDefaults;
 	api.subscribe = subscribe;
+	api.EffectTransition = EffectTransition;
 
 	// Back-compat: hslToRGB used to be a top-level field on the
 	// AmbienceSim export object. Keep it reachable so any external caller

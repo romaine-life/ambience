@@ -66,7 +66,8 @@
 
 	// Patch the subscribe snapshot handler so we can detect effect-type
 	// changes (for when more effects ship). The shared subscribe() swaps
-	// config on the existing sim; a type switch requires rebuilding.
+	// config on the existing sim; a type switch crossfades the outgoing
+	// effect into the incoming one via AmbienceSim.EffectTransition.
 	const es = new EventSource(SERVER.replace(/\/+$/, '') + '/events');
 	es.addEventListener('message', (e) => {
 		let cmd;
@@ -81,10 +82,15 @@
 						console.warn('ambience-client: unknown effect type', newType);
 						break;
 					}
+					const incoming = new ctor(GRID_W, GRID_H, {});
+					try { incoming.restoreSnapshot(data); } catch (err) { console.error('bad snapshot', err); }
+					sim = AmbienceSim.EffectTransition
+						? new AmbienceSim.EffectTransition(sim, incoming)
+						: incoming;
 					effectType = newType;
-					sim = new ctor(GRID_W, GRID_H, {});
+				} else {
+					try { sim.restoreSnapshot(data); } catch (err) { console.error('bad snapshot', err); }
 				}
-				try { sim.restoreSnapshot(data); } catch (err) { console.error('bad snapshot', err); }
 				ready = true;
 				break;
 			}
@@ -102,6 +108,9 @@
 	// 60 Hz for a 10 Hz sim.
 	setInterval(() => {
 		if (ready) sim.step();
+		// Unwrap a finished crossfade so we drop the outgoing sim and stop
+		// paying its render cost.
+		if (sim.isTransition && sim.done()) sim = sim.incoming;
 		sim.render(ctx, canvas.width, canvas.height, { transparent: TRANSPARENT });
 	}, 100);
 
