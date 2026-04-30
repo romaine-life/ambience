@@ -47,6 +47,10 @@ authority:
       periodSeconds: 2
       timeoutSeconds: 1
       failureThreshold: 3
+  # Dev cycles effects quickly so a reviewer can watch rotation fire
+  # without waiting 10 minutes. Prod stays on the default 10m cadence.
+  rotation:
+    cadence: 90s
 
 pdb:
   enabled: false

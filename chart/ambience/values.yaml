@@ -105,6 +105,17 @@ authority:
     fsGroupChangePolicy: OnRootMismatch
   persistPath: /data/shared-atmosphere.json
   persistInterval: 30s
+  # Cross-effect rotation policy. The shared atmosphere periodically
+  # swaps to a different effect type so the live broadcast monitor at /
+  # cycles on its own. Cadence is the duration each effect runs before
+  # the next pick (5–15 minutes feels coherent without going stale).
+  # effects is an empty list to mean "every registered effect"; populate
+  # to a curated subset once we want to gate a noisy effect from the
+  # lobby.
+  rotation:
+    enabled: true
+    cadence: 10m
+    effects: []
   resources:
     requests:
       cpu: 10m
