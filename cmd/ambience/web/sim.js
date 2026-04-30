@@ -1785,6 +1785,495 @@
 		}
 	}
 
+	// Sand — sand pouring from a pipe at the top into a container at the
+	// bottom. Mirrors sim/sand.go: airborne grains are tracked as particles;
+	// settled sand is a per-column heightmap with a talus relaxation pass each
+	// tick so piles read as granular rather than a static trapezoid.
+	const SAND_DEFAULTS = {
+		intro_dur: 60, intro_trickle: 0.15, intro_pile: 0,
+		pipe_x: 0.5, pipe_w: 6,
+		bin_x: 0.5, bin_w: 90, bin_h: 32,
+		flow: 1.4, spread: 0.3, gravity: 0.06, jitter: 0.05,
+		talus: 2,
+		hue: 36, hue_sp: 14, sat: 0.55, lmin: 0.42, lmax: 0.78,
+		surge_p: 0, calm_p: 0,
+		surge_dur: 60, surge_mult: 2.4,
+		calm_dur: 80, calm_mult: 0.4,
+		ending_dur: 80, ending_linger: 40, ending_residue: 1.0,
+	};
+
+	function applySandDefaults(cfg) {
+		const c = Object.assign({}, SAND_DEFAULTS, cfg || {});
+		if (c.intro_dur <= 0) c.intro_dur = SAND_DEFAULTS.intro_dur;
+		c.intro_trickle = clamp01(c.intro_trickle);
+		c.intro_pile = clamp01(c.intro_pile);
+		if (c.pipe_x <= 0) c.pipe_x = SAND_DEFAULTS.pipe_x;
+		if (c.pipe_x > 1) c.pipe_x = 1;
+		if (c.pipe_w <= 0) c.pipe_w = SAND_DEFAULTS.pipe_w;
+		if (c.bin_x <= 0) c.bin_x = SAND_DEFAULTS.bin_x;
+		if (c.bin_x > 1) c.bin_x = 1;
+		if (c.bin_w <= 0) c.bin_w = SAND_DEFAULTS.bin_w;
+		if (c.bin_h <= 0) c.bin_h = SAND_DEFAULTS.bin_h;
+		if (c.flow <= 0) c.flow = SAND_DEFAULTS.flow;
+		if (c.spread < 0) c.spread = 0;
+		if (c.gravity <= 0) c.gravity = SAND_DEFAULTS.gravity;
+		if (c.jitter < 0) c.jitter = 0;
+		if (c.talus <= 0) c.talus = SAND_DEFAULTS.talus;
+		if (c.hue === 0) c.hue = SAND_DEFAULTS.hue;
+		if (c.hue_sp < 0) c.hue_sp = 0;
+		if (c.sat <= 0) c.sat = SAND_DEFAULTS.sat;
+		if (c.lmin <= 0) c.lmin = SAND_DEFAULTS.lmin;
+		if (c.lmax <= 0) c.lmax = SAND_DEFAULTS.lmax;
+		if (c.lmax < c.lmin) [c.lmin, c.lmax] = [c.lmax, c.lmin];
+		if (c.surge_dur <= 0) c.surge_dur = SAND_DEFAULTS.surge_dur;
+		if (c.surge_mult <= 0) c.surge_mult = SAND_DEFAULTS.surge_mult;
+		if (c.calm_dur <= 0) c.calm_dur = SAND_DEFAULTS.calm_dur;
+		if (c.calm_mult <= 0) c.calm_mult = SAND_DEFAULTS.calm_mult;
+		if (c.ending_dur <= 0) c.ending_dur = SAND_DEFAULTS.ending_dur;
+		if (c.ending_linger < 0) c.ending_linger = 0;
+		c.ending_residue = clamp01(c.ending_residue);
+		return c;
+	}
+
+	function sandPileNoise(col, row) {
+		let h = (Math.imul(col, 73856093) ^ Math.imul(row, 19349663)) >>> 0;
+		h ^= h >>> 13;
+		h = Math.imul(h, 0x85ebca6b) >>> 0;
+		h ^= h >>> 16;
+		return [(h & 0xffff) / 65536, ((h >>> 16) & 0xffff) / 65536];
+	}
+
+	class Sand {
+		constructor(w, h, cfg, seed) {
+			this.w = w;
+			this.h = h;
+			this.cfg = applySandDefaults(cfg);
+			this.rng = makeRNG(seed || Date.now());
+			this.tick = 0;
+			this.grid = new Uint8ClampedArray(w * h * 3);
+			this.grains = [];
+			this.pile = new Int16Array(w);
+			this.surgeTicks = 0;
+			this.surgeMult = 0;
+			this.calmTicks = 0;
+			this.introTicks = 0;
+			this.introTotal = 0;
+			this.endingTicks = 0;
+			this.endingTotal = 0;
+			this.endingFade = 0;
+			this.emitAcc = 0;
+			this._seedInitialPile();
+		}
+
+		setConfig(cfg) {
+			const prev = this.cfg;
+			const next = applySandDefaults(Object.assign({}, this.cfg, cfg));
+			const geometryChanged = prev && (
+				next.pipe_x !== prev.pipe_x || next.pipe_w !== prev.pipe_w ||
+				next.bin_x !== prev.bin_x || next.bin_w !== prev.bin_w || next.bin_h !== prev.bin_h
+			);
+			this.cfg = next;
+			if (geometryChanged) {
+				this.grains = [];
+				this.pile = new Int16Array(this.w);
+				this._seedInitialPile();
+			}
+		}
+
+		restoreSnapshot(snap) {
+			const state = snap.state || snap;
+			this.setConfig(snap.config || {});
+			this.tick = state.tick || snap.tick || 0;
+			this.surgeTicks = state.surgeTicks || 0;
+			this.surgeMult = state.surgeMult || 0;
+			this.calmTicks = state.calmTicks || 0;
+			this.introTicks = state.introTicks || 0;
+			this.introTotal = state.introTotal || 0;
+			this.endingTicks = state.endingTicks || 0;
+			this.endingTotal = state.endingTotal || 0;
+			this.endingFade = state.endingFade || 0;
+			if (typeof snap.seed === 'number') this.rng = makeRNG(snap.seed);
+			if (snap.gridW > 0 && snap.gridH > 0 &&
+				(snap.gridW !== this.w || snap.gridH !== this.h)) {
+				this.w = snap.gridW;
+				this.h = snap.gridH;
+				this.grid = new Uint8ClampedArray(this.w * this.h * 3);
+				this.pile = new Int16Array(this.w);
+			}
+			if (Array.isArray(state.pile)) {
+				const n = Math.min(this.w, state.pile.length);
+				this.pile = new Int16Array(this.w);
+				for (let i = 0; i < n; i++) this.pile[i] = state.pile[i] | 0;
+			}
+			this.grains = Array.isArray(state.grains) ? state.grains.map(g => ({
+				row: g.row,
+				col: g.col,
+				vRow: g.vRow,
+				vCol: g.vCol,
+				color: { r: g.r | 0, g: g.g | 0, b: g.b | 0 },
+			})) : [];
+		}
+
+		triggerEvent(name) {
+			switch (name) {
+				case 'surge':
+					this._startSurge();
+					return true;
+				case 'calm':
+					this.calmTicks = jitterInt(this.rng, this.cfg.calm_dur, 0.3);
+					return true;
+				case 'intro':
+					this._startIntro();
+					return true;
+				case 'ending':
+					this._startEnding();
+					return true;
+			}
+			return false;
+		}
+
+		step() {
+			this.tick++;
+			if (this.surgeTicks > 0) {
+				this.surgeTicks--;
+				if (this.surgeTicks === 0) this.surgeMult = 0;
+			}
+			if (this.calmTicks > 0) this.calmTicks--;
+			const introActive = this.introTicks > 0;
+			const endingActive = this.endingTicks > 0;
+			if (!introActive && !endingActive) {
+				if (this.surgeTicks === 0 && this.rng() < this.cfg.surge_p) this._startSurge();
+				if (this.calmTicks === 0 && this.rng() < this.cfg.calm_p) {
+					this.calmTicks = jitterInt(this.rng, this.cfg.calm_dur, 0.3);
+				}
+			}
+			this._emitGrains();
+			this._advanceGrains();
+			this._relaxPile();
+			this._applyEndingDrain();
+			this.grid.fill(0);
+			this._paintBin();
+			this._paintPipe();
+			this._paintPile();
+			this._paintGrains();
+			if (introActive) this.introTicks = Math.max(0, this.introTicks - 1);
+			if (endingActive) this.endingTicks = Math.max(0, this.endingTicks - 1);
+		}
+
+		render(ctx, canvasW, canvasH, opts) {
+			opts = opts || {};
+			if (opts.transparent) {
+				ctx.clearRect(0, 0, canvasW, canvasH);
+			} else {
+				ctx.fillStyle = opts.bg || '#0a0a0a';
+				ctx.fillRect(0, 0, canvasW, canvasH);
+			}
+			const sx = canvasW / this.w;
+			const sy = canvasH / this.h;
+			const ceilSx = Math.ceil(sx), ceilSy = Math.ceil(sy);
+			for (let y = 0; y < this.h; y++) {
+				for (let x = 0; x < this.w; x++) {
+					const i = (y * this.w + x) * 3;
+					const r = this.grid[i], g = this.grid[i + 1], b = this.grid[i + 2];
+					if (r === 0 && g === 0 && b === 0) continue;
+					ctx.fillStyle = `rgb(${r},${g},${b})`;
+					ctx.fillRect(Math.floor(x * sx), Math.floor(y * sy), ceilSx, ceilSy);
+				}
+			}
+		}
+
+		_binBounds() {
+			let binW = this.cfg.bin_w;
+			if (binW < 4) binW = 4;
+			if (binW > this.w) binW = this.w;
+			const center = Math.round(this.cfg.bin_x * (this.w - 1));
+			let binL = center - Math.floor(binW / 2);
+			let binR = binL + binW - 1;
+			if (binL < 0) { binR -= binL; binL = 0; }
+			if (binR > this.w - 1) { binL -= binR - (this.w - 1); binR = this.w - 1; }
+			if (binL < 0) binL = 0;
+			let binBottom = this.h - 2;
+			if (binBottom < 0) binBottom = 0;
+			let binH = this.cfg.bin_h;
+			if (binH < 2) binH = 2;
+			if (binH > binBottom) binH = binBottom;
+			let binTop = binBottom - binH + 1;
+			if (binTop < 0) binTop = 0;
+			return { binL, binR, binBottom, binTop };
+		}
+
+		_pipeBounds() {
+			let pipeW = this.cfg.pipe_w;
+			if (pipeW < 1) pipeW = 1;
+			if (pipeW > this.w) pipeW = this.w;
+			const center = Math.round(this.cfg.pipe_x * (this.w - 1));
+			let left = center - Math.floor(pipeW / 2);
+			let right = left + pipeW - 1;
+			if (left < 0) { left = 0; right = left + pipeW - 1; }
+			if (right > this.w - 1) {
+				right = this.w - 1;
+				left = right - pipeW + 1;
+				if (left < 0) left = 0;
+			}
+			const row = this.h <= 8 ? 1 : 4;
+			return { left, right, row };
+		}
+
+		_seedInitialPile() {
+			if (this.cfg.intro_pile <= 0) return;
+			const { binL, binR, binBottom, binTop } = this._binBounds();
+			if (binR <= binL + 1) return;
+			const binH = binBottom - binTop + 1;
+			if (binH < 1) return;
+			let height = Math.round(binH * this.cfg.intro_pile);
+			if (height < 1) return;
+			if (height > binH) height = binH;
+			for (let c = binL + 1; c <= binR - 1; c++) this.pile[c] = height;
+		}
+
+		_startSurge() {
+			this.surgeTicks = jitterInt(this.rng, this.cfg.surge_dur, 0.3);
+			this.surgeMult = this.cfg.surge_mult;
+		}
+
+		_startIntro() {
+			this.surgeTicks = 0;
+			this.surgeMult = 0;
+			this.calmTicks = 0;
+			this.endingTicks = 0;
+			this.endingTotal = 0;
+			this.endingFade = 0;
+			this.grains = [];
+			this.pile = new Int16Array(this.w);
+			this._seedInitialPile();
+			this.introTotal = this.cfg.intro_dur > 0 ? this.cfg.intro_dur : SAND_DEFAULTS.intro_dur;
+			this.introTicks = this.introTotal;
+		}
+
+		_startEnding() {
+			this.introTicks = 0;
+			this.introTotal = 0;
+			this.surgeTicks = 0;
+			this.surgeMult = 0;
+			this.calmTicks = 0;
+			this.endingFade = this.cfg.ending_dur > 0 ? this.cfg.ending_dur : SAND_DEFAULTS.ending_dur;
+			const linger = Math.max(0, this.cfg.ending_linger);
+			this.endingTotal = Math.max(1, this.endingFade + linger);
+			this.endingTicks = this.endingTotal;
+		}
+
+		_phaseProgress(total, left) {
+			if (left <= 1 || total <= 1) return 1;
+			const elapsed = total - left;
+			if (elapsed <= 0) return 0;
+			return clamp01(elapsed / (total - 1));
+		}
+
+		_currentFlow() {
+			let flow = this.cfg.flow;
+			if (this.surgeTicks > 0 && this.surgeMult > 0) flow *= this.surgeMult;
+			if (this.calmTicks > 0) flow *= this.cfg.calm_mult;
+			if (this.introTicks > 0) {
+				const progress = this._phaseProgress(this.introTotal, this.introTicks);
+				flow *= this.cfg.intro_trickle + (1 - this.cfg.intro_trickle) * progress;
+			}
+			if (this.endingTicks > 0) {
+				const fade = this.endingFade > 0 ? this.endingFade : this.endingTotal;
+				const fadeLeft = this.endingTicks - (this.endingTotal - fade);
+				if (fadeLeft <= 0) return 0;
+				const progress = this._phaseProgress(fade, fadeLeft);
+				flow *= 1 - progress;
+			}
+			return Math.max(0, flow);
+		}
+
+		_emitGrains() {
+			if (this.w <= 0 || this.h <= 0) return;
+			const flow = this._currentFlow();
+			if (flow <= 0) return;
+			this.emitAcc += flow;
+			const emit = Math.floor(this.emitAcc);
+			this.emitAcc -= emit;
+			if (emit <= 0) return;
+			const { left, right, row } = this._pipeBounds();
+			const width = right - left + 1;
+			for (let i = 0; i < emit; i++) {
+				const col = left + this.rng() * width;
+				const startRow = row + 1 + this.rng() * 0.5;
+				const vCol = (this.rng() * 2 - 1) * this.cfg.spread;
+				const vRow = 0.05 + this.rng() * 0.05;
+				const hue = ((this.cfg.hue + (this.rng() * 2 - 1) * this.cfg.hue_sp) % 360 + 360) % 360;
+				const light = this.cfg.lmin + this.rng() * (this.cfg.lmax - this.cfg.lmin);
+				const color = hslToRGB(hue, this.cfg.sat, light);
+				this.grains.push({ row: startRow, col, vRow, vCol, color });
+			}
+			if (this.grains.length > 4096) this.grains = this.grains.slice(-4096);
+		}
+
+		_advanceGrains() {
+			if (!this.grains.length) return;
+			const { binL, binR, binBottom } = this._binBounds();
+			const alive = [];
+			for (const g of this.grains) {
+				g.vRow += this.cfg.gravity;
+				if (this.cfg.jitter > 0) g.vCol += (this.rng() * 2 - 1) * this.cfg.jitter;
+				if (g.vRow > 0.95) g.vRow = 0.95;
+				if (g.vCol > 0.6) g.vCol = 0.6;
+				else if (g.vCol < -0.6) g.vCol = -0.6;
+				let nextCol = g.col + g.vCol;
+				const nextRow = g.row + g.vRow;
+				if (nextCol <= binL) {
+					nextCol = binL + 0.5;
+					g.vCol = Math.abs(g.vCol) * 0.3;
+				}
+				if (nextCol >= binR) {
+					nextCol = binR - 0.5;
+					g.vCol = -Math.abs(g.vCol) * 0.3;
+				}
+				let col = Math.floor(nextCol + 0.5);
+				if (col < 0) col = 0;
+				if (col >= this.w) col = this.w - 1;
+				if (col <= binL || col >= binR) continue;
+				const settleRow = binBottom - this.pile[col];
+				if (Math.floor(nextRow) >= settleRow || Math.floor(nextRow) >= this.h - 1) {
+					this._deposit(col);
+					continue;
+				}
+				g.row = nextRow;
+				g.col = nextCol;
+				alive.push(g);
+			}
+			this.grains = alive;
+		}
+
+		_deposit(col) {
+			const { binL, binR, binTop } = this._binBounds();
+			if (col <= binL || col >= binR) return;
+			let maxPile = this.h - 1 - binTop;
+			if (maxPile < 1) maxPile = 1;
+			let target = col;
+			if (this.pile[target] >= maxPile) {
+				for (let offset = 1; offset < binR - binL; offset++) {
+					const leftCand = col - offset;
+					const rightCand = col + offset;
+					if (leftCand > binL && this.pile[leftCand] < maxPile) { target = leftCand; break; }
+					if (rightCand < binR && this.pile[rightCand] < maxPile) { target = rightCand; break; }
+				}
+				if (this.pile[target] >= maxPile) return;
+			}
+			this.pile[target]++;
+		}
+
+		_relaxPile() {
+			const { binL, binR } = this._binBounds();
+			if (binR <= binL + 2) return;
+			const talus = Math.max(1, this.cfg.talus | 0);
+			const passes = 4;
+			for (let p = 0; p < passes; p++) {
+				let moved = false;
+				const step = p % 2 === 0 ? 1 : -1;
+				const startCol = step === 1 ? binL + 1 : binR - 1;
+				const endCol = step === 1 ? binR - 1 : binL + 1;
+				for (let c = startCol; step === 1 ? c <= endCol : c >= endCol; c += step) {
+					const h = this.pile[c];
+					if (h <= 0) continue;
+					const leftC = c - 1;
+					const rightC = c + 1;
+					let leftDiff = 0, rightDiff = 0;
+					if (leftC > binL) leftDiff = h - this.pile[leftC];
+					if (rightC < binR) rightDiff = h - this.pile[rightC];
+					if (leftDiff > talus || rightDiff > talus) {
+						if (leftDiff >= rightDiff && leftC > binL) {
+							this.pile[c]--; this.pile[leftC]++; moved = true;
+						} else if (rightC < binR) {
+							this.pile[c]--; this.pile[rightC]++; moved = true;
+						}
+					}
+				}
+				if (!moved) break;
+			}
+		}
+
+		_applyEndingDrain() {
+			if (this.endingTicks <= 0) return;
+			if (this.cfg.ending_residue >= 1) return;
+			const { binL, binR, binBottom, binTop } = this._binBounds();
+			if (binR <= binL + 1) return;
+			const binH = binBottom - binTop + 1;
+			if (binH < 1) return;
+			const progress = this._phaseProgress(this.endingTotal, this.endingTicks);
+			let scale = 1 - (1 - this.cfg.ending_residue) * progress;
+			if (scale < 0) scale = 0;
+			for (let c = binL + 1; c <= binR - 1; c++) {
+				const target = Math.max(0, Math.round(this.pile[c] * scale));
+				if (target < this.pile[c]) this.pile[c]--;
+			}
+		}
+
+		_paintBin() {
+			const { binL, binR, binBottom, binTop } = this._binBounds();
+			if (binR <= binL || binBottom <= binTop) return;
+			const wall = { r: 64, g: 56, b: 48 };
+			const rim = { r: 96, g: 80, b: 64 };
+			for (let r = binTop; r <= binBottom; r++) {
+				this._paintCell(r, binL, wall);
+				this._paintCell(r, binR, wall);
+			}
+			for (let c = binL; c <= binR; c++) this._paintCell(binBottom + 1, c, wall);
+			this._paintCell(binTop, binL, rim);
+			this._paintCell(binTop, binR, rim);
+		}
+
+		_paintPipe() {
+			const { left, right, row } = this._pipeBounds();
+			if (right < left) return;
+			const body = { r: 96, g: 88, b: 80 };
+			const rim = { r: 128, g: 116, b: 104 };
+			const dark = { r: 56, g: 50, b: 44 };
+			if (row >= 2) {
+				for (let c = left; c <= right; c++) this._paintCell(row - 2, c, rim);
+			}
+			for (let c = left; c <= right; c++) {
+				this._paintCell(row - 1, c, body);
+				this._paintCell(row, c, dark);
+			}
+		}
+
+		_paintPile() {
+			const { binL, binR, binBottom } = this._binBounds();
+			for (let c = binL + 1; c <= binR - 1; c++) {
+				const h = this.pile[c];
+				if (h <= 0) continue;
+				for (let k = 0; k < h; k++) {
+					const row = binBottom - k;
+					if (row < 0 || row >= this.h) break;
+					const n = sandPileNoise(c, row);
+					let hue = ((this.cfg.hue + (n[0] * 2 - 1) * this.cfg.hue_sp) % 360 + 360) % 360;
+					let light = this.cfg.lmin + n[1] * (this.cfg.lmax - this.cfg.lmin);
+					if (k === h - 1) light = Math.min(this.cfg.lmax, light + 0.08);
+					this._paintCell(row, c, hslToRGB(hue, this.cfg.sat, light));
+				}
+			}
+		}
+
+		_paintGrains() {
+			for (const g of this.grains) {
+				const row = Math.floor(g.row + 0.5);
+				const col = Math.floor(g.col + 0.5);
+				this._paintCell(row, col, g.color);
+			}
+		}
+
+		_paintCell(row, col, color) {
+			if (row < 0 || row >= this.h || col < 0 || col >= this.w) return;
+			if (color.r === 0 && color.g === 0 && color.b === 0) return;
+			const i = (row * this.w + col) * 3;
+			this.grid[i] = color.r;
+			this.grid[i + 1] = color.g;
+			this.grid[i + 2] = color.b;
+		}
+	}
+
 	const PROCEDURAL_DEFAULTS = {
 		aurora: {
 			intro_dur: 70,
@@ -5793,7 +6282,7 @@
 	// server's snapshot payload — the client looks up the constructor here
 	// by name so new effects just register themselves and work without
 	// client-side changes.
-	const effects = { rain: Rain, dust: Dust, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, beach: Beach, campfire: Campfire, windmill: Windmill, lighthouse: Lighthouse, rowboat: Rowboat, underwater: Underwater, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield, volcano: Volcano, tetris: Tetris, 'burning-trees': BurningTrees };
+	const effects = { rain: Rain, dust: Dust, sand: Sand, fireflies: Fireflies, waterfall: Waterfall, 'wheat-field': WheatField, beach: Beach, campfire: Campfire, windmill: Windmill, lighthouse: Lighthouse, rowboat: Rowboat, underwater: Underwater, aurora: Aurora, snow: Snow, 'autumn-leaves': AutumnLeaves, starfield: Starfield, volcano: Volcano, tetris: Tetris, 'burning-trees': BurningTrees };
 	const presets = {
 		'wheat-field': [
 			{
@@ -7124,6 +7613,134 @@
 				},
 			},
 		],
+		sand: [
+			{
+				key: 'small-trickle',
+				label: 'small trickle',
+				config: {
+					intro_dur: 70,
+					intro_trickle: 0.05,
+					intro_pile: 0,
+					pipe_x: 0.5,
+					pipe_w: 3,
+					bin_x: 0.5,
+					bin_w: 70,
+					bin_h: 28,
+					flow: 0.5,
+					spread: 0.18,
+					gravity: 0.05,
+					jitter: 0.04,
+					talus: 2,
+					hue: 38,
+					hue_sp: 12,
+					sat: 0.5,
+					lmin: 0.4,
+					lmax: 0.74,
+					surge_p: 0,
+					calm_p: 0.0008,
+					calm_dur: 90,
+					calm_mult: 0.5,
+					ending_dur: 100,
+					ending_linger: 60,
+					ending_residue: 1,
+				},
+			},
+			{
+				key: 'steady-pour',
+				label: 'steady pour',
+				config: {
+					intro_dur: 60,
+					intro_trickle: 0.15,
+					intro_pile: 0,
+					pipe_x: 0.5,
+					pipe_w: 6,
+					bin_x: 0.5,
+					bin_w: 90,
+					bin_h: 32,
+					flow: 1.6,
+					spread: 0.3,
+					gravity: 0.07,
+					jitter: 0.06,
+					talus: 2,
+					hue: 36,
+					hue_sp: 14,
+					sat: 0.55,
+					lmin: 0.42,
+					lmax: 0.78,
+					surge_p: 0,
+					calm_p: 0.0006,
+					surge_dur: 60,
+					surge_mult: 2.4,
+					calm_dur: 80,
+					calm_mult: 0.4,
+					ending_dur: 80,
+					ending_linger: 40,
+					ending_residue: 1,
+				},
+			},
+			{
+				key: 'heavy-fill',
+				label: 'heavy fill',
+				config: {
+					intro_dur: 50,
+					intro_trickle: 0.25,
+					intro_pile: 0.15,
+					pipe_x: 0.5,
+					pipe_w: 8,
+					bin_x: 0.5,
+					bin_w: 100,
+					bin_h: 36,
+					flow: 3.2,
+					spread: 0.45,
+					gravity: 0.09,
+					jitter: 0.08,
+					talus: 3,
+					hue: 32,
+					hue_sp: 18,
+					sat: 0.62,
+					lmin: 0.4,
+					lmax: 0.82,
+					surge_p: 0.0008,
+					calm_p: 0,
+					surge_dur: 80,
+					surge_mult: 2.2,
+					ending_dur: 70,
+					ending_linger: 30,
+					ending_residue: 1,
+				},
+			},
+			{
+				key: 'overflow-study',
+				label: 'overflow study',
+				config: {
+					intro_dur: 40,
+					intro_trickle: 0.5,
+					intro_pile: 0.65,
+					pipe_x: 0.5,
+					pipe_w: 8,
+					bin_x: 0.5,
+					bin_w: 70,
+					bin_h: 22,
+					flow: 4.5,
+					spread: 0.55,
+					gravity: 0.1,
+					jitter: 0.1,
+					talus: 2,
+					hue: 30,
+					hue_sp: 22,
+					sat: 0.7,
+					lmin: 0.42,
+					lmax: 0.86,
+					surge_p: 0.0014,
+					calm_p: 0,
+					surge_dur: 90,
+					surge_mult: 2.6,
+					ending_dur: 60,
+					ending_linger: 30,
+					ending_residue: 1,
+				},
+			},
+		],
 		tetris: [
 			{
 				key: 'museum-pace',
@@ -7228,5 +7845,5 @@
 		],
 	};
 
-	global.AmbienceSim = { Rain, Dust, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Aurora, AutumnLeaves, Snow, Starfield, Volcano, Tetris, BurningTrees, subscribe, applyDefaults, hslToRGB, effects, presets };
+	global.AmbienceSim = { Rain, Dust, Sand, Fireflies, Waterfall, WheatField, Beach, Campfire, Windmill, Lighthouse, Rowboat, Underwater, Aurora, AutumnLeaves, Snow, Starfield, Volcano, Tetris, BurningTrees, subscribe, applyDefaults, hslToRGB, effects, presets };
 })(window);

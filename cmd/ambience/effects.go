@@ -61,6 +61,11 @@ var effectRegistry = map[string]effectDefinition{
 		Schema:     sim.DustSchema,
 		NewRuntime: newDustRuntime,
 	},
+	"sand": {
+		Type:       "sand",
+		Schema:     sim.SandSchema,
+		NewRuntime: newSandRuntime,
+	},
 	"fireflies": {
 		Type:       "fireflies",
 		Schema:     sim.FirefliesSchema,
@@ -215,6 +220,10 @@ type dustRuntime struct {
 	sim *sim.Dust
 }
 
+type sandRuntime struct {
+	sim *sim.Sand
+}
+
 type firefliesRuntime struct {
 	sim *sim.Fireflies
 }
@@ -254,6 +263,16 @@ func newDustRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, e
 		}
 	}
 	return &dustRuntime{sim: sim.NewDust(w, h, seed, parsed)}, nil
+}
+
+func newSandRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
+	var parsed sim.SandConfig
+	if len(cfg) > 0 {
+		if err := json.Unmarshal(cfg, &parsed); err != nil {
+			return nil, fmt.Errorf("decode sand config: %w", err)
+		}
+	}
+	return &sandRuntime{sim: sim.NewSand(w, h, seed, parsed)}, nil
 }
 
 func newFirefliesRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error) {
@@ -538,6 +557,107 @@ func (d *dustRuntime) ApplyConfig(data json.RawMessage) error {
 }
 
 func (d *dustRuntime) AddEntropy(delta int64) { d.sim.PerturbRNG(delta) }
+
+func (s *sandRuntime) Type() string { return "sand" }
+
+func (s *sandRuntime) Schema() sim.EffectSchema { return sim.SandSchema() }
+
+func (s *sandRuntime) Snapshot() (effectEnvelope, error) {
+	configData, err := json.Marshal(s.sim.EffectiveConfig())
+	if err != nil {
+		return effectEnvelope{}, err
+	}
+	snap := s.sim.Snapshot()
+	stateData, err := json.Marshal(snap)
+	if err != nil {
+		return effectEnvelope{}, err
+	}
+	return effectEnvelope{
+		Tick:   snap.Tick,
+		Config: configData,
+		State:  stateData,
+		GridW:  s.sim.W,
+		GridH:  s.sim.H,
+	}, nil
+}
+
+func (s *sandRuntime) Restore(env effectEnvelope) error {
+	if len(env.Config) > 0 {
+		if err := s.ApplyConfig(env.Config); err != nil {
+			return err
+		}
+	}
+	if len(env.State) == 0 {
+		return nil
+	}
+	var state sim.SandSnapshot
+	if err := json.Unmarshal(env.State, &state); err != nil {
+		return fmt.Errorf("decode sand snapshot: %w", err)
+	}
+	if env.GridW > 0 && env.GridH > 0 && (s.sim.W != env.GridW || s.sim.H != env.GridH) {
+		s.sim.Resize(env.GridW, env.GridH)
+	}
+	s.sim.RestoreSnapshot(state)
+	return nil
+}
+
+func (s *sandRuntime) Persisted() (persistedEffectState, error) {
+	configData, err := json.Marshal(s.sim.EffectiveConfig())
+	if err != nil {
+		return persistedEffectState{}, err
+	}
+	stateData, err := json.Marshal(s.sim.SnapshotPersistedState())
+	if err != nil {
+		return persistedEffectState{}, err
+	}
+	return persistedEffectState{
+		Config: configData,
+		State:  stateData,
+		GridW:  s.sim.W,
+		GridH:  s.sim.H,
+	}, nil
+}
+
+func (s *sandRuntime) RestorePersisted(env persistedEffectState) error {
+	if len(env.Config) > 0 {
+		if err := s.ApplyConfig(env.Config); err != nil {
+			return err
+		}
+	}
+	if len(env.State) == 0 {
+		return nil
+	}
+	var state sim.SandPersistedState
+	if err := json.Unmarshal(env.State, &state); err != nil {
+		return fmt.Errorf("decode sand persisted state: %w", err)
+	}
+	if env.GridW > 0 && env.GridH > 0 && (s.sim.W != env.GridW || s.sim.H != env.GridH) {
+		s.sim.Resize(env.GridW, env.GridH)
+	}
+	s.sim.RestorePersistedState(state)
+	return nil
+}
+
+func (s *sandRuntime) Trigger(name string) bool { return s.sim.TriggerEvent(name) }
+
+func (s *sandRuntime) Step() { s.sim.Step() }
+
+func (s *sandRuntime) CurrentTick() int { return s.sim.CurrentTick() }
+
+func (s *sandRuntime) DrainLog() []sim.LogEntry { return s.sim.DrainLog() }
+
+func (s *sandRuntime) ApplyConfig(data json.RawMessage) error {
+	var cfg sim.SandConfig
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return fmt.Errorf("decode sand config: %w", err)
+		}
+	}
+	s.sim.SetConfig(cfg)
+	return nil
+}
+
+func (s *sandRuntime) AddEntropy(delta int64) { s.sim.PerturbRNG(delta) }
 
 func (f *firefliesRuntime) Type() string { return "fireflies" }
 
