@@ -8,26 +8,6 @@ import (
 	"github.com/nelsong6/ambience/rngutil"
 )
 
-// ProceduralConfig is a lightweight numeric config map used by browser-first
-// scenic prototypes. The server owns event timing and snapshot/restore state;
-// the browser owns the richer deterministic render derived from tick + seed.
-type ProceduralConfig map[string]float64
-
-type ProceduralState struct {
-	Tick   int                `json:"tick"`
-	Timers map[string]int     `json:"timers,omitempty"`
-	Values map[string]float64 `json:"values,omitempty"`
-}
-
-type ProceduralSnapshot struct {
-	ProceduralState
-}
-
-type ProceduralPersistedState struct {
-	ProceduralState
-	RNGState uint64 `json:"rngState"`
-}
-
 // Procedural hosts lightweight browser-first scenic prototypes. It tracks
 // authoritative tick/event state so join-in-progress dev sessions can restore
 // a consistent mood without the server needing a full particle simulation.
@@ -1203,72 +1183,34 @@ func VolcanoSchema() EffectSchema {
 	}
 }
 
-func cloneProceduralConfig(src ProceduralConfig) ProceduralConfig {
-	if src == nil {
-		return ProceduralConfig{}
-	}
-	out := make(ProceduralConfig, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
-	return out
-}
-
-func cloneTimerMap(src map[string]int) map[string]int {
-	if len(src) == 0 {
-		return nil
-	}
-	out := make(map[string]int, len(src))
-	for k, v := range src {
-		if v > 0 {
-			out[k] = v
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-func cloneValueMap(src map[string]float64) map[string]float64 {
-	if len(src) == 0 {
-		return nil
-	}
-	out := make(map[string]float64, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
-	return out
-}
-
 func proceduralDefaults(kind string) ProceduralConfig {
 	switch kind {
 	case "snow":
-		return cloneProceduralConfig(snowDefaults)
+		return cloneConfig(snowDefaults)
 	case "autumn-leaves":
-		return cloneProceduralConfig(autumnLeavesDefaults)
+		return cloneConfig(autumnLeavesDefaults)
 	case "starfield":
-		return cloneProceduralConfig(starfieldDefaults)
+		return cloneConfig(starfieldDefaults)
 	case "aurora":
-		return cloneProceduralConfig(auroraDefaults)
+		return cloneConfig(auroraDefaults)
 	case "wheat-field":
-		return cloneProceduralConfig(wheatFieldDefaults)
+		return cloneConfig(wheatFieldDefaults)
 	case "beach":
-		return cloneProceduralConfig(beachDefaults)
+		return cloneConfig(beachDefaults)
 	case "campfire":
-		return cloneProceduralConfig(campfireDefaults)
+		return cloneConfig(campfireDefaults)
 	case "windmill":
-		return cloneProceduralConfig(windmillDefaults)
+		return cloneConfig(windmillDefaults)
 	case "lighthouse":
-		return cloneProceduralConfig(lighthouseDefaults)
+		return cloneConfig(lighthouseDefaults)
 	case "rowboat":
-		return cloneProceduralConfig(rowboatDefaults)
+		return cloneConfig(rowboatDefaults)
 	case "underwater":
-		return cloneProceduralConfig(underwaterDefaults)
+		return cloneConfig(underwaterDefaults)
 	case "volcano":
-		return cloneProceduralConfig(volcanoDefaults)
+		return cloneConfig(volcanoDefaults)
 	case "mysterious-man":
-		return cloneProceduralConfig(mysteriousManDefaults)
+		return cloneConfig(mysteriousManDefaults)
 	default:
 		return ProceduralConfig{}
 	}
@@ -2203,7 +2145,7 @@ func (p *Procedural) SetConfig(cfg ProceduralConfig) {
 func (p *Procedural) EffectiveConfig() ProceduralConfig {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return cloneProceduralConfig(p.cfg)
+	return cloneConfig(p.cfg)
 }
 
 func (p *Procedural) Snapshot() ProceduralSnapshot {
