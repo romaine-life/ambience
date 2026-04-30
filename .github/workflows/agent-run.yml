@@ -538,7 +538,10 @@ jobs:
           {
             echo "Closes #${ISSUE_NUMBER}."
             echo ""
-            echo "Validation env (until PR closes): ${link_url}"
+            # Render as HTML <a target="_blank"> so the validation env opens
+            # in a new tab — GitHub's Markdown sanitizer permits target/rel on
+            # <a>, so reviewers stay on the PR while the env loads alongside.
+            echo "Validation env (until PR closes): <a href=\"${link_url}\" target=\"_blank\" rel=\"noopener noreferrer\">${link_url}</a>"
             echo ""
             # Agent-authored notes go first — the agent owns the framing
             # and may include secondary deep-link URLs, command output, or
