@@ -216,7 +216,11 @@ func registerStaticRoutes(mux *http.ServeMux, static staticAssets, lookup effect
 	handler := serveDevPageWithEffectLookup(static, lookup)
 	mux.HandleFunc("/dev", handler)
 	mux.HandleFunc("/dev/", handler)
-	mux.HandleFunc("/sim.js", serveStaticFile(static, "sim.js"))
+	// /sim.js is sim.js (namespace + helpers + ProceduralScene base)
+	// concatenated with every web/effects/*.js file. New effects drop a
+	// file in web/effects/ and get picked up on the next request — no
+	// shared file gets edited. See serveSimBundle.
+	mux.HandleFunc("/sim.js", serveSimBundle(static))
 	mux.HandleFunc("/controls.js", serveStaticFile(static, "controls.js"))
 	mux.HandleFunc("/client.js", serveStaticFile(static, "client.js"))
 	mux.HandleFunc("/ambience.js", serveStaticFile(static, "ambience.js"))
