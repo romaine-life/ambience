@@ -8,6 +8,13 @@ preinstalled. Your goal: address the issue described below and produce
 a coherent commit on the agent branch, **with evidence of the kind
 that actually fits the change**.
 
+> **Note**: this prompt may be preceded by additional context blocks
+> headed `## Prior attempt verification — reasons to address` (on
+> retry attempts after a failed verify) or `## Human feedback on the
+> open PR` (on triage attempts after a reviewer rejected the PR with
+> feedback). When present, those blocks are the **first thing to
+> address** before falling back to the original issue description.
+
 ## Workflow
 
 1. Read the issue context (provided above) and re-read the project's
