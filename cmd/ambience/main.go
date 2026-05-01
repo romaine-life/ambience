@@ -199,6 +199,13 @@ func bootAuthority(ctx context.Context) error {
 		return err
 	}
 	shared = restoreSharedAtmosphere(ctx, store)
+	policy := loadRotationPolicyFromEnv()
+	shared.setRotationPolicy(policy)
+	if policy.Enabled {
+		log.Printf("rotation: enabled, cadence %s, pool %v", time.Duration(policy.CadenceTicks)*tickRate, policy.resolvedAllowedEffects())
+	} else {
+		log.Printf("rotation: disabled")
+	}
 	go shared.run(ctx)
 	if store != nil {
 		go persistLoop(ctx, persistInterval, store, shared)

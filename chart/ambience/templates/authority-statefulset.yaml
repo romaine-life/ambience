@@ -34,6 +34,16 @@ spec:
               value: {{ .Values.authority.persistPath | quote }}
             - name: AMBIENCE_PERSIST_INTERVAL
               value: {{ .Values.authority.persistInterval | quote }}
+            {{- with .Values.authority.rotation }}
+            - name: AMBIENCE_ROTATION_ENABLED
+              value: {{ .enabled | quote }}
+            - name: AMBIENCE_ROTATION_CADENCE
+              value: {{ .cadence | quote }}
+            {{- if .effects }}
+            - name: AMBIENCE_ROTATION_EFFECTS
+              value: {{ join "," .effects | quote }}
+            {{- end }}
+            {{- end }}
           ports:
             - containerPort: 8080
               name: http

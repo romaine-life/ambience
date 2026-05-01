@@ -1,0 +1,208 @@
+package main
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/nelsong6/ambience/rngutil"
+	"github.com/nelsong6/ambience/sim"
+)
+
+func TestPickNextEffectAvoidsCurrent(t *testing.T) {
+	rng := rngutil.New(1)
+	pool := []string{"rain", "campfire", "aurora"}
+	for i := 0; i < 64; i++ {
+		got := pickNextEffect(rng, pool, "rain")
+		if got == "rain" {
+			t.Fatalf("pick %d returned current: %q", i, got)
+		}
+	}
+}
+
+func TestPickNextEffectSinglePoolReturnsCurrent(t *testing.T) {
+	rng := rngutil.New(1)
+	if got := pickNextEffect(rng, []string{"rain"}, "rain"); got != "rain" {
+		t.Fatalf("single-element pool with current returned %q, want %q", got, "rain")
+	}
+}
+
+func TestPickNextEffectEmptyPoolReturnsCurrent(t *testing.T) {
+	rng := rngutil.New(1)
+	if got := pickNextEffect(rng, nil, "rain"); got != "rain" {
+		t.Fatalf("empty pool returned %q, want %q", got, "rain")
+	}
+}
+
+func TestRotationPolicyAllowedFiltersUnknown(t *testing.T) {
+	p := rotationPolicy{Allowed: []string{"rain", "definitely-not-an-effect", "campfire"}}
+	got := p.resolvedAllowedEffects()
+	want := []string{"campfire", "rain"}
+	if len(got) != len(want) {
+		t.Fatalf("resolvedAllowedEffects = %v, want %v", got, want)
+	}
+	for i, w := range want {
+		if got[i] != w {
+			t.Fatalf("resolvedAllowedEffects[%d] = %q, want %q", i, got[i], w)
+		}
+	}
+}
+
+func TestRotationPolicyAllowedDefaultsToRegistry(t *testing.T) {
+	p := rotationPolicy{}
+	got := p.resolvedAllowedEffects()
+	if len(got) == 0 {
+		t.Fatal("expected non-empty default pool")
+	}
+	if len(got) != len(effectRegistry) {
+		t.Fatalf("default pool len = %d, want %d (full registry)", len(got), len(effectRegistry))
+	}
+}
+
+func TestMaybeRotateEffectDisabledByDefault(t *testing.T) {
+	a := newAtmosphere(sim.Config{})
+	if rotated := a.maybeRotateEffect(1_000_000); rotated {
+		t.Fatal("rotation fired with default (disabled) policy")
+	}
+}
+
+func TestMaybeRotateEffectFiresAfterCadence(t *testing.T) {
+	a := newAtmosphere(sim.Config{})
+	a.setRotationPolicy(rotationPolicy{
+		Enabled:      true,
+		CadenceTicks: 10,
+		Allowed:      []string{"rain", "campfire"},
+	})
+	if rotated := a.maybeRotateEffect(5); rotated {
+		t.Fatal("rotation fired before cadence elapsed")
+	}
+	if rotated := a.maybeRotateEffect(10); !rotated {
+		t.Fatal("rotation did not fire at cadence elapsed")
+	}
+	snap := a.snapshot()
+	if snap.Type == "rain" {
+		t.Fatalf("expected effect to change after rotation; still %q", snap.Type)
+	}
+	if snap.Type != "campfire" {
+		t.Fatalf("expected campfire after rotation; got %q", snap.Type)
+	}
+}
+
+func TestMaybeRotateEffectBroadcastsSnapshot(t *testing.T) {
+	a := newAtmosphere(sim.Config{})
+	a.setRotationPolicy(rotationPolicy{
+		Enabled:      true,
+		CadenceTicks: 10,
+		Allowed:      []string{"rain", "aurora"},
+	})
+	ch := a.addListener()
+	defer a.removeListener(ch)
+
+	rotated := a.maybeRotateEffect(10)
+	if !rotated {
+		t.Fatal("rotation did not fire")
+	}
+
+	deadline := time.After(time.Second)
+	gotSnapshot := false
+	for !gotSnapshot {
+		select {
+		case cmd := <-ch:
+			if cmd.Kind == "snapshot" {
+				gotSnapshot = true
+			}
+		case <-deadline:
+			t.Fatal("no snapshot broadcast after rotation")
+		}
+	}
+}
+
+func TestMaybeRotateEffectSinglePoolNoOp(t *testing.T) {
+	a := newAtmosphere(sim.Config{})
+	a.setRotationPolicy(rotationPolicy{
+		Enabled:      true,
+		CadenceTicks: 10,
+		Allowed:      []string{"rain"},
+	})
+	if rotated := a.maybeRotateEffect(50); rotated {
+		t.Fatal("rotation fired with single-effect pool")
+	}
+	if got := a.snapshot().Type; got != "rain" {
+		t.Fatalf("type = %q after no-op rotation; want rain", got)
+	}
+}
+
+func TestRotationStartTickResetsAfterRotation(t *testing.T) {
+	a := newAtmosphere(sim.Config{})
+	a.setRotationPolicy(rotationPolicy{
+		Enabled:      true,
+		CadenceTicks: 10,
+		Allowed:      []string{"rain", "campfire"},
+	})
+	a.maybeRotateEffect(10)
+	a.mu.Lock()
+	got := a.rotationStartTick
+	a.mu.Unlock()
+	if got != 0 {
+		t.Fatalf("rotationStartTick after rotation = %d; want 0 (anchored to new effect's local tick)", got)
+	}
+}
+
+func TestRotationStateSurvivesPersistRoundTrip(t *testing.T) {
+	a := newAtmosphere(sim.Config{})
+	a.setRotationPolicy(rotationPolicy{
+		Enabled:      true,
+		CadenceTicks: 10,
+		Allowed:      []string{"rain"},
+	})
+	a.mu.Lock()
+	a.rotationStartTick = 42
+	a.mu.Unlock()
+
+	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
+	if err := store.Save(context.Background(), a.persistedState()); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	restored := restoreSharedAtmosphere(context.Background(), store)
+	restored.mu.Lock()
+	got := restored.rotationStartTick
+	restored.mu.Unlock()
+	if got != 42 {
+		t.Fatalf("rotationStartTick after restore = %d; want 42", got)
+	}
+}
+
+func TestLoadRotationPolicyFromEnvDefault(t *testing.T) {
+	t.Setenv("AMBIENCE_ROTATION_ENABLED", "")
+	t.Setenv("AMBIENCE_ROTATION_CADENCE", "")
+	t.Setenv("AMBIENCE_ROTATION_EFFECTS", "")
+	p := loadRotationPolicyFromEnv()
+	if !p.Enabled {
+		t.Fatal("default policy disabled; want enabled")
+	}
+	if p.CadenceTicks != defaultRotationCadenceTicks {
+		t.Fatalf("default cadence = %d; want %d", p.CadenceTicks, defaultRotationCadenceTicks)
+	}
+	if len(p.Allowed) != 0 {
+		t.Fatalf("default allowed = %v; want empty (registry fallback)", p.Allowed)
+	}
+}
+
+func TestLoadRotationPolicyFromEnvOverrides(t *testing.T) {
+	t.Setenv("AMBIENCE_ROTATION_ENABLED", "false")
+	t.Setenv("AMBIENCE_ROTATION_CADENCE", "30s")
+	t.Setenv("AMBIENCE_ROTATION_EFFECTS", "rain, campfire ,aurora")
+	p := loadRotationPolicyFromEnv()
+	if p.Enabled {
+		t.Fatal("expected disabled")
+	}
+	wantTicks := int(30 * time.Second / tickRate)
+	if p.CadenceTicks != wantTicks {
+		t.Fatalf("cadence ticks = %d; want %d", p.CadenceTicks, wantTicks)
+	}
+	if len(p.Allowed) != 3 || p.Allowed[0] != "rain" || p.Allowed[1] != "campfire" || p.Allowed[2] != "aurora" {
+		t.Fatalf("allowed = %v; want [rain campfire aurora]", p.Allowed)
+	}
+}

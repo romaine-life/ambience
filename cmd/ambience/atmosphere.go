@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"strconv"
 	"sync"
 	"time"
@@ -93,10 +94,20 @@ type atmosphere struct {
 	transitionTo    sim.Config
 	transitionStart int
 	transitionDur   int
-	commandSeq      int64
-	listeners       map[chan Command]struct{}
-	lastSeen        time.Time
-	cancel          context.CancelFunc
+	// Cross-effect rotation state. The shared atmosphere periodically
+	// swaps to a different effect type so the live monitor at / shows
+	// variety without manual intervention. Disabled by default in
+	// newAtmosphere; bootAuthority enables it via setRotationPolicy from
+	// env-driven config. rotationStartTick is the absolute tick on the
+	// active effect runtime when it became current — reset to that
+	// runtime's local tick after every rotation, since each new runtime
+	// starts ticking from zero.
+	rotation          rotationPolicy
+	rotationStartTick int
+	commandSeq        int64
+	listeners         map[chan Command]struct{}
+	lastSeen          time.Time
+	cancel            context.CancelFunc
 }
 
 func newAtmosphere(_ sim.Config) *atmosphere {
@@ -151,6 +162,12 @@ func (a *atmosphere) run(ctx context.Context) {
 			a.mu.Unlock()
 			if expired {
 				a.rotateScene(cur)
+			}
+			// Cross-effect rotation runs after within-effect scene
+			// rotation: if both fire on the same tick, the new effect
+			// supersedes the regenerated rain scene anyway.
+			if a.maybeRotateEffect(cur) {
+				cur = a.effect.CurrentTick()
 			}
 			if cur%metricBroadcastEvery == 0 {
 				a.broadcastMetric(cur)
@@ -243,6 +260,105 @@ func (a *atmosphere) rotateScene(tick int) {
 	// Push an immediate metric so panels see the new scene name + fresh
 	// remaining without waiting for the next entropy event.
 	a.broadcastMetric(tick)
+}
+
+// setRotationPolicy installs a cross-effect rotation policy. Safe to call
+// at any time; bootAuthority calls it once during startup with env-derived
+// config so unit tests that build atmospheres directly don't accidentally
+// inherit prod rotation behavior.
+func (a *atmosphere) setRotationPolicy(p rotationPolicy) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.rotation = p
+}
+
+// maybeRotateEffect checks whether the current effect has been running
+// longer than the configured cadence and, if so, rotates to a different
+// effect from the allowed pool. Returns true if a rotation actually
+// happened so the caller can re-read the effect tick. No-op when rotation
+// is disabled, no cadence is set, or the pool offers no other choice.
+func (a *atmosphere) maybeRotateEffect(cur int) bool {
+	a.mu.Lock()
+	if !a.rotation.Enabled || a.rotation.CadenceTicks <= 0 {
+		a.mu.Unlock()
+		return false
+	}
+	if cur-a.rotationStartTick < a.rotation.CadenceTicks {
+		a.mu.Unlock()
+		return false
+	}
+	policy := a.rotation
+	currentType := a.effect.Type()
+	a.mu.Unlock()
+
+	pool := policy.resolvedAllowedEffects()
+	pick := pickNextEffect(a.sceneRNG, pool, currentType)
+	if pick == "" || pick == currentType {
+		// Nothing to rotate to — slide the timer forward so we don't
+		// recheck on every tick.
+		a.mu.Lock()
+		a.rotationStartTick = cur
+		a.mu.Unlock()
+		return false
+	}
+	return a.rotateToEffect(cur, pick)
+}
+
+// rotateToEffect builds a fresh runtime for effectType, swaps it in, and
+// broadcasts a snapshot whose `type` differs from the previous one so SSE
+// consumers (live monitor + every embedded canvas) crossfade per the
+// PR #110 client-side mechanism. The within-effect Rain scene drift is
+// reset for rain targets and elided entirely for non-rain targets — the
+// drift LERPs sim.Config (rain config) so applying it to e.g. campfire
+// would silently reject. Returns true on success.
+func (a *atmosphere) rotateToEffect(cur int, effectType string) bool {
+	seed := time.Now().UnixNano()
+	rt, err := newEffectRuntime(effectType, gridW, gridH, seed, nil)
+	if err != nil {
+		log.Printf("rotation: build %s: %v; staying on current", effectType, err)
+		a.mu.Lock()
+		a.rotationStartTick = cur
+		a.mu.Unlock()
+		return false
+	}
+
+	a.mu.Lock()
+	previousType := a.effect.Type()
+	var newScene, newNext Scene
+	if effectType == "rain" {
+		newScene = generateScene(a.sceneRNG, 0)
+		newNext = generateScene(a.sceneRNG, 0)
+		a.cfg = newScene.Config
+	} else {
+		slot := a.rotation.CadenceTicks
+		if slot <= 0 {
+			slot = defaultRotationCadenceTicks
+		}
+		newScene = Scene{
+			Name:          effectType,
+			DurationTicks: slot,
+			StartedAtTick: 0,
+		}
+		newNext = Scene{Name: effectType}
+		a.cfg = sim.Config{}
+	}
+	a.effect = rt
+	a.current = newScene
+	a.next = newNext
+	a.transitionDur = 0
+	a.transitionStart = 0
+	// New runtimes start from tick 0; anchor the rotation timer there so
+	// the next rotation fires after CadenceTicks of the new effect's
+	// progress, not relative to the old effect's tick offset.
+	a.rotationStartTick = 0
+	a.mu.Unlock()
+
+	snap := a.snapshot()
+	data, _ := json.Marshal(snap)
+	a.broadcast(Command{Kind: "snapshot", Tick: cur, Data: data})
+	a.broadcastMetric(0)
+	log.Printf("rotation: shared effect %s -> %s (tick %d)", previousType, effectType, cur)
+	return true
 }
 
 // broadcastMetric pushes the current entropy total + scene progress. Called

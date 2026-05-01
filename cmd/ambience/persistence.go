@@ -45,6 +45,12 @@ type persistedAtmosphere struct {
 	NextScene     Scene                `json:"nextScene"`
 	EntropyBytes  int64                `json:"entropyBytes"`
 	Transition    persistedTransition  `json:"transition"`
+	// RotationStartTick is the tick on the active effect runtime at which
+	// the current effect became current — preserved across restarts so
+	// rotation cadence isn't reset by a pod restart. Old persisted blobs
+	// without this field default to 0, which is correct for a freshly-
+	// installed effect.
+	RotationStartTick int `json:"rotationStartTick"`
 }
 
 func newPersistenceStoreFromEnv() (persistenceStore, time.Duration, error) {
@@ -180,6 +186,7 @@ func restoreSharedAtmosphere(ctx context.Context, store persistenceStore) *atmos
 	a.transitionTo = state.Transition.To
 	a.transitionStart = state.Transition.Start
 	a.transitionDur = state.Transition.Dur
+	a.rotationStartTick = state.RotationStartTick
 	if a.transitionDur > 0 {
 		a.cfg = state.Transition.From
 	}
@@ -202,6 +209,7 @@ func (a *atmosphere) persistedState() persistedAtmosphere {
 		Start: a.transitionStart,
 		Dur:   a.transitionDur,
 	}
+	rotationStartTick := a.rotationStartTick
 	a.mu.Unlock()
 
 	effectState, err := a.effect.Persisted()
@@ -218,17 +226,18 @@ func (a *atmosphere) persistedState() persistedAtmosphere {
 	}
 
 	return persistedAtmosphere{
-		Version:       1,
-		SavedAt:       time.Now().UTC(),
-		Type:          a.effect.Type(),
-		Seed:          seed,
-		SceneRNGState: sceneRNGState,
-		Config:        effectConfig,
-		Effect:        effectState,
-		CommandSeq:    commandSeq,
-		CurrentScene:  current,
-		NextScene:     next,
-		EntropyBytes:  entropyBytes,
-		Transition:    transition,
+		Version:           1,
+		SavedAt:           time.Now().UTC(),
+		Type:              a.effect.Type(),
+		Seed:              seed,
+		SceneRNGState:     sceneRNGState,
+		Config:            effectConfig,
+		Effect:            effectState,
+		CommandSeq:        commandSeq,
+		CurrentScene:      current,
+		NextScene:         next,
+		EntropyBytes:      entropyBytes,
+		Transition:        transition,
+		RotationStartTick: rotationStartTick,
 	}
 }
