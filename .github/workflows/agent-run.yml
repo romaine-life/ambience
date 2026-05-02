@@ -270,30 +270,20 @@ jobs:
           job_name="agent-${slug}"
           image_tag="${slug}"
 
-          # Branch resolution. Three modes (#18 + #19):
-          # - Triage (pr_number set): re-use the PR's existing branch so
-          #   the agent's force-push lands on the open PR.
-          # - Retry (run_id set, no pr_number): branch is stable across
-          #   attempts on the same Run — `agent/issue-N-<run-ulid>` —
-          #   so all retries push to the same branch.
-          # - Initial: fresh branch tied to the GHA run id (existing
-          #   behavior, preserved for the legacy / pre-#18 path).
+          # Branch is glimmung-dictated under #69: always glimmung/<run_id>.
+          # Same branch is reused across verify-loop retries and PR-feedback
+          # recycle dispatches (the agent force-pushes back to it). Glimmung
+          # opens the PR after ADVANCE; recycle dispatches set inputs.pr_number
+          # so downstream steps know the PR exists.
+          if [ -z "${GLIMMUNG_RUN_ID}" ]; then
+            echo "::error::missing inputs.run_id (required under #69)"
+            exit 1
+          fi
+          branch="glimmung/${GLIMMUNG_RUN_ID}"
           if [ -n "${PR_NUMBER}" ]; then
-            # Resolve the PR's headRefName via gh CLI (no app-token yet
-            # on this step; use the default GITHUB_TOKEN — pull_request
-            # read works under default permissions).
-            branch=$(gh pr view "${PR_NUMBER}" --json headRefName -q .headRefName)
-            if [ -z "${branch}" ]; then
-              echo "::error::triage mode: failed to resolve branch for PR #${PR_NUMBER}"
-              exit 1
-            fi
-            mode="triage"
-          elif [ -n "${GLIMMUNG_RUN_ID}" ]; then
-            branch="agent/issue-${ISSUE_NUMBER}-${GLIMMUNG_RUN_ID}"
-            mode="retry-or-initial"
+            mode="recycle"
           else
-            branch="agent/issue-${ISSUE_NUMBER}-${GITHUB_RUN_ID}"
-            mode="initial-legacy"
+            mode="initial"
           fi
           echo "branch resolution: mode=${mode} branch=${branch} attempt=${ATTEMPT_INDEX:-0}"
 
@@ -668,70 +658,19 @@ jobs:
             echo "EOF_MD"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Open pull request and label env
-        # Skipped in triage mode (#19): the PR already exists, the
-        # agent force-pushed to its branch, no new PR to create.
-        # `PR_NUMBER` is forwarded to subsequent steps via env so the
-        # summarize step can still find it.
+      - name: Label validation env namespace by branch
+        # Glimmung opens the PR (#69), so we don't yet know the PR number
+        # at workflow-run time. agent-pr-cleanup.yml looks up namespaces
+        # by `ambience.io/branch=<slug>` instead, where slug = BRANCH_NAME
+        # with `/` → `-`. The closing PR's head.ref is `glimmung/<run_id>`
+        # which slugifies the same way, so cleanup finds the env.
         if: success() && inputs.pr_number == ''
-        env:
-          # App token avoids the "GitHub Actions is not permitted to
-          # create or approve pull requests" GraphQL error from the
-          # default secrets.GITHUB_TOKEN.
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          SCREENSHOTS_MD: ${{ steps.upload.outputs.markdown }}
-          HAVE_NOTES: ${{ steps.evidence.outputs.have_notes }}
-          DEEP_VALIDATION_URL: ${{ steps.evidence.outputs.deep_validation_url }}
         run: |
           set -euo pipefail
-          # Prefer the agent-declared deep-link (e.g.
-          # https://<host>/dev/burning-trees) so reviewers click straight
-          # into the feature; fall back to the bare host when the agent
-          # didn't write validation-path.txt (refactors, docs).
-          if [ -n "${DEEP_VALIDATION_URL}" ]; then
-            link_url="${DEEP_VALIDATION_URL}"
-          else
-            link_url="${VALIDATION_URL}"
+          slug="${BRANCH_NAME//\//-}"
+          if ! kubectl label namespace "${NAMESPACE}" "ambience.io/branch=${slug}" --overwrite; then
+            echo "::warning::failed to label namespace ${NAMESPACE} with ambience.io/branch=${slug}; agent-pr-cleanup may not find it on PR close"
           fi
-          body_file=$(mktemp)
-          {
-            echo "Closes #${ISSUE_NUMBER}."
-            echo ""
-            # Render as HTML <a target="_blank"> so the validation env opens
-            # in a new tab — GitHub's Markdown sanitizer permits target/rel on
-            # <a>, so reviewers stay on the PR while the env loads alongside.
-            echo "Validation env (until PR closes): <a href=\"${link_url}\" target=\"_blank\" rel=\"noopener noreferrer\">${link_url}</a>"
-            echo ""
-            # Agent-authored notes go first — the agent owns the framing
-            # and may include secondary deep-link URLs, command output, or
-            # non-screenshot evidence in here. The primary validation
-            # deep-link is already on the line above via
-            # validation-path.txt.
-            if [ "${HAVE_NOTES}" = "true" ]; then
-              cat /tmp/evidence/notes.md
-              echo ""
-            fi
-            if [ -n "${SCREENSHOTS_MD:-}" ]; then
-              printf '%s\n' "${SCREENSHOTS_MD}"
-              echo ""
-            fi
-            echo "Generated by glimmung-leased agent run on host \`${{ inputs.host }}\` (lease \`${{ inputs.lease_id }}\`)."
-          } > "${body_file}"
-          pr_url=$(gh pr create \
-            --base main \
-            --head "${BRANCH_NAME}" \
-            --title "agent: ${ISSUE_TITLE} (#${ISSUE_NUMBER})" \
-            --body-file "${body_file}")
-          echo "${pr_url}"
-          pr_number=$(printf '%s' "${pr_url}" | grep -oE 'pull/[0-9]+' | tr -dc '0-9')
-          # Label the namespace so agent-pr-cleanup.yml can find and reap
-          # it when the PR closes. Best-effort: a labeling failure leaves
-          # the env orphaned but the PR still opens; we log loudly so
-          # cleanup can be done by hand.
-          if [ -z "${pr_number}" ] || ! kubectl label namespace "${NAMESPACE}" "ambience.io/pr=${pr_number}" --overwrite; then
-            echo "::warning::failed to label namespace ${NAMESPACE} with ambience.io/pr=${pr_number:-?}; manual teardown may be required when the PR closes"
-          fi
-          echo "PR_NUMBER=${pr_number}" >> "$GITHUB_ENV"
 
       - name: Surface triage outcome on existing PR
         # Triage mode (#19) — agent force-pushed to the existing PR.

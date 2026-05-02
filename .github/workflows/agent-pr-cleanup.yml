@@ -3,13 +3,15 @@ name: Agent PR Cleanup
 run-name: "Cleanup #${{ github.event.pull_request.number }} (${{ github.event.pull_request.head.ref }})"
 
 # Reaps the ephemeral validation env created by agent-run.yml when the
-# corresponding PR closes (merged or not). The env is named
-# `ambience-issue-<N>-<run-id>-<short-sha>` and is labeled
-# `ambience.io/pr=<pr-number>` after the PR is opened, so we find it by
-# label rather than reconstructing the name.
+# corresponding PR closes (merged or not). Glimmung dictates the head ref
+# (`glimmung/<run_id>`) under #69 and the agent labels its namespace
+# `ambience.io/branch=<slug>` where slug = head.ref with `/` → `-`. We
+# look up by branch slug rather than PR number because glimmung opens
+# the PR after the workflow ends — the agent doesn't have the PR number
+# at labeling time.
 #
-# Only fires for PRs whose head ref starts with `agent/issue-` — manual
-# PRs don't have an agent env and the job is a no-op anyway.
+# Only fires for PRs whose head ref starts with `glimmung/` — manual PRs
+# don't have an agent env and the job is a no-op anyway.
 #
 # Trigger: pull_request_target rather than pull_request. The pull_request
 # trigger needs a merge commit context to fire and silently drops events
@@ -31,10 +33,11 @@ permissions:
 jobs:
   cleanup:
     name: Reap agent validation env
-    if: startsWith(github.event.pull_request.head.ref, 'agent/issue-')
+    if: startsWith(github.event.pull_request.head.ref, 'glimmung/')
     runs-on: ubuntu-latest
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -77,12 +80,11 @@ jobs:
       - name: Reap labeled namespaces + ACR tags
         run: |
           set -euo pipefail
-          # Most runs produce exactly one namespace per PR. The loop is
-          # correct even if a retry produced multiples.
-          mapfile -t namespaces < <(kubectl get ns -l "ambience.io/pr=${PR_NUMBER}" \
+          slug="${HEAD_REF//\//-}"
+          mapfile -t namespaces < <(kubectl get ns -l "ambience.io/branch=${slug}" \
             -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
           if [ "${#namespaces[@]}" -eq 0 ] || [ -z "${namespaces[0]:-}" ]; then
-            echo "no namespaces labeled ambience.io/pr=${PR_NUMBER}; nothing to reap"
+            echo "no namespaces labeled ambience.io/branch=${slug}; nothing to reap"
             exit 0
           fi
           for ns in "${namespaces[@]}"; do
