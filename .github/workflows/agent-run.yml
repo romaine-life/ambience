@@ -108,6 +108,27 @@ jobs:
           fi
           echo "lease verified: ${LEASE_ID} active on ${HOST}"
 
+      - name: Register run start with glimmung (#79)
+        # GitHub's `POST .../dispatches` returns 204 with no run id, and
+        # the `workflow_run` event payload doesn't echo workflow_dispatch
+        # inputs — so the workflow has to tell glimmung the
+        # workflow_run.id ↔ glimmung run_id mapping itself. Pairs with
+        # the completion callback below (the verify-loop's other
+        # endpoint). Best-effort: a glimmung blip shouldn't sink the run.
+        env:
+          RUN_ID: ${{ inputs.run_id }}
+          GH_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          if [ -z "${RUN_ID}" ]; then
+            echo "no run_id input; skipping start callback (legacy dispatch)"
+            exit 0
+          fi
+          curl -fsS -X POST "${GLIMMUNG_BASE}/v1/runs/${GLIMMUNG_PROJECT}/${RUN_ID}/started" \
+            -H 'Content-Type: application/json' \
+            -d "{\"workflow_run_id\": ${GH_RUN_ID}}" >/dev/null \
+            || echo "::warning::failed to register run start with glimmung"
+
       # ------------------------------------------------------------------
       # Mint a GitHub App installation token (1h TTL) for all GH calls in
       # this job. App credentials live in romaine-kv:
@@ -910,10 +931,10 @@ jobs:
           cat /tmp/verification.json
 
       - name: Upload verification artifact (#18 contract)
-        # Glimmung's _handle_workflow_run fetches this artifact via
-        # the GHA API to drive the decision engine. Artifact name
-        # MUST be `verification` (single-file, root-level
-        # `verification.json`) — see glimmung README.
+        # Kept around as a human-auditable copy alongside the PR — the
+        # decision engine no longer reads this; verification.json
+        # contents are POSTed directly via the completion callback
+        # below (#79).
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -921,6 +942,46 @@ jobs:
           path: /tmp/verification.json
           retention-days: 30
           if-no-files-found: error
+
+      - name: Report run completion to glimmung (#79)
+        # Replaces glimmung's reliance on the `workflow_run` webhook
+        # (GH doesn't echo workflow_dispatch inputs in that payload, so
+        # glimmung had no way to map an inbound webhook to a Run).
+        # Posts the parsed verification.json + GH conclusion + run id;
+        # glimmung records the attempt, runs the decision engine, and
+        # releases issue/PR locks on terminal decisions. Best-effort:
+        # if glimmung is unreachable, log + continue rather than
+        # blocking the workflow.
+        if: always()
+        env:
+          RUN_ID: ${{ inputs.run_id }}
+          GH_RUN_ID: ${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -uo pipefail
+          if [ -z "${RUN_ID}" ]; then
+            echo "no run_id input; skipping completion callback (legacy dispatch)"
+            exit 0
+          fi
+          case "${JOB_STATUS}" in
+            success)   conclusion="success"   ;;
+            failure)   conclusion="failure"   ;;
+            cancelled) conclusion="cancelled" ;;
+            *)         conclusion="${JOB_STATUS}" ;;
+          esac
+          verification="null"
+          if [ -s /tmp/verification.json ]; then
+            verification=$(jq -c . < /tmp/verification.json)
+          fi
+          body=$(jq -nc \
+            --argjson workflow_run_id "${GH_RUN_ID}" \
+            --arg conclusion "${conclusion}" \
+            --argjson verification "${verification}" \
+            '{workflow_run_id: $workflow_run_id, conclusion: $conclusion, verification: $verification}')
+          curl -fsS -X POST "${GLIMMUNG_BASE}/v1/runs/${GLIMMUNG_PROJECT}/${RUN_ID}/completed" \
+            -H 'Content-Type: application/json' \
+            -d "${body}" \
+            || echo "::warning::failed to report completion to glimmung"
 
       - name: Tear down validation env on failure
         # Successful runs leave the env alive — agent-pr-cleanup.yml reaps
