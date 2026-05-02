@@ -110,6 +110,25 @@ the fixed behavior). If the bug is invisible (perf, logic, race), use
   `validation-path.txt`, not here.
 - `/workspace/repo/` — your actual code changes; committed and pushed.
 
+## Styleguide maintenance is mandatory
+
+Ambience exposes `/_styleguide` as a visual catalog of every UI
+primitive it ships (panel, switcher, knob row, log entries, etc.).
+The contract — `nelsong6/glimmung/docs/styleguide-contract.md` — is
+that **whenever you change a primitive, you must update its entry in
+the styleguide in the same change**. The page lives at
+`cmd/ambience/web/styleguide.html`; if you add a new primitive (a new
+button voice, a new section pattern, a new badge), add a section to
+the styleguide rendering it in every state it supports.
+
+If you add a new public route worth screenshotting, append it to
+`screenshot-pages.json` so the post-agent screenshot pass picks it up
+automatically.
+
+Don't ship a primitive change without the styleguide change. There's
+no automated drift check — the contract is social, with the env-prep
+phase's `/_styleguide` curl as the floor.
+
 ## Constraints
 
 - Do **not** modify `.github/workflows/`, `.mcp.json`, or
