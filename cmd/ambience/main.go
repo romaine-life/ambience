@@ -5,6 +5,7 @@
 // Routes:
 //
 //	GET  /                      — canonical demo page (browser runs a JS sim)
+//	GET  /_styleguide           — visual catalog of UI primitives (glimmung contract)
 //	GET  /ambience.js           — shared renderer / SSE helpers
 //	GET  /sim.js                — JS port of sim/rain.go (runs in browser)
 //	GET  /controls.js           — shared schema-driven control panel helper
@@ -231,6 +232,12 @@ func registerStaticRoutes(mux *http.ServeMux, static staticAssets, lookup effect
 	mux.HandleFunc("/controls.js", serveStaticFile(static, "controls.js"))
 	mux.HandleFunc("/client.js", serveStaticFile(static, "client.js"))
 	mux.HandleFunc("/ambience.js", serveStaticFile(static, "ambience.js"))
+	// Glimmung's UI testing pilot requires every frontend project to
+	// expose /_styleguide on its live env so reviewers + the screenshot
+	// pass have a stable catalog to scan. The leading underscore marks
+	// it as a platform route, kept out of product-route space. Contract:
+	// nelsong6/glimmung/docs/styleguide-contract.md.
+	mux.HandleFunc("/_styleguide", serveExactStaticFile(static, "/_styleguide", "styleguide.html"))
 	mux.HandleFunc("/", serveExactStaticFile(static, "/", "index.html"))
 }
 
