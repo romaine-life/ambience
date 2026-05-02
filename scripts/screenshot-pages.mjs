@@ -13,6 +13,11 @@
 //   PAGES_JSON         required. path to screenshot-pages.json
 //   OUT_DIR            required. directory for png output
 //   TIMEOUT_MS         optional. per-page nav timeout, default 30000
+//   SETTLE_MS          optional. post-load delay before screenshot, default 1500.
+//                      Ambience's `/`, `/dev`, `/dev/<effect>` open a persistent
+//                      SSE stream, so `waitUntil: "networkidle"` never resolves.
+//                      We waitUntil load + sleep so the canvas paints at least
+//                      one frame against the live atmosphere before capture.
 //   VIEWPORT_W,VIEWPORT_H  optional. default 1440x900
 //
 // Stdout is line-oriented and grep-friendly so the CI step can attach
@@ -36,6 +41,7 @@ const BASE_URL = env("BASE_URL").replace(/\/$/, "");
 const PAGES_JSON = env("PAGES_JSON");
 const OUT_DIR = env("OUT_DIR");
 const TIMEOUT_MS = parseInt(env("TIMEOUT_MS", "30000"), 10);
+const SETTLE_MS = parseInt(env("SETTLE_MS", "1500"), 10);
 const VIEWPORT_W = parseInt(env("VIEWPORT_W", "1440"), 10);
 const VIEWPORT_H = parseInt(env("VIEWPORT_H", "900"), 10);
 
@@ -68,7 +74,11 @@ for (const entry of pages) {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log(`pageerror ${path}: ${e.message}`));
   try {
-    const resp = await page.goto(url, { timeout: TIMEOUT_MS, waitUntil: "networkidle" });
+    // `waitUntil: "load"` — networkidle never resolves when an
+    // EventSource is open (`/`, `/dev`, `/dev/<effect>` all stream
+    // SSE), so we wait for window.onload + a fixed settle interval
+    // for the canvas to paint at least one frame.
+    const resp = await page.goto(url, { timeout: TIMEOUT_MS, waitUntil: "load" });
     if (resp === null) {
       failures.push({ path, label, reason: "no response (data: or about: url?)" });
       await page.close();
@@ -79,6 +89,9 @@ for (const entry of pages) {
       failures.push({ path, label, reason: `HTTP ${status}` });
       await page.close();
       continue;
+    }
+    if (SETTLE_MS > 0) {
+      await page.waitForTimeout(SETTLE_MS);
     }
     const out = join(OUT_DIR, `${label}.png`);
     await page.screenshot({ path: out, fullPage: true });
