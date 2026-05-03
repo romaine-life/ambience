@@ -13,6 +13,7 @@ REPO_SLUG="${AMBIENCE_REPO_SLUG:-nelsong6/ambience}"
 REPO_DIR="${AMBIENCE_REPO_DIR:-/workspace/ambience}"
 RELEASE_NAME="${AMBIENCE_VALIDATION_RELEASE:-ambience-agent}"
 CLAUDE_NAMESPACE="${CLAUDE_NAMESPACE:-tank-operator}"
+CLAUDE_CA_NAMESPACE="${CLAUDE_CA_NAMESPACE:-tank-operator-sessions}"
 
 NAMESPACE="${GLIMMUNG_VALIDATION_NAMESPACE}"
 VALIDATION_HOST="${NAMESPACE}.ambience.dev.romaine.life"
@@ -83,11 +84,13 @@ emit_env_outputs() {
     --arg namespace "$NAMESPACE" \
     --arg image_tag "$IMAGE_TAG" \
     --arg claude_namespace "$CLAUDE_NAMESPACE" \
+    --arg claude_ca_namespace "$CLAUDE_CA_NAMESPACE" \
     '{
       validation_url: $validation_url,
       namespace: $namespace,
       image_tag: $image_tag,
-      claude_namespace: $claude_namespace
+      claude_namespace: $claude_namespace,
+      claude_ca_namespace: $claude_ca_namespace
     }' >/tmp/ambience-env-outputs.json
   cat /tmp/ambience-env-outputs.json
 }

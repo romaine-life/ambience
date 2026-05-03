@@ -17,6 +17,7 @@ REPO_SLUG="${AMBIENCE_REPO_SLUG:-nelsong6/ambience}"
 REPO_DIR="${AMBIENCE_REPO_DIR:-/workspace/ambience}"
 AGENT_CONTAINER_TAG="${AGENT_CONTAINER_TAG:-latest}"
 CLAUDE_NAMESPACE="${GLIMMUNG_INPUT_CLAUDE_NAMESPACE:-tank-operator}"
+CLAUDE_CA_NAMESPACE="${GLIMMUNG_INPUT_CLAUDE_CA_NAMESPACE:-${CLAUDE_CA_NAMESPACE:-tank-operator-sessions}}"
 
 VALIDATION_URL="${GLIMMUNG_INPUT_VALIDATION_URL}"
 NAMESPACE="${GLIMMUNG_INPUT_NAMESPACE}"
@@ -53,9 +54,10 @@ install_preview_package() {
 }
 
 copy_claude_ca() {
-  kubectl -n "$CLAUDE_NAMESPACE" get configmap claude-oauth-ca -o json \
+  kubectl -n "$CLAUDE_CA_NAMESPACE" get configmap claude-oauth-ca -o json \
     | NAMESPACE="$NAMESPACE" jq '
         del(
+          .metadata.annotations,
           .metadata.uid,
           .metadata.resourceVersion,
           .metadata.generation,

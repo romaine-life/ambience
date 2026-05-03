@@ -58,7 +58,13 @@ workflow_payload="$(
         {
           name: "env-prep",
           kind: "k8s_job",
-          outputs: ["validation_url", "namespace", "image_tag", "claude_namespace"],
+          outputs: [
+            "validation_url",
+            "namespace",
+            "image_tag",
+            "claude_namespace",
+            "claude_ca_namespace"
+          ],
           jobs: [
             {
               id: "env-prep",
@@ -87,7 +93,8 @@ workflow_payload="$(
             validation_url: "${{ phases.env-prep.outputs.validation_url }}",
             namespace: "${{ phases.env-prep.outputs.namespace }}",
             image_tag: "${{ phases.env-prep.outputs.image_tag }}",
-            claude_namespace: "${{ phases.env-prep.outputs.claude_namespace }}"
+            claude_namespace: "${{ phases.env-prep.outputs.claude_namespace }}",
+            claude_ca_namespace: "${{ phases.env-prep.outputs.claude_ca_namespace }}"
           },
           verify: true,
           recycle_policy: {
