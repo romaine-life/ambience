@@ -258,18 +258,17 @@ capture_screenshots() {
 }
 
 upload_screenshots() {
-  local storage_account="${AGENT_SCREENSHOT_STORAGE_ACCOUNT:-infraagentscreens}"
-  local container="${AGENT_SCREENSHOT_CONTAINER:-ambience}"
-  local container_url="${AGENT_SCREENSHOT_CONTAINER_URL:-https://infraagentscreens.blob.core.windows.net/ambience}"
+  local storage_account="${AGENT_SCREENSHOT_STORAGE_ACCOUNT:-romaineglimmungartifacts}"
+  local container="${AGENT_SCREENSHOT_CONTAINER:-artifacts}"
+  local container_url="${AGENT_SCREENSHOT_CONTAINER_URL:-https://glimmung.romaine.life/v1/artifacts}"
   local max_screenshots="${MAX_SCREENSHOTS:-20}"
-  local prefix safe_ref staging total taken upload_ok
+  local prefix staging total taken upload_ok
 
   if ! compgen -G "/tmp/evidence/screenshots/*.png" >/dev/null; then
     return 0
   fi
 
-  safe_ref="$(printf '%s' "$ISSUE_REFERENCE" | tr -c 'A-Za-z0-9._-' '-')"
-  prefix="issue-${safe_ref}/${GLIMMUNG_RUN_ID}"
+  prefix="runs/${GLIMMUNG_PROJECT}/${GLIMMUNG_RUN_ID}/screenshots"
   staging="$(mktemp -d)"
   total=0
   taken=0
