@@ -1,0 +1,79 @@
+name: Build Native Glimmung Runner Image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/runner/Dockerfile"
+      - ".github/workflows/build-native-runner-image.yml"
+      - "mcp/**"
+      - "scripts/glimmung-native/**"
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: "Git ref or commit SHA to build. Leave blank to build the dispatch revision."
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: build-native-glimmung-runner-image
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    name: Build native runner image and push to ACR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve requested ref
+        env:
+          INPUT_REF: ${{ inputs.git_ref }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
+
+          target_ref="${INPUT_REF:-$GITHUB_SHA}"
+          if full_sha="$(git rev-parse --verify "${target_ref}^{commit}" 2>/dev/null)"; then
+            :
+          elif git show-ref --verify --quiet "refs/remotes/origin/${target_ref}"; then
+            full_sha="$(git rev-parse "refs/remotes/origin/${target_ref}^{commit}")"
+          elif git show-ref --verify --quiet "refs/tags/${target_ref}"; then
+            full_sha="$(git rev-parse "refs/tags/${target_ref}^{commit}")"
+          else
+            echo "::error::Unable to resolve git_ref '${target_ref}' to a commit."
+            exit 1
+          fi
+
+          git checkout --detach "$full_sha"
+          echo "resolved ${target_ref} -> ${full_sha}"
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.ARM_CLIENT_ID }}
+          tenant-id: ${{ vars.ARM_TENANT_ID }}
+          subscription-id: ${{ vars.ARM_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        run: az acr login --name romainecr
+
+      - name: Resolve image tag
+        run: |
+          tag="native-$(git rev-parse --short=7 HEAD)"
+          echo "TAG=${tag}" >> "$GITHUB_ENV"
+          echo "Built ref $(git rev-parse HEAD) as romainecr.azurecr.io/ambience-agent-runner:${tag}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build and push image
+        run: |
+          image="romainecr.azurecr.io/ambience-agent-runner:${TAG}"
+          docker build -f .github/runner/Dockerfile -t "$image" .
+          docker push "$image"
