@@ -8,8 +8,6 @@ resource "azuread_application" "oauth_registration" {
   display_name     = "ambience-oauth"
   sign_in_audience = "AzureADMyOrg"
 
-  owners = [data.azuread_client_config.current.object_id]
-
   api {
     requested_access_token_version = 2
   }
