@@ -209,10 +209,11 @@ write_verification() {
 }
 
 fetch_agent_branch() {
-  local token
+  local token auth_header
   token="$(native_github_token)"
+  auth_header="$(native_git_auth_header "$token")"
   git -C "$REPO_DIR" \
-    -c "http.extraHeader=Authorization: Bearer ${token}" \
+    -c "http.extraHeader=${auth_header}" \
     fetch origin "refs/heads/${BRANCH_NAME}:refs/remotes/origin/${BRANCH_NAME}"
   git -C "$REPO_DIR" checkout -B "$BRANCH_NAME" "origin/${BRANCH_NAME}"
 }
@@ -348,9 +349,10 @@ verify_result() {
 }
 
 push_branch() {
-  local token
+  local token auth_header
   token="$(native_github_token)"
-  if git -c "http.extraHeader=Authorization: Bearer ${token}" \
+  auth_header="$(native_git_auth_header "$token")"
+  if git -c "http.extraHeader=${auth_header}" \
       ls-remote --exit-code "https://github.com/${REPO_SLUG}.git" "refs/heads/${BRANCH_NAME}" >/dev/null; then
     kubectl label namespace "$NAMESPACE" "ambience.io/branch=${BRANCH_NAME//\//-}" --overwrite || true
     echo "branch ${BRANCH_NAME} is present"
