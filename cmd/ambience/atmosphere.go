@@ -114,23 +114,6 @@ func newAtmosphere(_ sim.Config) *atmosphere {
 	return newAtmosphereWithEffect("rain")
 }
 
-func newAtmosphereForPolicy(p rotationPolicy) *atmosphere {
-	if p.Enabled {
-		seed := time.Now().UnixNano()
-		rng := rngutil.New(seed ^ 0x4d1f8b53c0ffee)
-		pool := p.resolvedAllowedEffects()
-		pick := pickNextEffect(rng, pool, "rain")
-		if pick != "" {
-			a := newAtmosphereWithEffectAndSeed(pick, seed)
-			if pick != "rain" && p.CadenceTicks > 0 {
-				a.current.DurationTicks = p.CadenceTicks
-			}
-			return a
-		}
-	}
-	return newAtmosphereWithEffect("rain")
-}
-
 func newAtmosphereWithEffect(effectType string) *atmosphere {
 	return newAtmosphereWithEffectAndSeed(effectType, time.Now().UnixNano())
 }

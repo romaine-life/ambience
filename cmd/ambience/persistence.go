@@ -48,9 +48,10 @@ type persistedAtmosphere struct {
 	// RotationStartTick is the tick on the active effect runtime at which
 	// the current effect became current — preserved across restarts so
 	// rotation cadence isn't reset by a pod restart. Old persisted blobs
-	// without this field default to 0, which is correct for a freshly-
-	// installed effect.
-	RotationStartTick int `json:"rotationStartTick"`
+	// without this field are detected during restore and anchored to the
+	// restored effect's current tick, preserving the running effect instead
+	// of immediately rotating away from it.
+	RotationStartTick *int `json:"rotationStartTick,omitempty"`
 }
 
 func newPersistenceStoreFromEnv() (persistenceStore, time.Duration, error) {
@@ -137,7 +138,7 @@ func restoreSharedAtmosphere(ctx context.Context, store persistenceStore) *atmos
 }
 
 func restoreSharedAtmosphereWithPolicy(ctx context.Context, store persistenceStore, policy rotationPolicy) *atmosphere {
-	fresh := newAtmosphereForPolicy(policy)
+	fresh := newAtmosphere(sim.Config{})
 	if store == nil {
 		return fresh
 	}
@@ -190,7 +191,11 @@ func restoreSharedAtmosphereWithPolicy(ctx context.Context, store persistenceSto
 	a.transitionTo = state.Transition.To
 	a.transitionStart = state.Transition.Start
 	a.transitionDur = state.Transition.Dur
-	a.rotationStartTick = state.RotationStartTick
+	if state.RotationStartTick != nil {
+		a.rotationStartTick = *state.RotationStartTick
+	} else if policy.Enabled {
+		a.rotationStartTick = a.effect.CurrentTick()
+	}
 	if a.transitionDur > 0 {
 		a.cfg = state.Transition.From
 	}
@@ -214,6 +219,7 @@ func (a *atmosphere) persistedState() persistedAtmosphere {
 		Dur:   a.transitionDur,
 	}
 	rotationStartTick := a.rotationStartTick
+	rotationStartTickPtr := &rotationStartTick
 	a.mu.Unlock()
 
 	effectState, err := a.effect.Persisted()
@@ -242,6 +248,6 @@ func (a *atmosphere) persistedState() persistedAtmosphere {
 		NextScene:         next,
 		EntropyBytes:      entropyBytes,
 		Transition:        transition,
-		RotationStartTick: rotationStartTick,
+		RotationStartTick: rotationStartTickPtr,
 	}
 }

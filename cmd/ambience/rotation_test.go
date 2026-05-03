@@ -67,21 +67,6 @@ func TestMaybeRotateEffectDisabledByDefault(t *testing.T) {
 	}
 }
 
-func TestFreshAtmosphereForPolicyDoesNotForceRain(t *testing.T) {
-	a := newAtmosphereForPolicy(rotationPolicy{
-		Enabled:      true,
-		CadenceTicks: 10,
-		Allowed:      []string{"rain", "campfire"},
-	})
-	snap := a.snapshot()
-	if snap.Type != "campfire" {
-		t.Fatalf("fresh policy atmosphere type = %q, want campfire", snap.Type)
-	}
-	if snap.CurrentScene.DurationTicks != 10 {
-		t.Fatalf("fresh policy scene duration = %d, want 10", snap.CurrentScene.DurationTicks)
-	}
-}
-
 func TestMaybeRotateEffectFiresAfterCadence(t *testing.T) {
 	a := newAtmosphere(sim.Config{})
 	a.setRotationPolicy(rotationPolicy{
@@ -173,6 +158,7 @@ func TestRotationStateSurvivesPersistRoundTrip(t *testing.T) {
 	})
 	a.mu.Lock()
 	a.rotationStartTick = 42
+	want := a.rotationStartTick
 	a.mu.Unlock()
 
 	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
@@ -184,8 +170,36 @@ func TestRotationStateSurvivesPersistRoundTrip(t *testing.T) {
 	restored.mu.Lock()
 	got := restored.rotationStartTick
 	restored.mu.Unlock()
-	if got != 42 {
-		t.Fatalf("rotationStartTick after restore = %d; want 42", got)
+	if got != want {
+		t.Fatalf("rotationStartTick after restore = %d; want %d", got, want)
+	}
+}
+
+func TestRestoreOldStateAnchorsRotationAtRestoredTick(t *testing.T) {
+	a := newAtmosphere(sim.Config{})
+	for i := 0; i < 25; i++ {
+		a.effect.Step()
+	}
+	state := a.persistedState()
+	state.RotationStartTick = nil
+
+	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
+	if err := store.Save(context.Background(), state); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	restored := restoreSharedAtmosphereWithPolicy(context.Background(), store, rotationPolicy{
+		Enabled:      true,
+		CadenceTicks: 10,
+	})
+	restored.mu.Lock()
+	got := restored.rotationStartTick
+	restored.mu.Unlock()
+	if got != restored.effect.CurrentTick() {
+		t.Fatalf("rotationStartTick after old-state restore = %d; want current tick %d", got, restored.effect.CurrentTick())
+	}
+	if rotated := restored.maybeRotateEffect(restored.effect.CurrentTick()); rotated {
+		t.Fatal("old-state restore rotated immediately instead of preserving restored effect")
 	}
 }
 
