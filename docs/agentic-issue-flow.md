@@ -84,3 +84,10 @@ Codex, and the native Ambience scripts under `/opt/ambience-native/scripts`.
 resume surface for future MCP/API dispatches; a caller that wants to resume
 from a particular point should pass `GLIMMUNG_RESUME_FROM_STEP=<step-slug>`
 when creating the next native attempt.
+
+## Evidence
+
+`agent-execute` uploads screenshots to Glimmung-owned private artifact storage
+under `runs/<project>/<run-id>/screenshots/`. PR and Report markdown link
+through `https://glimmung.romaine.life/v1/artifacts/...`; public reviewers do
+not access the storage account directly.
