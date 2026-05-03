@@ -85,6 +85,7 @@ write_agent_prompt() {
     echo "URL: ${ISSUE_URL}"
     echo "Validation env: ${VALIDATION_URL}"
     echo "Glimmung run: ${GLIMMUNG_RUN_ID}"
+    echo "Glimmung attempt index: ${GLIMMUNG_ATTEMPT_INDEX:-unknown}"
     if [ -n "${GLIMMUNG_ISSUE_BODY:-}" ]; then
       echo ""
       echo "## Issue body"
