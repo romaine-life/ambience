@@ -85,6 +85,12 @@ write_agent_prompt() {
     echo "URL: ${ISSUE_URL}"
     echo "Validation env: ${VALIDATION_URL}"
     echo "Glimmung run: ${GLIMMUNG_RUN_ID}"
+    if [ -n "${GLIMMUNG_ISSUE_BODY:-}" ]; then
+      echo ""
+      echo "## Issue body"
+      echo ""
+      printf '%s\n' "$GLIMMUNG_ISSUE_BODY"
+    fi
   } >>"$dest"
   echo "agent prompt size: $(wc -l <"$dest") lines, $(wc -c <"$dest") bytes"
 }
