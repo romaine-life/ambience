@@ -349,26 +349,26 @@
 			// faint cigarette stem from the figure's mouth area to the ember
 			const mouthX = figureCenterX + Math.round(headRadius * 0.6) * (emberX >= figureCenterX ? 1 : -1);
 			const mouthY = headCenterY + Math.max(1, Math.round(headRadius * 0.5));
+			const cigDir = emberX >= mouthX ? 1 : -1;
 			if (silAlpha > 0.05 && Math.abs(emberX - mouthX) > 0) {
 				const stemColor = hslToRGB(0, 0, 0.55);
 				const steps = Math.max(1, Math.abs(emberX - mouthX));
-				const dx = emberX > mouthX ? 1 : -1;
 				for (let i = 1; i < steps; i++) {
-					const cx = mouthX + dx * i;
+					const cx = mouthX + cigDir * i;
 					const t = i / Math.max(1, steps);
 					const cy = Math.round(mouthY + (emberY - mouthY) * t);
 					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, cx, cy, 1, 1, `rgb(${stemColor.r},${stemColor.g},${stemColor.b})`, clamp01(0.22 * silAlpha));
 				}
 			}
 
-			// ember itself: a tiny bright pixel + a bloom point
+			// ember itself: square pixel-art tip with flat ends
 			const emberHueShift = (this.cfg.hue + 6) % 360;
 			const emberCore = hslToRGB(emberHueShift, clamp01(this.cfg.sat * 0.95), clamp01(this.cfg.lmax * (0.86 + emberPulse * 0.14)));
 			const emberRim = hslToRGB((this.cfg.hue + 350) % 360, clamp01(this.cfg.sat), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.7));
-			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, emberX, emberY, 1, 1, `rgb(${emberCore.r},${emberCore.g},${emberCore.b})`, clamp01(0.6 + emberPulse * 0.4));
-			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, emberX - 1, emberY, 1, 1, `rgb(${emberRim.r},${emberRim.g},${emberRim.b})`, clamp01(0.32 + emberPulse * 0.32));
-			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, emberX + 1, emberY, 1, 1, `rgb(${emberRim.r},${emberRim.g},${emberRim.b})`, clamp01(0.28 + emberPulse * 0.32));
-			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, emberX, emberY + 1, 1, 1, `rgb(${emberRim.r},${emberRim.g},${emberRim.b})`, clamp01(0.22 + emberPulse * 0.28));
+			const emberAlpha = clamp01(0.6 + emberPulse * 0.4);
+			const rimAlpha = clamp01(0.3 + emberPulse * 0.34);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, emberX - cigDir, emberY, 1, 1, `rgb(${emberRim.r},${emberRim.g},${emberRim.b})`, rimAlpha);
+			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, emberX, emberY, 1, 1, `rgb(${emberCore.r},${emberCore.g},${emberCore.b})`, emberAlpha);
 
 			// drifting smoke puffs above the ember
 			const smokeColor = hslToRGB((this.cfg.hue + 220) % 360, 0.06, clamp01(0.62 + this.cfg.lmin * 0.4));
