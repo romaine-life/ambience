@@ -65,7 +65,8 @@ deploy_validation_env() {
       --namespace "$NAMESPACE" \
       --image "$image" \
       --release "$RELEASE_NAME" \
-      --public-host "$VALIDATION_HOST"
+      --public-host "$VALIDATION_HOST" \
+      --no-create-namespace
   )
 }
 

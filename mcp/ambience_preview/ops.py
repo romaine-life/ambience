@@ -147,6 +147,7 @@ def deploy_preview(
     image: str,
     release: str = DEFAULT_RELEASE_NAME,
     public_host: str | None = None,
+    create_namespace: bool = True,
     tls_secret_name: str | None = None,
     timeout: str = "10m",
     rollout_timeout: str = "180s",
@@ -160,11 +161,12 @@ def deploy_preview(
         str(chart_path()),
         "--namespace",
         namespace,
-        "--create-namespace",
         "--wait",
         "--timeout",
         timeout,
     ]
+    if create_namespace:
+        command.append("--create-namespace")
 
     string_values = {
         "image.repository": image_repository,
