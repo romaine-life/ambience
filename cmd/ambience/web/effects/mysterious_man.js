@@ -265,19 +265,32 @@
 			const breathPhase = Math.sin(this.tick * 0.05);
 			const emberPulse = clamp01(this.cfg.ember_brightness * (1 + breathPhase * this.cfg.ember_pulse * 0.45) * ember);
 
-			// soft ember halo cast around the cigarette
-			const haloR = Math.max(20, Math.min(canvasW, canvasH) * (0.05 + emberPulse * 0.09));
-			const haloX = emberX * sx;
-			const haloY = emberY * sy;
+			// stepped pixel-art halo: square Chebyshev rings around the ember
+			const haloR = Math.max(2, Math.round(Math.min(this.w, this.h) * (0.06 + emberPulse * 0.1)));
 			const haloHue = (this.cfg.hue + 4) % 360;
 			const haloCore = hslToRGB(haloHue, clamp01(this.cfg.sat * 0.95), clamp01(this.cfg.lmax * 0.9));
 			const haloMid = hslToRGB((this.cfg.hue + 350) % 360, clamp01(this.cfg.sat * 0.7), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.4));
-			const haloGrad = ctx.createRadialGradient(haloX, haloY, 0, haloX, haloY, haloR);
-			haloGrad.addColorStop(0, `rgba(${haloCore.r},${haloCore.g},${haloCore.b},${0.32 + emberPulse * 0.4})`);
-			haloGrad.addColorStop(0.5, `rgba(${haloMid.r},${haloMid.g},${haloMid.b},${0.12 + emberPulse * 0.18})`);
-			haloGrad.addColorStop(1, `rgba(${haloMid.r},${haloMid.g},${haloMid.b},0)`);
-			ctx.fillStyle = haloGrad;
-			ctx.fillRect(haloX - haloR, haloY - haloR, haloR * 2, haloR * 2);
+			const haloPeak = 0.32 + emberPulse * 0.4;
+			for (let d = 1; d <= haloR; d++) {
+				const t = d / haloR;
+				const blend = Math.pow(t, 0.85);
+				const r = Math.round(haloCore.r * (1 - blend) + haloMid.r * blend);
+				const g = Math.round(haloCore.g * (1 - blend) + haloMid.g * blend);
+				const b = Math.round(haloCore.b * (1 - blend) + haloMid.b * blend);
+				const ringAlpha = clamp01(haloPeak * Math.pow(1 - t, 1.4));
+				if (ringAlpha < 0.02) continue;
+				const color = `rgb(${r},${g},${b})`;
+				// top and bottom edges of the square ring
+				for (let dx = -d; dx <= d; dx++) {
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, emberX + dx, emberY - d, 1, 1, color, ringAlpha);
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, emberX + dx, emberY + d, 1, 1, color, ringAlpha);
+				}
+				// left and right edges (excluding corners already drawn)
+				for (let dy = -d + 1; dy <= d - 1; dy++) {
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, emberX - d, emberY + dy, 1, 1, color, ringAlpha);
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, emberX + d, emberY + dy, 1, 1, color, ringAlpha);
+				}
+			}
 
 			// silhouette body (only renders once the intro reveal has progressed)
 			const silAlpha = clamp01(this.cfg.silhouette * reveal);
