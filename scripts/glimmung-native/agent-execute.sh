@@ -356,7 +356,6 @@ push_branch() {
   auth_header="$(native_git_auth_header "$token")"
   if git -c "http.extraHeader=${auth_header}" \
       ls-remote --exit-code "https://github.com/${REPO_SLUG}.git" "refs/heads/${BRANCH_NAME}" >/dev/null; then
-    kubectl label namespace "$NAMESPACE" "ambience.io/branch=${BRANCH_NAME//\//-}" --overwrite || true
     echo "branch ${BRANCH_NAME} is present"
     return 0
   fi
