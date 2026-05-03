@@ -4,13 +4,11 @@
 # browser control sign-in, while the public client id is published to Key Vault
 # for the chart to project into the authority pod.
 
-resource "azuread_application" "oauth_registration" {
+resource "azuread_application" "oauth" {
   display_name     = "ambience-oauth"
   sign_in_audience = "AzureADMyOrg"
 
-  lifecycle {
-    ignore_changes = [owners]
-  }
+  owners = [data.azuread_client_config.current.object_id]
 
   api {
     requested_access_token_version = 2
@@ -40,12 +38,12 @@ resource "azuread_application" "oauth_registration" {
   }
 }
 
-resource "azuread_service_principal" "oauth_service_principal" {
-  client_id = azuread_application.oauth_registration.client_id
+resource "azuread_service_principal" "oauth" {
+  client_id = azuread_application.oauth.client_id
 }
 
 resource "azurerm_key_vault_secret" "oauth_client_id" {
   name         = "ambience-oauth-client-id"
-  value        = azuread_application.oauth_registration.client_id
+  value        = azuread_application.oauth.client_id
   key_vault_id = data.azurerm_key_vault.main.id
 }
