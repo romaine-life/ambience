@@ -199,6 +199,17 @@
     cursor: default;
     opacity: 0.55;
   }
+  .lock-actions {
+    display: flex;
+    gap: 6px;
+  }
+  .sign-out-button {
+    display: none;
+    min-width: 70px;
+  }
+  .sign-out-button.visible {
+    display: inline-block;
+  }
   .hint {
     margin-top: 6px;
     font-size: 10px;
@@ -423,7 +434,10 @@
           <span class="eyebrow">live controls</span>
           <span class="lock-state locked" id="lockState">view only</span>
         </div>
-        <button class="lock-button" id="lockButton" type="button">unlock</button>
+        <div class="lock-actions">
+          <button class="lock-button sign-out-button" id="signOutButton" type="button">sign out</button>
+          <button class="lock-button" id="lockButton" type="button">unlock</button>
+        </div>
       </div>
       <div class="hint" id="lockHelp">Controls mirror the shared atmosphere, but slider moves and fire buttons stay inert until you unlock them.</div>
     </div>
@@ -503,6 +517,7 @@
     entropyCount: document.getElementById('entropyCount'),
     events: document.getElementById('events'),
     lockButton: document.getElementById('lockButton'),
+    signOutButton: document.getElementById('signOutButton'),
     lockState: document.getElementById('lockState'),
     lockHelp: document.getElementById('lockHelp'),
     effectSelect: document.getElementById('effectSelect'),
@@ -528,6 +543,8 @@
     const nextLocked = locked || !controlAuthenticated;
     controls.setLocked(nextLocked);
     el.lockButton.disabled = false;
+    el.signOutButton.disabled = false;
+    el.signOutButton.classList.toggle('visible', controlAuthenticated && controlAuthRequired);
     el.lockButton.classList.toggle('unlocked', !nextLocked && controlAuthenticated);
     el.lockState.classList.toggle('locked', nextLocked);
     el.lockState.classList.toggle('unlocked', !nextLocked && controlAuthenticated);
@@ -563,6 +580,38 @@
       controlAuthenticated = false;
     }
     setControlsLocked(controls.isLocked());
+  }
+
+  function microsoftLogoutURL() {
+    const q = new URLSearchParams({
+      post_logout_redirect_uri: window.location.origin + '/auth/callback',
+    });
+    return 'https://login.microsoftonline.com/' + encodeURIComponent(microsoftTenant) + '/oauth2/v2.0/logout?' + q.toString();
+  }
+
+  async function signOutControls() {
+    el.lockButton.disabled = true;
+    el.signOutButton.disabled = true;
+    const shouldSignOutMicrosoft = controlAuthProvider === 'microsoft' && microsoftTenant;
+    try {
+      await fetch('/control-auth', {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+    } catch (err) {
+      console.error('control auth sign out', err);
+    }
+    controlAuthenticated = false;
+    sessionStorage.removeItem('ambience.microsoft.state');
+    sessionStorage.removeItem('ambience.microsoft.nonce');
+    setControlsLocked(true);
+    log('live controls signed out', 'system');
+    if (shouldSignOutMicrosoft) {
+      window.location.assign(microsoftLogoutURL());
+      return;
+    }
+    el.lockButton.disabled = false;
+    el.signOutButton.disabled = false;
   }
 
   function microsoftAuthURL() {
@@ -704,6 +753,9 @@
       return;
     }
     setControlsLocked(!controls.isLocked());
+  });
+  el.signOutButton.addEventListener('click', () => {
+    signOutControls();
   });
   handleMicrosoftCallback();
   refreshControlAuth();
