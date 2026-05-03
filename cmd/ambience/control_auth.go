@@ -122,7 +122,11 @@ func (a *controlAuthenticator) login(w http.ResponseWriter, req *http.Request) {
 		SameSite: http.SameSiteStrictMode,
 		Secure:   req.TLS != nil || req.Header.Get("X-Forwarded-Proto") == "https",
 	})
-	a.writeStatus(w, req)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]bool{
+		"required":      true,
+		"authenticated": true,
+	})
 }
 
 func (a *controlAuthenticator) logout(w http.ResponseWriter, req *http.Request) {
