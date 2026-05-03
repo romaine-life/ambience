@@ -19,5 +19,13 @@ import {
 # The first Ambience-owned apply ran before these imports existed and created
 # duplicate app/SP objects at the old azuread_application.oauth and
 # azuread_service_principal.oauth addresses. Those addresses are intentionally
-# absent from configuration now, so the next apply destroys only that partial
-# duplicate while importing the original registration above.
+# forgotten rather than destroyed because Ambience's app-owned CI identity
+# should not need directory-wide privileges to clean up bootstrap fallout.
+
+removed {
+  from = azuread_application.oauth
+}
+
+removed {
+  from = azuread_service_principal.oauth
+}
