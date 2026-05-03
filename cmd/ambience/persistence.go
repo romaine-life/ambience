@@ -182,6 +182,7 @@ func restoreSharedAtmosphereWithPolicy(ctx context.Context, store persistenceSto
 		listeners:  make(map[chan Command]struct{}),
 		lastSeen:   time.Now(),
 	}
+	a.normalizeRestoredSceneLabels(state.Type)
 	if err := a.effect.RestorePersisted(state.Effect); err != nil {
 		log.Printf("restore %s state: %v; starting fresh", state.Type, err)
 		return fresh
@@ -202,6 +203,31 @@ func restoreSharedAtmosphereWithPolicy(ctx context.Context, store persistenceSto
 
 	log.Printf("restored shared atmosphere from %s at tick %d", state.SavedAt.Format(time.RFC3339), a.effect.CurrentTick())
 	return a
+}
+
+func (a *atmosphere) normalizeRestoredSceneLabels(effectType string) {
+	if effectType == "rain" {
+		return
+	}
+	currentDur := a.current.DurationTicks
+	if currentDur <= 0 {
+		currentDur = defaultRotationCadenceTicks
+	}
+	if a.current.Name == "" || a.current.Name == effectType {
+		a.current = generateEffectScene(effectType, a.sceneRNG, a.current.StartedAtTick, currentDur)
+	} else {
+		a.current.DurationTicks = currentDur
+	}
+
+	nextDur := a.next.DurationTicks
+	if nextDur <= 0 {
+		nextDur = currentDur
+	}
+	if a.next.Name == "" || a.next.Name == effectType {
+		a.next = generateEffectScene(effectType, a.sceneRNG, a.next.StartedAtTick, nextDur)
+	} else {
+		a.next.DurationTicks = nextDur
+	}
 }
 
 func (a *atmosphere) persistedState() persistedAtmosphere {

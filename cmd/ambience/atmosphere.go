@@ -132,19 +132,15 @@ func newAtmosphereWithEffectAndSeed(effectType string, seed int64) *atmosphere {
 	var cfgData json.RawMessage
 	var cfg sim.Config
 	if effectType == "rain" {
-		first = generateScene(sceneRNG, 0)
+		first = generateEffectScene(effectType, sceneRNG, 0, 0)
 		// Pre-generate the next scene too — the "single-slot lookahead" model.
 		// StartedAtTick is set when it's promoted to current.
-		nxt = generateScene(sceneRNG, 0)
+		nxt = generateEffectScene(effectType, sceneRNG, 0, 0)
 		cfg = first.Config
 		cfgData, _ = json.Marshal(first.Config)
 	} else {
-		first = Scene{
-			Name:          effectType,
-			DurationTicks: defaultRotationCadenceTicks,
-			StartedAtTick: 0,
-		}
-		nxt = Scene{Name: effectType}
+		first = generateEffectScene(effectType, sceneRNG, 0, defaultRotationCadenceTicks)
+		nxt = generateEffectScene(effectType, sceneRNG, 0, defaultRotationCadenceTicks)
 	}
 	return &atmosphere{
 		effect:    mustNewEffectRuntime(effectType, gridW, gridH, seed, cfgData),
@@ -256,23 +252,30 @@ func (a *atmosphere) applyTransition(cur int) {
 // updates; config drift starts broadcasting on the next tick.
 func (a *atmosphere) rotateScene(tick int) {
 	a.mu.Lock()
-	fromCfg := a.cfg
+	effectType := a.effect.Type()
 	promoted := a.next
 	promoted.StartedAtTick = tick
 	a.current = promoted
-	a.next = generateScene(a.sceneRNG, 0)
+	a.next = generateEffectScene(effectType, a.sceneRNG, 0, promoted.DurationTicks)
 	currentCopy := a.current
 	nextName := a.next.Name
-	// Transition cap: keep drift bounded by the new scene's duration so we
-	// never drift across a scene boundary. Half the scene, max 60 s.
-	dur := maxTransitionTicks
-	if half := promoted.DurationTicks / 2; half < dur {
-		dur = half
+	dur := 0
+	if effectType == "rain" {
+		fromCfg := a.cfg
+		// Transition cap: keep drift bounded by the new scene's duration so we
+		// never drift across a scene boundary. Half the scene, max 60 s.
+		dur = maxTransitionTicks
+		if half := promoted.DurationTicks / 2; half < dur {
+			dur = half
+		}
+		a.transitionFrom = fromCfg
+		a.transitionTo = promoted.Config
+		a.transitionStart = tick
+		a.transitionDur = dur
+	} else {
+		a.transitionDur = 0
+		a.transitionStart = 0
 	}
-	a.transitionFrom = fromCfg
-	a.transitionTo = promoted.Config
-	a.transitionStart = tick
-	a.transitionDur = dur
 	a.mu.Unlock()
 
 	sceneData, _ := json.Marshal(map[string]interface{}{
@@ -353,20 +356,16 @@ func (a *atmosphere) rotateToEffect(cur int, effectType string) bool {
 	previousType := a.effect.Type()
 	var newScene, newNext Scene
 	if effectType == "rain" {
-		newScene = generateScene(a.sceneRNG, 0)
-		newNext = generateScene(a.sceneRNG, 0)
+		newScene = generateEffectScene(effectType, a.sceneRNG, 0, 0)
+		newNext = generateEffectScene(effectType, a.sceneRNG, 0, 0)
 		a.cfg = newScene.Config
 	} else {
 		slot := a.rotation.CadenceTicks
 		if slot <= 0 {
 			slot = defaultRotationCadenceTicks
 		}
-		newScene = Scene{
-			Name:          effectType,
-			DurationTicks: slot,
-			StartedAtTick: 0,
-		}
-		newNext = Scene{Name: effectType}
+		newScene = generateEffectScene(effectType, a.sceneRNG, 0, slot)
+		newNext = generateEffectScene(effectType, a.sceneRNG, 0, slot)
 		a.cfg = sim.Config{}
 	}
 	a.effect = rt

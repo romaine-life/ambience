@@ -30,6 +30,20 @@ func (s Scene) Remaining(currentTick int) int {
 	return r
 }
 
+func generateEffectScene(effectType string, rng *rngutil.RNG, startedAt int, durationTicks int) Scene {
+	if effectType == "rain" {
+		return generateScene(rng, startedAt)
+	}
+	if durationTicks <= 0 {
+		durationTicks = sceneDurationTicks(rng)
+	}
+	return Scene{
+		Name:          nameForEffectScene(effectType, rng),
+		DurationTicks: durationTicks,
+		StartedAtTick: startedAt,
+	}
+}
+
 // generateScene produces a Scene using rng. Duration is randomized across
 // 1–4 hours (36k–144k ticks at 10 Hz). The config ranges are kept within
 // sim-safe bounds so any generated scene is guaranteed to look reasonable.
@@ -81,21 +95,23 @@ func generateScene(rng *rngutil.RNG, startedAt int) Scene {
 		// Event modifiers fall through to withDefaults().
 	}
 
+	return Scene{
+		Name:          nameFor(cfg),
+		Config:        cfg,
+		DurationTicks: sceneDurationTicks(rng),
+		StartedAtTick: startedAt,
+	}
+}
+
+func sceneDurationTicks(rng *rngutil.RNG) int {
 	// Duration: 1–4 hours at 10 Hz. AMBIENCE_SCENE_TICKS overrides for local
-	// testing — e.g. set to 300 for 30 s scenes to watch transitions fire
-	// without a 90-minute wait. Production keeps the env var unset.
+	// testing, e.g. set to 300 for 30 s scenes to watch transitions fire.
 	const ticksPerHour = 36000
 	dur := ticksPerHour + rng.Intn(3*ticksPerHour)
 	if v, err := strconv.Atoi(os.Getenv("AMBIENCE_SCENE_TICKS")); err == nil && v > 0 {
 		dur = v
 	}
-
-	return Scene{
-		Name:          nameFor(cfg),
-		Config:        cfg,
-		DurationTicks: dur,
-		StartedAtTick: startedAt,
-	}
+	return dur
 }
 
 // nameFor derives a short human-readable descriptor from a generated config.
@@ -139,4 +155,60 @@ func nameFor(cfg sim.Config) string {
 	}
 
 	return fmt.Sprintf("%s-%s-%s", hueName, paceName, densityName)
+}
+
+var sceneNameAdjectives = []string{
+	"amber",
+	"blue",
+	"bright",
+	"calm",
+	"dim",
+	"drifting",
+	"faint",
+	"glowing",
+	"green",
+	"hushed",
+	"late",
+	"low",
+	"midnight",
+	"quiet",
+	"silver",
+	"slow",
+	"soft",
+	"violet",
+	"warm",
+}
+
+var effectSceneSubjects = map[string][]string{
+	"aurora":         {"aurora", "skyfire", "polar-lights", "northern-lights", "light-curtain"},
+	"autumn-leaves":  {"autumn-leaves", "fall-leaves", "leaf-fall"},
+	"beach":          {"beach", "shore", "tide", "surf"},
+	"burning-trees":  {"burning-trees", "forest-fire", "ember-woods"},
+	"campfire":       {"campfire", "firelight", "embers", "hearth"},
+	"dust":           {"dust", "motes", "haze"},
+	"fireflies":      {"fireflies", "glowflies", "lantern-bugs"},
+	"lighthouse":     {"lighthouse", "beacon", "harbor-light"},
+	"mysterious-man": {"mysterious-man", "stranger", "silhouette"},
+	"rowboat":        {"rowboat", "skiff", "small-boat"},
+	"sand":           {"sand", "dunes", "drift-sand"},
+	"snow":           {"snow", "snowfall", "flurries"},
+	"starfield":      {"starfield", "stars", "night-sky"},
+	"tetris":         {"tetris", "falling-blocks", "tetrominoes"},
+	"train":          {"train", "railway", "locomotive"},
+	"underwater":     {"underwater", "deepwater", "reef"},
+	"volcano":        {"volcano", "caldera", "lava"},
+	"water-pipe":     {"water-pipe", "pipe-flow", "spout"},
+	"waterfall":      {"waterfall", "falls", "cascade"},
+	"wheat-field":    {"wheat-field", "grain-field", "wheat"},
+	"windmill":       {"windmill", "mill", "sails"},
+}
+
+func nameForEffectScene(effectType string, rng *rngutil.RNG) string {
+	adjective := sceneNameAdjectives[rng.Intn(len(sceneNameAdjectives))]
+	subjects := effectSceneSubjects[effectType]
+	if len(subjects) == 0 {
+		subjects = []string{effectType}
+	}
+	subject := subjects[rng.Intn(len(subjects))]
+	return fmt.Sprintf("%s-%s", adjective, subject)
 }
