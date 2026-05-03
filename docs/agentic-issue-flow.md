@@ -91,3 +91,9 @@ when creating the next native attempt.
 under `runs/<project>/<run-id>/screenshots/`. PR and Report markdown link
 through `https://glimmung.romaine.life/v1/artifacts/...`; public reviewers do
 not access the storage account directly.
+
+The Glimmung-artifact upload path has been smoke-tested end-to-end through a
+Glimmung-dispatched native run against this repo: `agent-execute` captured a
+screenshot of the validation environment and pushed it to
+`runs/ambience/<run-id>/screenshots/` on `romaineglimmungartifacts`, with the
+proxy link rendering inline in the resulting PR body.
