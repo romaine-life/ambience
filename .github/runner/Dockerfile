@@ -46,6 +46,8 @@ RUN npm install -g @openai/codex \
     && rm -rf /root/.npm /opt/ambience-agent/.cache
 
 COPY scripts/glimmung-native /opt/ambience-native/scripts
-RUN chmod +x /opt/ambience-native/scripts/*.sh
+RUN chmod +x /opt/ambience-native/scripts/*.sh \
+    && mkdir -p /workspace \
+    && chown runner:runner /workspace
 
 USER runner
