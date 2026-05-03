@@ -70,6 +70,7 @@ func registerEdgeRoutes(mux *http.ServeMux, proxy *authorityProxy) {
 	mux.HandleFunc("/snapshot", cors(proxy.serveSnapshot))
 	mux.HandleFunc("/events", cors(proxy.serveEvents))
 	mux.HandleFunc("/entropy", cors(proxy.serveEntropy))
+	mux.HandleFunc("/control-auth", proxy.serveHTTP)
 	mux.HandleFunc("/config", proxy.serveHTTP)
 	mux.HandleFunc("/trigger/", proxy.serveHTTP)
 	mux.HandleFunc("/dev/snapshot", proxy.serveHTTP)

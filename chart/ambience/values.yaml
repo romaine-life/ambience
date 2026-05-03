@@ -116,6 +116,9 @@ authority:
     enabled: true
     cadence: 10m
     effects: []
+  controlAuth:
+    existingSecret: ""
+    passwordKey: password
   resources:
     requests:
       cpu: 10m

@@ -32,6 +32,9 @@ func serveSharedConfig(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
+	if !controlAuth.require(w, req) {
+		return
+	}
 	_, schema, err := sharedEffectSchema(req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -52,6 +55,9 @@ func serveSharedConfig(w http.ResponseWriter, req *http.Request) {
 func serveSharedTrigger(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	if !controlAuth.require(w, req) {
 		return
 	}
 	event := strings.Trim(strings.TrimPrefix(req.URL.Path, "/trigger/"), "/")
