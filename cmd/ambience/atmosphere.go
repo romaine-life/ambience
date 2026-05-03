@@ -33,6 +33,7 @@ const (
 	maxTransitionTicks       = 600 // 60 s at 10 Hz
 	transitionBroadcastEvery = 10  // every 1 s during drift
 	metricBroadcastEvery     = 50  // every 5 s as a low-rate heartbeat
+	clockBroadcastEvery      = 10  // every 1 s; sparse authority-clock samples
 )
 
 // Command is a single message sent from server to clients.
@@ -43,6 +44,7 @@ const (
 //	"trigger"   an event fired (downpour/calm/gust/splash)
 //	"scene"     scene rotated; carries new name + duration + next-up name
 //	"metric"    periodic status beat (entropy bytes, scene remaining)
+//	"clock"     sparse authority-clock sample for delayed client playback
 type Command struct {
 	ID    string          `json:"-"`
 	Kind  string          `json:"kind"`
@@ -73,6 +75,12 @@ type snapshotData struct {
 	NextScene      Scene `json:"nextScene"`
 	EntropyBytes   int64 `json:"entropyBytes"`
 	SceneRemaining int   `json:"sceneRemaining"`
+}
+
+type clockData struct {
+	Tick                int `json:"tick"`
+	TickRateMs          int `json:"tickRateMs"`
+	SuggestedDelayTicks int `json:"suggestedDelayTicks"`
 }
 
 type atmosphere struct {
@@ -158,8 +166,8 @@ func newAtmosphereWithEffectAndSeed(effectType string, seed int64) *atmosphere {
 //     next → current, generate new next, start a fresh transition
 //  4. drain sim log → broadcast trigger commands for fired events
 //
-// No periodic metric broadcast — that's event-driven now, fired from
-// AddEntropy and rotateScene.
+// The run loop also emits low-rate clock and metric heartbeats so browsers
+// can maintain delayed playback without a dense stream of pixel frames.
 func (a *atmosphere) run(ctx context.Context) {
 	t := time.NewTicker(tickRate)
 	defer t.Stop()
@@ -184,6 +192,9 @@ func (a *atmosphere) run(ctx context.Context) {
 			// supersedes the regenerated rain scene anyway.
 			if a.maybeRotateEffect(cur) {
 				cur = a.effect.CurrentTick()
+			}
+			if cur%clockBroadcastEvery == 0 {
+				a.broadcastClock(cur)
 			}
 			if cur%metricBroadcastEvery == 0 {
 				a.broadcastMetric(cur)
@@ -375,6 +386,15 @@ func (a *atmosphere) rotateToEffect(cur int, effectType string) bool {
 	a.broadcastMetric(0)
 	log.Printf("rotation: shared effect %s -> %s (tick %d)", previousType, effectType, cur)
 	return true
+}
+
+func (a *atmosphere) broadcastClock(tick int) {
+	data, _ := json.Marshal(clockData{
+		Tick:                tick,
+		TickRateMs:          int(tickRate / time.Millisecond),
+		SuggestedDelayTicks: 50,
+	})
+	a.broadcast(Command{Kind: "clock", Tick: tick, Data: data})
 }
 
 // broadcastMetric pushes the current entropy total + scene progress. Called

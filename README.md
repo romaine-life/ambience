@@ -118,6 +118,10 @@ commands:
 - **`trigger`** — a discrete event fired; clients apply its effects.
 - **`scene`** — scene rotation metadata for the live monitor.
 - **`metric`** — entropy and scene-progress heartbeat data.
+- **`clock`** — sparse authority tick samples. Clients use these like a
+  clock signal and render behind the authority by a small delay buffer, so
+  independent consumers can seek the same playback tick without streaming
+  dense per-frame state.
 
 Clients do not roll for discrete events — only the server does. The goal
 is for clients to treat the authority stream like a clock signal: restore
@@ -125,6 +129,12 @@ from snapshots, advance by authoritative ticks, and converge on the same
 visible phase after reconnects or effect changes. Any client-side RNG
 use should be deterministic from authority-provided state or limited to
 visual details that do not make subscribers visibly diverge.
+
+The browser client exposes `window.AmbienceClient.getDebugState()` when it
+is running. That returns the estimated authority tick, delayed playback
+tick, local sim tick, drift, queue depth, and active effect type; use it to
+compare `ambience.romaine.life` with subscribers such as
+`homepage.romaine.life` without adding transport volume.
 
 ## Effects model
 
