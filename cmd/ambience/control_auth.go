@@ -17,17 +17,20 @@ const controlAuthCookie = "ambience_control"
 type controlAuthenticator struct {
 	passwordHash [sha256.Size]byte
 	required     bool
+	microsoft    *microsoftControlAuth
 	mu           sync.Mutex
 	sessions     map[string]time.Time
 }
 
-func newControlAuthenticator(password string) *controlAuthenticator {
+func newControlAuthenticator(password string, microsoftCfg microsoftControlAuthConfig) *controlAuthenticator {
 	password = strings.TrimSpace(password)
+	microsoftAuth := newMicrosoftControlAuth(microsoftCfg)
 	a := &controlAuthenticator{
-		required: password != "",
-		sessions: make(map[string]time.Time),
+		required:  password != "" || microsoftAuth != nil,
+		microsoft: microsoftAuth,
+		sessions:  make(map[string]time.Time),
 	}
-	if a.required {
+	if password != "" {
 		a.passwordHash = sha256.Sum256([]byte(password))
 	}
 	return a
@@ -81,10 +84,16 @@ func (a *controlAuthenticator) serve(w http.ResponseWriter, req *http.Request) {
 
 func (a *controlAuthenticator) writeStatus(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]bool{
+	status := map[string]any{
 		"required":      a.required,
 		"authenticated": a.authenticated(req),
-	})
+	}
+	if a.microsoft != nil {
+		status["provider"] = "microsoft"
+		status["microsoftTenant"] = a.microsoft.tenant
+		status["microsoftClientId"] = a.microsoft.clientID
+	}
+	_ = json.NewEncoder(w).Encode(status)
 }
 
 func (a *controlAuthenticator) login(w http.ResponseWriter, req *http.Request) {
@@ -94,15 +103,24 @@ func (a *controlAuthenticator) login(w http.ResponseWriter, req *http.Request) {
 	}
 	var body struct {
 		Password string `json:"password"`
+		IDToken  string `json:"idToken"`
+		Nonce    string `json:"nonce"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 		http.Error(w, "bad auth payload", http.StatusBadRequest)
 		return
 	}
-	got := sha256.Sum256([]byte(body.Password))
-	if subtle.ConstantTimeCompare(got[:], a.passwordHash[:]) != 1 {
-		http.Error(w, "bad password", http.StatusUnauthorized)
-		return
+	if a.microsoft != nil {
+		if err := a.microsoft.verifyIDToken(req.Context(), body.IDToken, body.Nonce); err != nil {
+			http.Error(w, "bad microsoft token", http.StatusUnauthorized)
+			return
+		}
+	} else {
+		got := sha256.Sum256([]byte(body.Password))
+		if subtle.ConstantTimeCompare(got[:], a.passwordHash[:]) != 1 {
+			http.Error(w, "bad password", http.StatusUnauthorized)
+			return
+		}
 	}
 	token, err := randomToken()
 	if err != nil {

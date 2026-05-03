@@ -52,6 +52,17 @@ spec:
                   name: {{ .existingSecret | quote }}
                   key: {{ .passwordKey | quote }}
             {{- end }}
+            {{- with .microsoft }}
+            {{- if .enabled }}
+            - name: AMBIENCE_MICROSOFT_TENANT
+              value: {{ $.Values.oauth.microsoft.tenant | quote }}
+            - name: AMBIENCE_MICROSOFT_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .existingSecret | quote }}
+                  key: {{ .clientIdKey | quote }}
+            {{- end }}
+            {{- end }}
             {{- end }}
           ports:
             - containerPort: 8080

@@ -10,8 +10,12 @@ edge:
 
 authority:
   controlAuth:
-    existingSecret: ambience-control-auth
-    passwordKey: password
+    microsoft:
+      enabled: true
+
+oauth:
+  externalSecret:
+    enabled: true
 
 pdb:
   enabled: true

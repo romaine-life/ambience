@@ -44,6 +44,17 @@ service:
   port: 80
   targetPort: http
 
+oauth:
+  microsoft:
+    tenant: common
+  externalSecret:
+    enabled: false
+    name: ambience-oauth
+    storeName: romaine-kv
+    storeKind: ClusterSecretStore
+    refreshInterval: 1h
+    clientIdKey: ambience-oauth-client-id
+
 edge:
   enabled: true
   image:
@@ -119,6 +130,10 @@ authority:
   controlAuth:
     existingSecret: ""
     passwordKey: password
+    microsoft:
+      enabled: false
+      existingSecret: ambience-oauth
+      clientIdKey: client-id
   resources:
     requests:
       cpu: 10m
