@@ -458,6 +458,7 @@
 
   const GRID_W = 160;
   const GRID_H = 80;
+  const INITIAL_FADE_MS = 1200;
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -476,11 +477,14 @@
     return new ctor(GRID_W, GRID_H, {});
   }
 
-  let effectType = 'rain';
-  let effect = newEffectInstance(effectType);
+  let effectType = null;
+  let effect = null;
   let latestConfig = null;
   let ready = false;
+  let initialFadePending = false;
+  let initialFadeStarted = false;
   let schemaLoadToken = 0;
+  let initialFadeCover = null;
 
   const el = {
     panel: document.getElementById('panel'),
@@ -504,7 +508,7 @@
 
   const controls = AmbienceControls.create({
     root: el.controlBody,
-    effect: effectType,
+    effect: 'rain',
     effectOptions: (current) => [current],
     effectSelect: el.effectSelect,
     presetSelect: el.presetSelect,
@@ -528,6 +532,49 @@
       : 'Slider moves, presets, and fire buttons now hit the shared atmosphere immediately. This is the deliberate havoc switch.';
   }
   setControlsLocked(true);
+
+  function makeInitialFadeCover() {
+    const cover = document.createElement('div');
+    cover.setAttribute('aria-hidden', 'true');
+    cover.style.position = 'fixed';
+    cover.style.inset = '0';
+    cover.style.pointerEvents = 'none';
+    cover.style.background = getComputedStyle(document.body).backgroundColor || '#0a0a0a';
+    cover.style.opacity = '1';
+    cover.style.zIndex = '0';
+    cover.style.willChange = 'opacity';
+    canvas.insertAdjacentElement('afterend', cover);
+    return cover;
+  }
+
+  initialFadeCover = makeInitialFadeCover();
+
+  function revealInitialScene() {
+    if (initialFadeStarted) return;
+    initialFadeStarted = true;
+    if (!initialFadeCover || INITIAL_FADE_MS <= 0) {
+      if (initialFadeCover) initialFadeCover.remove();
+      initialFadeCover = null;
+      return;
+    }
+    const cover = initialFadeCover;
+    if (cover.animate) {
+      const fade = cover.animate(
+        [{ opacity: 1 }, { opacity: 0 }],
+        { duration: INITIAL_FADE_MS, easing: 'ease', fill: 'both' },
+      );
+      fade.finished
+        .then(() => { cover.remove(); })
+        .catch(() => { cover.remove(); });
+      initialFadeCover = null;
+      return;
+    }
+    cover.style.transition = 'opacity ' + INITIAL_FADE_MS + 'ms ease';
+    cover.offsetWidth;
+    cover.style.opacity = '0';
+    setTimeout(() => { cover.remove(); }, INITIAL_FADE_MS + 50);
+    initialFadeCover = null;
+  }
 
   el.lockButton.addEventListener('click', () => {
     setControlsLocked(!controls.isLocked());
@@ -611,6 +658,7 @@
   }
 
   function currentSharedQuery() {
+    if (!effectType) return '';
     const values = controls.currentValues();
     const q = new URLSearchParams();
     q.set('effect', effectType);
@@ -623,7 +671,7 @@
   }
 
   async function pushSharedConfig() {
-    if (controls.isLocked() || !controls.getSchema()) return;
+    if (controls.isLocked() || !controls.getSchema() || !effectType) return;
     try {
       const resp = await fetch('/config?' + currentSharedQuery(), { method: 'POST' });
       if (!resp.ok) throw new Error('config returned ' + resp.status);
@@ -656,7 +704,15 @@
   function applySnapshot(snap) {
     const nextType = (snap && snap.type) || 'rain';
     const typeChanged = nextType !== effectType;
-    if (typeChanged) {
+    if (!effect) {
+      effect = newEffectInstance(nextType);
+      try { effect.restoreSnapshot(snap); } catch (err) { console.error('restoreSnapshot failed', err); }
+      effectType = nextType;
+      controls.setEffect(effectType);
+      loadSchema(effectType);
+      initialFadePending = true;
+      log('effect -> ' + effectType, 'scene');
+    } else if (typeChanged) {
       // Crossfade from the previous effect into the new one. The outgoing
       // sim keeps stepping during the fade so neither layer freezes.
       const incoming = newEffectInstance(nextType);
@@ -688,8 +744,6 @@
     log('snapshot applied - tick ' + snap.tick, 'scene');
   }
 
-  loadSchema(effectType);
-
   const es = new EventSource('/events');
   es.onmessage = (ev) => {
     let cmd;
@@ -707,6 +761,7 @@
         ready = true;
         break;
       case 'config':
+        if (!effect) break;
         try {
           effect.setConfig(cmd.data);
         } catch (_) {}
@@ -714,7 +769,7 @@
         if (latestConfig && controls.getSchema()) controls.setValues(latestConfig);
         break;
       case 'trigger':
-        effect.triggerEvent(cmd.event);
+        if (effect && effect.triggerEvent) effect.triggerEvent(cmd.event);
         log(cmd.event + (cmd.desc ? ' - ' + cmd.desc : ''), 'trigger');
         break;
       case 'scene':
@@ -748,7 +803,7 @@
   };
 
   setInterval(() => {
-    if (!ready) return;
+    if (!ready || !effect) return;
     effect.step();
     // Unwrap a finished crossfade so we drop the outgoing sim once the
     // incoming one is fully visible.
@@ -756,7 +811,13 @@
   }, 100);
 
   (function draw() {
-    effect.render(ctx, canvas.width, canvas.height);
+    if (ready && effect) {
+      effect.render(ctx, canvas.width, canvas.height);
+      if (initialFadePending) {
+        initialFadePending = false;
+        revealInitialScene();
+      }
+    }
     requestAnimationFrame(draw);
   })();
 
