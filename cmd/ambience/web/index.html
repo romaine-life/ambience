@@ -582,17 +582,9 @@
     setControlsLocked(controls.isLocked());
   }
 
-  function microsoftLogoutURL() {
-    const q = new URLSearchParams({
-      post_logout_redirect_uri: window.location.origin + '/auth/callback',
-    });
-    return 'https://login.microsoftonline.com/' + encodeURIComponent(microsoftTenant) + '/oauth2/v2.0/logout?' + q.toString();
-  }
-
   async function signOutControls() {
     el.lockButton.disabled = true;
     el.signOutButton.disabled = true;
-    const shouldSignOutMicrosoft = controlAuthProvider === 'microsoft' && microsoftTenant;
     try {
       await fetch('/control-auth', {
         method: 'DELETE',
@@ -606,10 +598,6 @@
     sessionStorage.removeItem('ambience.microsoft.nonce');
     setControlsLocked(true);
     log('live controls signed out', 'system');
-    if (shouldSignOutMicrosoft) {
-      window.location.assign(microsoftLogoutURL());
-      return;
-    }
     el.lockButton.disabled = false;
     el.signOutButton.disabled = false;
   }
