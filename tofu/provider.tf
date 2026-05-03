@@ -2,7 +2,10 @@
 # uses GitHub OIDC through this repo's app service principal.
 
 terraform {
-  backend "azurerm" {}
+  backend "azurerm" {
+    use_oidc         = true
+    use_azuread_auth = true
+  }
 }
 
 provider "azurerm" {
