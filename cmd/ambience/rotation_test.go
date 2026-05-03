@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -86,6 +87,49 @@ func TestMaybeRotateEffectFiresAfterCadence(t *testing.T) {
 	}
 	if snap.Type != "campfire" {
 		t.Fatalf("expected campfire after rotation; got %q", snap.Type)
+	}
+	if snap.CurrentScene.Name == "campfire" {
+		t.Fatalf("current scene name = raw effect %q; want generated scene label", snap.CurrentScene.Name)
+	}
+	if snap.NextScene.Name == "campfire" {
+		t.Fatalf("next scene name = raw effect %q; want generated scene label", snap.NextScene.Name)
+	}
+}
+
+func TestNonRainAtmosphereStartsWithGeneratedSceneLabels(t *testing.T) {
+	a := newAtmosphereWithEffectAndSeed("aurora", 123)
+	snap := a.snapshot()
+	if snap.CurrentScene.Name == "aurora" {
+		t.Fatalf("current scene name = raw effect %q; want generated scene label", snap.CurrentScene.Name)
+	}
+	if snap.NextScene.Name == "aurora" {
+		t.Fatalf("next scene name = raw effect %q; want generated scene label", snap.NextScene.Name)
+	}
+	if !strings.Contains(snap.CurrentScene.Name, "aurora") &&
+		!strings.Contains(snap.CurrentScene.Name, "lights") &&
+		!strings.Contains(snap.CurrentScene.Name, "skyfire") &&
+		!strings.Contains(snap.CurrentScene.Name, "curtain") {
+		t.Fatalf("aurora scene name %q does not read like an aurora variant", snap.CurrentScene.Name)
+	}
+}
+
+func TestNonRainSceneRotationKeepsEffectSceneLabels(t *testing.T) {
+	a := newAtmosphereWithEffectAndSeed("aurora", 123)
+	before := a.snapshot()
+	a.rotateScene(before.CurrentScene.DurationTicks)
+	after := a.snapshot()
+
+	if after.Type != "aurora" {
+		t.Fatalf("type after scene rotation = %q, want aurora", after.Type)
+	}
+	if after.CurrentScene.Name != before.NextScene.Name {
+		t.Fatalf("current scene after rotation = %q, want prior next %q", after.CurrentScene.Name, before.NextScene.Name)
+	}
+	if after.NextScene.Name == "aurora" {
+		t.Fatalf("next scene name = raw effect %q; want generated scene label", after.NextScene.Name)
+	}
+	if after.NextScene.Config != (sim.Config{}) {
+		t.Fatalf("non-rain next scene unexpectedly has rain config: %+v", after.NextScene.Config)
 	}
 }
 
@@ -217,6 +261,31 @@ func TestRestoreWithPolicyStillPrefersSavedEffect(t *testing.T) {
 	})
 	if got := restored.snapshot().Type; got != "campfire" {
 		t.Fatalf("restored type = %q, want saved campfire", got)
+	}
+}
+
+func TestRestoreReplacesLegacyRawNonRainSceneNames(t *testing.T) {
+	a := newAtmosphereWithEffectAndSeed("aurora", 123)
+	state := a.persistedState()
+	state.CurrentScene.Name = "aurora"
+	state.NextScene.Name = "aurora"
+	state.NextScene.DurationTicks = 0
+
+	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
+	if err := store.Save(context.Background(), state); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	restored := restoreSharedAtmosphere(context.Background(), store)
+	snap := restored.snapshot()
+	if snap.CurrentScene.Name == "aurora" {
+		t.Fatalf("restored current scene name = raw effect %q; want generated scene label", snap.CurrentScene.Name)
+	}
+	if snap.NextScene.Name == "aurora" {
+		t.Fatalf("restored next scene name = raw effect %q; want generated scene label", snap.NextScene.Name)
+	}
+	if snap.NextScene.DurationTicks != snap.CurrentScene.DurationTicks {
+		t.Fatalf("restored next duration = %d, want current duration %d", snap.NextScene.DurationTicks, snap.CurrentScene.DurationTicks)
 	}
 }
 
