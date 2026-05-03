@@ -1,25 +1,37 @@
+nameOverride: ambience
+
 image:
-  repository: ghcr.io/nelsong6/ambience
-  tag: latest
-  pullPolicy: IfNotPresent
-
-nameOverride: ""
-fullnameOverride: ""
-
-serviceAccount:
-  create: true
-  annotations: {}
-  name: ""
-
-gateway:
-  enabled: true
-  namespace: envoy-gateway-system
-  name: shared-gateway
-  sectionName: https
+  repository: romainecr.azurecr.io/ambience
+  tag: 700c1d0
+  pullPolicy: Always
 
 domain:
-  host: ambience.dev.romaine.life
-  wildcardHost: "*.ambience.dev.romaine.life"
+  host: ambience.romaine.life
+  tlsSecretName: ambience-tls
+
+gateway:
+  parentGateway:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: main
+    namespace: envoy-gateway-system
+  # Per-app HTTPS listener (used by prod for ambience.romaine.life). Dev and
+  # ephemeral envs share a wildcard listener instead — see wildcardCertificate.
+  listenerSetEnabled: true
+  listenerSetName: ambience
+  listenerName: https
+
+# Shared wildcard infrastructure. Provisioned once in the dev base namespace
+# (ambience-dev). The cert covers the dev base host AND any subdomain via
+# DNS-01 (HTTP-01 cannot issue wildcards). Per-issue and per-PR ephemeral
+# environments attach HTTPRoutes to the resulting XListenerSet so they don't
+# each provision their own cert and listener.
+wildcardCertificate:
+  enabled: false
+  name: ambience-wildcard
+  hosts:
+    - ambience.dev.romaine.life
+    - "*.ambience.dev.romaine.life"
   tlsSecretName: ambience-wildcard-tls
   issuerRef:
     name: letsencrypt-prod-dns01
@@ -51,15 +63,26 @@ edge:
     pullPolicy: ""
   replicas: 2
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
-  drain:
-    shutdown: 12s
-  podDisruptionBudget:
-    enabled: true
-    minAvailable: 1
+    maxSurge: 1
+    maxUnavailable: 0
+  terminationGracePeriodSeconds: 20
+  probes:
+    readiness:
+      periodSeconds: 10
+      timeoutSeconds: 1
+      failureThreshold: 3
+    liveness:
+      periodSeconds: 10
+      timeoutSeconds: 1
+      failureThreshold: 3
+  authorityURL: http://ambience-authority-client
+  shutdownDrain: 12s
+  webOverride:
+    enabled: false
+    mountPath: /var/run/ambience-web-override
+    containerName: web-sync
+    sidecarImage: alpine:3.20
+    sidecarImagePullPolicy: IfNotPresent
   resources:
     requests:
       cpu: 10m
@@ -74,19 +97,36 @@ authority:
     repository: ""
     tag: ""
     pullPolicy: ""
-  persistence:
-    enabled: true
-    existingClaim: ""
-    storageClassName: ""
-    size: 1Gi
-    accessModes:
-      - ReadWriteOnce
+  replicas: 1
+  terminationGracePeriodSeconds: 15
+  probes:
+    readiness:
+      periodSeconds: 10
+      timeoutSeconds: 1
+      failureThreshold: 3
+    liveness:
+      periodSeconds: 10
+      timeoutSeconds: 1
+      failureThreshold: 3
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    fsGroupChangePolicy: OnRootMismatch
+  persistPath: /data/shared-atmosphere.json
+  persistInterval: 30s
+  # Cross-effect rotation policy. The shared atmosphere periodically
+  # swaps to a different effect type so the live broadcast monitor at /
+  # cycles on its own. Cadence is the duration each effect runs before
+  # the next pick (5–15 minutes feels coherent without going stale).
+  # effects is an empty list to mean "every registered effect"; populate
+  # to a curated subset once we want to gate a noisy effect from the
+  # lobby.
   rotation:
     enabled: true
     cadence: 10m
-  persist:
-    path: /data/shared-atmosphere.json
-    interval: 30s
+    effects: []
   controlAuth:
     existingSecret: ""
     passwordKey: password
@@ -101,21 +141,30 @@ authority:
     limits:
       cpu: 200m
       memory: 128Mi
+  storage:
+    existingClaim: ambience-state
+    size: 1Gi
 
 pdb:
-  enabled: false
-  minAvailable: 1
+  enabled: true
+  authority:
+    minAvailable: 1
+  edge:
+    minAvailable: 1
 
-resources:
-  requests:
-    cpu: 10m
-    memory: 32Mi
-  limits:
-    cpu: 200m
-    memory: 128Mi
+certificate:
+  enabled: true
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
 
-nodeSelector: {}
-
-tolerations: []
-
-affinity: {}
+route:
+  enabled: true
+  requestTimeout: 0s
+  backendRequestTimeout: 0s
+  # Override which XListenerSet the HTTPRoute attaches to. Defaults
+  # to the per-app set in this release's namespace. For ephemeral
+  # envs, point at the wildcard listener in ambience-dev.
+  attachListenerSet:
+    name: ""        # empty → gateway.listenerSetName
+    namespace: ""   # empty → release namespace
