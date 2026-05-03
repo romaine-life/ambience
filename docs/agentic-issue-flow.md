@@ -56,6 +56,11 @@ The terminal review surface is the Glimmung Report primitive. The current
 Glimmung registration schema still exposes that knob as `pr.enabled` until the
 remaining Report API rename lands.
 
+The native runner registration has been smoke-tested end-to-end through
+Glimmung against this repo: a Glimmung-dispatched issue successfully
+ran `env-prep` and `agent-execute` against the registered Ambience
+workflow and produced a documentation-only commit on an agent branch.
+
 ## Runner Image
 
 The native runner image is built from `.github/runner/Dockerfile` by
