@@ -78,6 +78,10 @@
     background: #1a1a1a;
     border-color: #555;
   }
+  a.iconbtn {
+    color: #e0e0e0;
+    text-decoration: none;
+  }
   .row {
     display: flex;
     justify-content: space-between;
@@ -190,6 +194,10 @@
     background: #33210c;
     border-color: #a56d20;
     color: #ffdca7;
+  }
+  .lock-button:disabled {
+    cursor: default;
+    opacity: 0.55;
   }
   .hint {
     margin-top: 6px;
@@ -367,15 +375,6 @@
     color: #f7b86c;
   }
   #devlink {
-    margin-top: 8px;
-    font-size: 10px;
-    text-align: right;
-  }
-  #devlink a {
-    color: #666;
-    text-decoration: none;
-  }
-  #devlink a:hover {
     color: #9cf;
   }
   .flash {
@@ -401,6 +400,7 @@
   <h2>
     <span>ambience live broadcast</span>
     <span class="btnbar">
+      <a class="iconbtn" id="devlink" href="/dev" title="open dev controls">dev -&gt;</a>
       <button class="iconbtn" id="toggleAll" title="collapse or expand all control sections">[]</button>
       <button class="iconbtn" id="togglePanel" title="collapse or expand panel (h)">-</button>
     </span>
@@ -446,7 +446,6 @@
       <div id="events"></div>
     </div>
 
-    <div id="devlink"><a href="/dev">/dev -&gt;</a></div>
   </div>
 </div>
 
@@ -485,6 +484,8 @@
   let initialFadeStarted = false;
   let schemaLoadToken = 0;
   let initialFadeCover = null;
+  let controlAuthenticated = false;
+  let controlAuthRequired = true;
 
   const el = {
     panel: document.getElementById('panel'),
@@ -521,17 +522,70 @@
   });
 
   function setControlsLocked(locked) {
-    controls.setLocked(locked);
-    el.lockButton.textContent = locked ? 'unlock' : 'lock';
-    el.lockButton.classList.toggle('unlocked', !locked);
-    el.lockState.textContent = locked ? 'view only' : 'live mutations armed';
-    el.lockState.classList.toggle('locked', locked);
-    el.lockState.classList.toggle('unlocked', !locked);
-    el.lockHelp.textContent = locked
-      ? 'Controls mirror the shared atmosphere, but slider moves and fire buttons stay inert until you unlock them.'
-      : 'Slider moves, presets, and fire buttons now hit the shared atmosphere immediately. This is the deliberate havoc switch.';
+    const nextLocked = locked || !controlAuthenticated;
+    controls.setLocked(nextLocked);
+    el.lockButton.disabled = false;
+    el.lockButton.classList.toggle('unlocked', !nextLocked && controlAuthenticated);
+    el.lockState.classList.toggle('locked', nextLocked);
+    el.lockState.classList.toggle('unlocked', !nextLocked && controlAuthenticated);
+    if (!controlAuthenticated) {
+      el.lockButton.textContent = controlAuthRequired ? 'sign in' : 'unlock';
+      el.lockState.textContent = controlAuthRequired ? 'read only' : 'view only';
+      el.lockHelp.textContent = controlAuthRequired
+        ? 'Controls mirror the shared atmosphere. Sign in to unlock live mutations.'
+        : 'Controls mirror the shared atmosphere, but slider moves and fire buttons stay inert until you unlock them.';
+      return;
+    }
+    el.lockButton.textContent = nextLocked ? 'unlock' : 'lock';
+    el.lockState.textContent = nextLocked ? 'view only' : 'live mutations armed';
+    el.lockHelp.textContent = nextLocked
+      ? 'Controls mirror the shared atmosphere. You are signed in; unlock to mutate the live scene.'
+      : 'Slider moves, presets, and fire buttons now hit the shared atmosphere immediately.';
   }
   setControlsLocked(true);
+
+  async function refreshControlAuth() {
+    try {
+      const resp = await fetch('/control-auth', { credentials: 'same-origin' });
+      if (!resp.ok) throw new Error('auth status returned ' + resp.status);
+      const status = await resp.json();
+      controlAuthRequired = !!status.required;
+      controlAuthenticated = !controlAuthRequired || !!status.authenticated;
+    } catch (err) {
+      console.error('control auth', err);
+      controlAuthRequired = true;
+      controlAuthenticated = false;
+    }
+    setControlsLocked(controls.isLocked());
+  }
+
+  async function signInControls() {
+    const password = window.prompt('live control password');
+    if (!password) return;
+    el.lockButton.disabled = true;
+    let signedIn = false;
+    try {
+      const resp = await fetch('/control-auth', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      if (!resp.ok) throw new Error('auth returned ' + resp.status);
+      const status = await resp.json();
+      controlAuthRequired = !!status.required;
+      controlAuthenticated = !controlAuthRequired || !!status.authenticated;
+      signedIn = controlAuthenticated;
+      log('live controls signed in', 'system');
+    } catch (err) {
+      console.error('control auth', err);
+      controlAuthenticated = false;
+      log('live control sign-in failed', 'system');
+    } finally {
+      el.lockButton.disabled = false;
+      setControlsLocked(!signedIn);
+    }
+  }
 
   function makeInitialFadeCover() {
     const cover = document.createElement('div');
@@ -577,8 +631,13 @@
   }
 
   el.lockButton.addEventListener('click', () => {
+    if (!controlAuthenticated) {
+      signInControls();
+      return;
+    }
     setControlsLocked(!controls.isLocked());
   });
+  refreshControlAuth();
 
   function setPanelCollapsed(on) {
     el.panel.classList.toggle('collapsed', on);
@@ -673,7 +732,11 @@
   async function pushSharedConfig() {
     if (controls.isLocked() || !controls.getSchema() || !effectType) return;
     try {
-      const resp = await fetch('/config?' + currentSharedQuery(), { method: 'POST' });
+      const resp = await fetch('/config?' + currentSharedQuery(), { method: 'POST', credentials: 'same-origin' });
+      if (resp.status === 401) {
+        controlAuthenticated = false;
+        setControlsLocked(true);
+      }
       if (!resp.ok) throw new Error('config returned ' + resp.status);
     } catch (err) {
       console.error('shared config push', err);
@@ -693,7 +756,12 @@
     try {
       const resp = await fetch('/trigger/' + encodeURIComponent(eventName) + '?effect=' + encodeURIComponent(effectType), {
         method: 'POST',
+        credentials: 'same-origin',
       });
+      if (resp.status === 401) {
+        controlAuthenticated = false;
+        setControlsLocked(true);
+      }
       if (!resp.ok) throw new Error('trigger returned ' + resp.status);
     } catch (err) {
       console.error('shared trigger', err);

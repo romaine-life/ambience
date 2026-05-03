@@ -8,5 +8,10 @@ image:
 edge:
   replicas: 2
 
+authority:
+  controlAuth:
+    existingSecret: ambience-control-auth
+    passwordKey: password
+
 pdb:
   enabled: true

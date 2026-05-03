@@ -11,6 +11,8 @@
 //	GET  /controls.js           — shared schema-driven control panel helper
 //	GET  /snapshot              — shared atmosphere init payload (JSON)
 //	GET  /events                — shared atmosphere SSE command stream
+//	GET  /control-auth          — live-control auth status
+//	POST /control-auth          — live-control password login
 //	POST /config?effect=&...    — mutate the shared atmosphere config
 //	POST /trigger/:event        — fire a discrete event on the shared atmosphere
 //	GET  /dev                   — dev page with knob controls (defaults to rain)
@@ -61,11 +63,12 @@ const (
 )
 
 type appConfig struct {
-	role           appRole
-	addr           string
-	authorityURL   string
-	shutdownDrain  time.Duration
-	webOverrideDir string
+	role            appRole
+	addr            string
+	authorityURL    string
+	controlPassword string
+	shutdownDrain   time.Duration
+	webOverrideDir  string
 }
 
 type lifecycleState struct {
@@ -78,6 +81,7 @@ type effectLookup func(effect string) (bool, error)
 var webFS embed.FS
 
 var shared *atmosphere
+var controlAuth *controlAuthenticator
 
 func main() {
 	cfg, err := loadAppConfigFromEnv()
@@ -92,6 +96,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	lifecycle := &lifecycleState{}
+	controlAuth = newControlAuthenticator(cfg.controlPassword)
 
 	mux := http.NewServeMux()
 	baseReady := func() bool { return true }
@@ -180,6 +185,7 @@ func loadAppConfigFromEnv() (appConfig, error) {
 	if cfg.role == roleEdge && cfg.authorityURL == "" {
 		return appConfig{}, fmt.Errorf("AMBIENCE_AUTHORITY_URL is required when AMBIENCE_ROLE=%q", roleEdge)
 	}
+	cfg.controlPassword = os.Getenv("AMBIENCE_CONTROL_PASSWORD")
 	if rawDrain := strings.TrimSpace(os.Getenv("AMBIENCE_SHUTDOWN_DRAIN")); rawDrain != "" {
 		d, err := time.ParseDuration(rawDrain)
 		if err != nil {
@@ -252,6 +258,7 @@ func registerAuthorityRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/events", cors(serveSharedEvents))
 	// Shared live controls stay same-origin only. They intentionally do not
 	// opt into permissive CORS because they mutate the shared atmosphere.
+	mux.HandleFunc("/control-auth", controlAuth.serve)
 	mux.HandleFunc("/config", serveSharedConfig)
 	mux.HandleFunc("/trigger/", serveSharedTrigger)
 	// Entropy intake — clients POST keystroke-derived bytes here; bytes

@@ -44,6 +44,15 @@ spec:
               value: {{ join "," .effects | quote }}
             {{- end }}
             {{- end }}
+            {{- with .Values.authority.controlAuth }}
+            {{- if .existingSecret }}
+            - name: AMBIENCE_CONTROL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .existingSecret | quote }}
+                  key: {{ .passwordKey | quote }}
+            {{- end }}
+            {{- end }}
           ports:
             - containerPort: 8080
               name: http
