@@ -24,6 +24,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Optional public hostname for the validation env (attached to the wildcard listener).",
     )
+    deploy_validation.add_argument(
+        "--no-create-namespace",
+        action="store_false",
+        default=True,
+        dest="create_namespace",
+        help="Do not pass Helm --create-namespace; use when the namespace is pre-created.",
+    )
 
     screenshot = subparsers.add_parser("capture-validation-screenshot")
     screenshot.add_argument("--page-path", required=True)
@@ -106,6 +113,7 @@ def main() -> int:
                     image=args.image,
                     release=release,
                     public_host=public_host,
+                    create_namespace=args.create_namespace,
                 )
             )
         elif args.command == "capture-validation-screenshot":
