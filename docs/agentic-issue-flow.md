@@ -29,6 +29,11 @@ the source of issue-run execution for the native Ambience flow.
    environment from the pushed agent branch, captures screenshots, posts a
    typed verification result, and lets Glimmung drive retry/report decisions.
 
+Glimmung-native issue bodies are passed into the native Kubernetes job as the
+`GLIMMUNG_ISSUE_BODY` environment variable and included verbatim in the agent
+prompt, so the agent works from the Glimmung-owned issue text rather than
+re-fetching it from GitHub Issues.
+
 ## Ownership
 
 - Glimmung owns clone-token minting, run/session authentication, native
