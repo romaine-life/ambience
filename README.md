@@ -1,11 +1,19 @@
 # ambience
 
-Shared-world ambient pixel-art effects. A 10 Hz server decides when
-discrete events fire (downpour, calm, gust, splash) and broadcasts those
-as commands via SSE; every consumer (browser canvas, terminal sixel)
-runs its own sim replica and applies the commands in sync. Rain is the
-only effect in the shared live world today; Fireflies, Waterfall, and
-Dust are available in isolated dev sessions.
+Shared-world ambient pixel-art effects. A 10 Hz server decides which
+effect is active, which scene/config is current, and when discrete
+events fire, then broadcasts those commands via SSE; every consumer
+(browser canvas, terminal sixel) runs its own sim replica and applies
+the commands in sync.
+
+The long-term target is clock-like lock-step rendering across consumers:
+if `ambience.romaine.life` is open on one machine and a subscriber such
+as `homepage.romaine.life` is open on another, they should appear to be
+displaying the same shared world at the same moment, modulo ordinary
+network and browser scheduling jitter. The server still avoids streaming
+raw pixels; the engineering challenge is keeping semantic snapshots,
+ticks, RNG state, scene transitions, and client replay tight enough that
+subscribers feel synchronized rather than merely thematically similar.
 
 Canonical live view: <https://ambience.romaine.life>.
 
@@ -96,8 +104,9 @@ scripts/dev-loop.ps1
 ## Atmosphere model
 
 The server does not broadcast pixel frames. Each atmosphere is a
-server-side sim running at 10 Hz whose job is to decide when discrete
-events fire. Clients run their own sims locally and apply five kinds of
+server-side sim running at 10 Hz whose job is to choose the active
+effect, own scene/config transitions, and decide when discrete events
+fire. Clients run their own sims locally and apply five kinds of
 commands:
 
 - **`snapshot`** — state dump on connect. The outer envelope is
@@ -110,9 +119,12 @@ commands:
 - **`scene`** — scene rotation metadata for the live monitor.
 - **`metric`** — entropy and scene-progress heartbeat data.
 
-Clients do not roll for discrete events — only the server does. Each
-client's RNG drifts from the server's after the initial snapshot, but
-event timing stays in sync.
+Clients do not roll for discrete events — only the server does. The goal
+is for clients to treat the authority stream like a clock signal: restore
+from snapshots, advance by authoritative ticks, and converge on the same
+visible phase after reconnects or effect changes. Any client-side RNG
+use should be deterministic from authority-provided state or limited to
+visual details that do not make subscribers visibly diverge.
 
 ## Effects model
 
@@ -125,11 +137,13 @@ Every effect fills a 5-slot template — see
 4. **Event modifiers** — per-event randomization
 5. **End conditions** — natural conclusions (optional)
 
-New effects plug in via the `AmbienceSim.effects` registry in `sim.js`.
-Browser clients look up the constructor by the `type` the server
-broadcasts — so adding Sand / Fire / Tetris is a sim-side change with
-no consumer-side update. The `/dev` page reads the same registry to
-switch effects without page-specific wiring.
+New effects plug in via per-effect files under `cmd/ambience/web/effects/`.
+The server bundles those files into `/sim.js`, and browser clients look
+up the constructor by the `type` the server broadcasts. Consumer pages
+that vendor the scripts, such as `my-homepage`, must refresh the vendored
+bundle whenever the shared sim/client changes so they remain full
+subscribers to every live effect. The `/dev` page reads the same registry
+to switch effects without page-specific wiring.
 
 For backlog candidates not yet promoted to their own implementation
 issue, see [`docs/effect-candidates.md`](docs/effect-candidates.md) —
@@ -156,6 +170,11 @@ clone their exact engine.
 - Prefer stable control seams over effect-specific special cases. New
   effects should plug into the registry, schema, snapshot/restore, and
   trigger paths instead of requiring consumer-specific wiring.
+- Treat cross-consumer synchronization as a product goal, not a best
+  effort side effect. Effect implementations should preserve enough
+  state in snapshots and deterministic replay paths that independent
+  clients can render the same phase of the same scene like synchronized
+  clocks.
 
 ## Entropy
 
