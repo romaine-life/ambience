@@ -237,14 +237,22 @@ native_github_token() {
     | jq -r '.token'
 }
 
+native_git_auth_header() {
+  local token="$1"
+  local encoded
+  encoded="$(printf 'x-access-token:%s' "$token" | base64 | tr -d '\n')"
+  printf 'Authorization: Basic %s' "$encoded"
+}
+
 native_clone_repo() {
   local repo_slug="$1"
   local repo_dir="$2"
   local base_ref="${3:-main}"
   local branch_name="${4:-}"
-  local token
+  local token auth_header
 
   token="$(native_github_token)"
+  auth_header="$(native_git_auth_header "$token")"
   mkdir -p "$(dirname "$repo_dir")"
   if [ ! -d "${repo_dir}/.git" ]; then
     git init "$repo_dir" >/dev/null
@@ -253,7 +261,7 @@ native_clone_repo() {
 
   git -C "$repo_dir" remote set-url origin "https://github.com/${repo_slug}.git"
   git -C "$repo_dir" \
-    -c "http.extraHeader=Authorization: Bearer ${token}" \
+    -c "http.extraHeader=${auth_header}" \
     fetch --force origin "+refs/heads/*:refs/remotes/origin/*"
   git -C "$repo_dir" config user.name "ambience-agent[bot]"
   git -C "$repo_dir" config user.email "ambience-agent@romaine.life"
@@ -269,10 +277,11 @@ native_push_branch() {
   local repo_slug="$1"
   local repo_dir="$2"
   local branch_name="$3"
-  local token
+  local token auth_header
   token="$(native_github_token)"
+  auth_header="$(native_git_auth_header "$token")"
   git -C "$repo_dir" remote set-url origin "https://github.com/${repo_slug}.git"
   git -C "$repo_dir" \
-    -c "http.extraHeader=Authorization: Bearer ${token}" \
+    -c "http.extraHeader=${auth_header}" \
     push origin "HEAD:${branch_name}"
 }

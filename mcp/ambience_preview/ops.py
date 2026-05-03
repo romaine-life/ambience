@@ -486,8 +486,9 @@ EOF
 
 git config --global user.name "ambience-agent[bot]"
 git config --global user.email "ambience-agent@romaine.life"
+GIT_AUTH_HEADER="Authorization: Basic $(printf 'x-access-token:%s' "${GH_TOKEN}" | base64 | tr -d '\n')"
 
-git -c "http.extraHeader=Authorization: Bearer ${GH_TOKEN}" \
+git -c "http.extraHeader=${GIT_AUTH_HEADER}" \
   clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
 cd /workspace/repo
 git checkout -B "${BRANCH_NAME}"
@@ -546,10 +547,10 @@ ${close_line}"
 # commit didn't touch those files. Rebase replays the agent's single
 # commit on top of current main; if there's a real conflict we fail loudly
 # rather than ship a stale-base branch.
-git -c "http.extraHeader=Authorization: Bearer ${GH_TOKEN}" fetch origin main
+git -c "http.extraHeader=${GIT_AUTH_HEADER}" fetch origin main
 git rebase origin/main
 
-git -c "http.extraHeader=Authorization: Bearer ${GH_TOKEN}" push origin "HEAD:${BRANCH_NAME}"
+git -c "http.extraHeader=${GIT_AUTH_HEADER}" push origin "HEAD:${BRANCH_NAME}"
 
 # Stream the evidence dir as a base64-encoded tarball to stdout between
 # clear markers the workflow extracts via sed. We can't kubectl cp from
