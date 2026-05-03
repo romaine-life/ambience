@@ -46,7 +46,7 @@ service:
 
 oauth:
   microsoft:
-    tenant: common
+    tenant: 2236b5e4-81d2-4d82-bde5-17b1037999ea
   externalSecret:
     enabled: false
     name: ambience-oauth
