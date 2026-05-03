@@ -67,6 +67,21 @@ func TestMaybeRotateEffectDisabledByDefault(t *testing.T) {
 	}
 }
 
+func TestFreshAtmosphereForPolicyDoesNotForceRain(t *testing.T) {
+	a := newAtmosphereForPolicy(rotationPolicy{
+		Enabled:      true,
+		CadenceTicks: 10,
+		Allowed:      []string{"rain", "campfire"},
+	})
+	snap := a.snapshot()
+	if snap.Type != "campfire" {
+		t.Fatalf("fresh policy atmosphere type = %q, want campfire", snap.Type)
+	}
+	if snap.CurrentScene.DurationTicks != 10 {
+		t.Fatalf("fresh policy scene duration = %d, want 10", snap.CurrentScene.DurationTicks)
+	}
+}
+
 func TestMaybeRotateEffectFiresAfterCadence(t *testing.T) {
 	a := newAtmosphere(sim.Config{})
 	a.setRotationPolicy(rotationPolicy{
@@ -171,6 +186,23 @@ func TestRotationStateSurvivesPersistRoundTrip(t *testing.T) {
 	restored.mu.Unlock()
 	if got != 42 {
 		t.Fatalf("rotationStartTick after restore = %d; want 42", got)
+	}
+}
+
+func TestRestoreWithPolicyStillPrefersSavedEffect(t *testing.T) {
+	a := newAtmosphereWithEffectAndSeed("campfire", 123)
+	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
+	if err := store.Save(context.Background(), a.persistedState()); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	restored := restoreSharedAtmosphereWithPolicy(context.Background(), store, rotationPolicy{
+		Enabled:      true,
+		CadenceTicks: 10,
+		Allowed:      []string{"rain", "aurora"},
+	})
+	if got := restored.snapshot().Type; got != "campfire" {
+		t.Fatalf("restored type = %q, want saved campfire", got)
 	}
 }
 

@@ -1,6 +1,11 @@
 name: Build Image
 
 on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - chart/ambience/values-prod.yaml
   workflow_dispatch:
     inputs:
       git_ref:
@@ -10,7 +15,7 @@ on:
 
 permissions:
   id-token: write
-  contents: read
+  contents: write
 
 concurrency:
   group: build-image
@@ -74,3 +79,39 @@ jobs:
           IMAGE="romainecr.azurecr.io/ambience:${TAG}"
           docker build -t "$IMAGE" .
           docker push "$IMAGE"
+
+      - name: Bump production image tag
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("chart/ambience/values-prod.yaml")
+          tag = "${{ env.TAG }}"
+          lines = path.read_text().splitlines()
+          in_image = False
+          changed = False
+          out = []
+          for line in lines:
+              stripped = line.strip()
+              if stripped and not line.startswith(" ") and line.endswith(":"):
+                  in_image = stripped == "image:"
+              if in_image and line.startswith("  tag:"):
+                  new_line = f"  tag: {tag}"
+                  changed = changed or line != new_line
+                  out.append(new_line)
+              else:
+                  out.append(line)
+          if changed:
+              path.write_text("\n".join(out) + "\n")
+          PY
+          if git diff --quiet -- chart/ambience/values-prod.yaml; then
+            echo "Production image tag already ${TAG}"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add chart/ambience/values-prod.yaml
+          git commit -m "chore: bump ambience image to ${TAG} [skip ci]"
+          git push origin HEAD:main

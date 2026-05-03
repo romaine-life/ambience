@@ -111,20 +111,53 @@ type atmosphere struct {
 }
 
 func newAtmosphere(_ sim.Config) *atmosphere {
-	// Note: seed parameter on newAtmosphere historically accepted a config
-	// override, but with scene generation we always start from a fresh
-	// generated scene, so the argument is ignored. Kept in the signature to
-	// avoid a cascading change in callers (dev atmospheres, tests).
-	seed := time.Now().UnixNano()
+	return newAtmosphereWithEffect("rain")
+}
+
+func newAtmosphereForPolicy(p rotationPolicy) *atmosphere {
+	if p.Enabled {
+		seed := time.Now().UnixNano()
+		rng := rngutil.New(seed ^ 0x4d1f8b53c0ffee)
+		pool := p.resolvedAllowedEffects()
+		pick := pickNextEffect(rng, pool, "rain")
+		if pick != "" {
+			a := newAtmosphereWithEffectAndSeed(pick, seed)
+			if pick != "rain" && p.CadenceTicks > 0 {
+				a.current.DurationTicks = p.CadenceTicks
+			}
+			return a
+		}
+	}
+	return newAtmosphereWithEffect("rain")
+}
+
+func newAtmosphereWithEffect(effectType string) *atmosphere {
+	return newAtmosphereWithEffectAndSeed(effectType, time.Now().UnixNano())
+}
+
+func newAtmosphereWithEffectAndSeed(effectType string, seed int64) *atmosphere {
 	sceneRNG := rngutil.New(seed ^ 0x6d0f27bd0b5a3c11)
-	first := generateScene(sceneRNG, 0)
-	// Pre-generate the next scene too — the "single-slot lookahead" model.
-	// StartedAtTick is set when it's promoted to current.
-	nxt := generateScene(sceneRNG, 0)
-	cfgData, _ := json.Marshal(first.Config)
+	var first, nxt Scene
+	var cfgData json.RawMessage
+	var cfg sim.Config
+	if effectType == "rain" {
+		first = generateScene(sceneRNG, 0)
+		// Pre-generate the next scene too — the "single-slot lookahead" model.
+		// StartedAtTick is set when it's promoted to current.
+		nxt = generateScene(sceneRNG, 0)
+		cfg = first.Config
+		cfgData, _ = json.Marshal(first.Config)
+	} else {
+		first = Scene{
+			Name:          effectType,
+			DurationTicks: defaultRotationCadenceTicks,
+			StartedAtTick: 0,
+		}
+		nxt = Scene{Name: effectType}
+	}
 	return &atmosphere{
-		effect:    mustNewEffectRuntime("rain", gridW, gridH, seed, cfgData),
-		cfg:       first.Config,
+		effect:    mustNewEffectRuntime(effectType, gridW, gridH, seed, cfgData),
+		cfg:       cfg,
 		seed:      seed,
 		sceneRNG:  sceneRNG,
 		current:   first,

@@ -133,7 +133,11 @@ func savePersistedState(ctx context.Context, store persistenceStore, a *atmosphe
 }
 
 func restoreSharedAtmosphere(ctx context.Context, store persistenceStore) *atmosphere {
-	fresh := newAtmosphere(sim.Config{})
+	return restoreSharedAtmosphereWithPolicy(ctx, store, rotationPolicy{})
+}
+
+func restoreSharedAtmosphereWithPolicy(ctx context.Context, store persistenceStore, policy rotationPolicy) *atmosphere {
+	fresh := newAtmosphereForPolicy(policy)
 	if store == nil {
 		return fresh
 	}
