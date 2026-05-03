@@ -487,12 +487,21 @@ EOF
 git config --global user.name "ambience-agent[bot]"
 git config --global user.email "ambience-agent@romaine.life"
 
-git clone "https://x-access-token:${GH_TOKEN}@github.com/${REPO_SLUG}.git" /workspace/repo
+git -c "http.extraHeader=Authorization: Bearer ${GH_TOKEN}" \
+  clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
 cd /workspace/repo
 git checkout -B "${BRANCH_NAME}"
 
+if [ -n "${GITHUB_ISSUE_NUMBER:-}" ]; then
+  issue_heading="# Issue #${GITHUB_ISSUE_NUMBER}: ${ISSUE_TITLE}"
+  close_line="Closes #${GITHUB_ISSUE_NUMBER}"
+else
+  issue_heading="# Glimmung issue ${ISSUE_REFERENCE}: ${ISSUE_TITLE}"
+  close_line="Glimmung-Issue: ${ISSUE_REFERENCE}"
+fi
+
 cat > /tmp/issue-context.md <<EOF
-# Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+${issue_heading}
 URL: ${ISSUE_URL}
 Validation env: ${VALIDATION_URL}
 EOF
@@ -524,11 +533,11 @@ if git diff --cached --quiet; then
   echo "agent produced no changes; failing job so the workflow doesn't open an empty PR" >&2
   exit 1
 fi
-git commit -m "agent: address issue #${ISSUE_NUMBER}
+git commit -m "agent: address ${ISSUE_REFERENCE}
 
 ${ISSUE_TITLE}
 
-Closes #${ISSUE_NUMBER}"
+${close_line}"
 
 # Sync onto current main before pushing. The agent ran for several minutes;
 # main may have moved (e.g. someone merged a workflow tweak). Pushing a
@@ -537,10 +546,10 @@ Closes #${ISSUE_NUMBER}"
 # commit didn't touch those files. Rebase replays the agent's single
 # commit on top of current main; if there's a real conflict we fail loudly
 # rather than ship a stale-base branch.
-git fetch origin main
+git -c "http.extraHeader=Authorization: Bearer ${GH_TOKEN}" fetch origin main
 git rebase origin/main
 
-git push origin "HEAD:${BRANCH_NAME}"
+git -c "http.extraHeader=Authorization: Bearer ${GH_TOKEN}" push origin "HEAD:${BRANCH_NAME}"
 
 # Stream the evidence dir as a base64-encoded tarball to stdout between
 # clear markers the workflow extracts via sed. We can't kubectl cp from
@@ -595,6 +604,8 @@ def _agent_job_spec(
     issue_number: str,
     issue_title: str,
     issue_url: str,
+    issue_reference: str | None,
+    github_issue_number: str | None,
     validation_url: str,
     branch_name: str,
     proxy_ip: str,
@@ -603,6 +614,9 @@ def _agent_job_spec(
 ) -> dict:
     """Build the Job spec as a Python dict. No templating; values land directly
     in their typed positions."""
+    issue_ref = issue_reference or (f"#{issue_number}" if issue_number else "glimmung-run")
+    gh_issue_number = issue_number if github_issue_number is None else github_issue_number
+
     return {
         "apiVersion": "batch/v1",
         "kind": "Job",
@@ -665,6 +679,8 @@ def _agent_job_spec(
                                 {"name": "NODE_EXTRA_CA_CERTS", "value": "/etc/claude-ca/ca.crt"},
                                 {"name": "HOME", "value": "/workspace"},
                                 {"name": "ISSUE_NUMBER", "value": str(issue_number)},
+                                {"name": "ISSUE_REFERENCE", "value": issue_ref},
+                                {"name": "GITHUB_ISSUE_NUMBER", "value": gh_issue_number or ""},
                                 {"name": "ISSUE_TITLE", "value": issue_title},
                                 {"name": "ISSUE_URL", "value": issue_url},
                                 {"name": "VALIDATION_URL", "value": validation_url},
@@ -706,6 +722,8 @@ def apply_agent_job(
     proxy_ip: str,
     agent_container_tag: str,
     repo_slug: str = "nelsong6/ambience",
+    issue_reference: str | None = None,
+    github_issue_number: str | None = None,
 ) -> dict:
     """Render the agent Job spec and `kubectl apply -f -` it."""
     import json as _json
@@ -715,6 +733,8 @@ def apply_agent_job(
         issue_number=issue_number,
         issue_title=issue_title,
         issue_url=issue_url,
+        issue_reference=issue_reference,
+        github_issue_number=github_issue_number,
         validation_url=validation_url,
         branch_name=branch_name,
         proxy_ip=proxy_ip,

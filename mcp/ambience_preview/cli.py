@@ -65,6 +65,8 @@ def build_parser() -> argparse.ArgumentParser:
     apply_agent.add_argument("--issue-number", required=True)
     apply_agent.add_argument("--issue-title", required=True)
     apply_agent.add_argument("--issue-url", required=True)
+    apply_agent.add_argument("--issue-reference", default=None)
+    apply_agent.add_argument("--github-issue-number", default=None)
     apply_agent.add_argument("--validation-url", required=True)
     apply_agent.add_argument("--branch-name", required=True)
     apply_agent.add_argument("--proxy-ip", required=True)
@@ -143,6 +145,8 @@ def main() -> int:
                     issue_number=args.issue_number,
                     issue_title=args.issue_title,
                     issue_url=args.issue_url,
+                    issue_reference=args.issue_reference,
+                    github_issue_number=args.github_issue_number,
                     validation_url=args.validation_url,
                     branch_name=args.branch_name,
                     proxy_ip=args.proxy_ip,
