@@ -493,7 +493,11 @@ GIT_AUTH_HEADER="Authorization: Basic $(printf 'x-access-token:%s' "${GH_TOKEN}"
 git -c "http.extraHeader=${GIT_AUTH_HEADER}" \
   clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
 cd /workspace/repo
-git checkout -B "${BRANCH_NAME}"
+if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH_NAME}"; then
+  git checkout -B "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
+else
+  git checkout -B "${BRANCH_NAME}"
+fi
 
 if [ -n "${GITHUB_ISSUE_NUMBER:-}" ]; then
   issue_heading="# Issue #${GITHUB_ISSUE_NUMBER}: ${ISSUE_TITLE}"
