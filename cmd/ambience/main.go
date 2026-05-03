@@ -12,7 +12,7 @@
 //	GET  /snapshot              — shared atmosphere init payload (JSON)
 //	GET  /events                — shared atmosphere SSE command stream
 //	GET  /control-auth          — live-control auth status
-//	POST /control-auth          — live-control password login
+//	POST /control-auth          — live-control login
 //	POST /config?effect=&...    — mutate the shared atmosphere config
 //	POST /trigger/:event        — fire a discrete event on the shared atmosphere
 //	GET  /dev                   — dev page with knob controls (defaults to rain)
@@ -63,12 +63,13 @@ const (
 )
 
 type appConfig struct {
-	role            appRole
-	addr            string
-	authorityURL    string
-	controlPassword string
-	shutdownDrain   time.Duration
-	webOverrideDir  string
+	role             appRole
+	addr             string
+	authorityURL     string
+	controlPassword  string
+	controlMicrosoft microsoftControlAuthConfig
+	shutdownDrain    time.Duration
+	webOverrideDir   string
 }
 
 type lifecycleState struct {
@@ -96,7 +97,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	lifecycle := &lifecycleState{}
-	controlAuth = newControlAuthenticator(cfg.controlPassword)
+	controlAuth = newControlAuthenticator(cfg.controlPassword, cfg.controlMicrosoft)
 
 	mux := http.NewServeMux()
 	baseReady := func() bool { return true }
@@ -186,6 +187,10 @@ func loadAppConfigFromEnv() (appConfig, error) {
 		return appConfig{}, fmt.Errorf("AMBIENCE_AUTHORITY_URL is required when AMBIENCE_ROLE=%q", roleEdge)
 	}
 	cfg.controlPassword = os.Getenv("AMBIENCE_CONTROL_PASSWORD")
+	cfg.controlMicrosoft = microsoftControlAuthConfig{
+		Tenant:   strings.TrimSpace(os.Getenv("AMBIENCE_MICROSOFT_TENANT")),
+		ClientID: strings.TrimSpace(os.Getenv("AMBIENCE_MICROSOFT_CLIENT_ID")),
+	}
 	if rawDrain := strings.TrimSpace(os.Getenv("AMBIENCE_SHUTDOWN_DRAIN")); rawDrain != "" {
 		d, err := time.ParseDuration(rawDrain)
 		if err != nil {
@@ -244,6 +249,7 @@ func registerStaticRoutes(mux *http.ServeMux, static staticAssets, lookup effect
 	// it as a platform route, kept out of product-route space. Contract:
 	// nelsong6/glimmung/docs/styleguide-contract.md.
 	mux.HandleFunc("/_styleguide", serveExactStaticFile(static, "/_styleguide", "styleguide.html"))
+	mux.HandleFunc("/auth/callback", serveExactStaticFile(static, "/auth/callback", "index.html"))
 	mux.HandleFunc("/", serveExactStaticFile(static, "/", "index.html"))
 }
 

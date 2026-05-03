@@ -486,6 +486,9 @@
   let initialFadeCover = null;
   let controlAuthenticated = false;
   let controlAuthRequired = true;
+  let controlAuthProvider = '';
+  let microsoftTenant = '';
+  let microsoftClientId = '';
 
   const el = {
     panel: document.getElementById('panel'),
@@ -551,6 +554,9 @@
       const status = await resp.json();
       controlAuthRequired = !!status.required;
       controlAuthenticated = !controlAuthRequired || !!status.authenticated;
+      controlAuthProvider = status.provider || '';
+      microsoftTenant = status.microsoftTenant || '';
+      microsoftClientId = status.microsoftClientId || '';
     } catch (err) {
       console.error('control auth', err);
       controlAuthRequired = true;
@@ -559,7 +565,69 @@
     setControlsLocked(controls.isLocked());
   }
 
+  function microsoftAuthURL() {
+    const state = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
+    const nonce = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
+    sessionStorage.setItem('ambience.microsoft.state', state);
+    sessionStorage.setItem('ambience.microsoft.nonce', nonce);
+    const q = new URLSearchParams({
+      client_id: microsoftClientId,
+      response_type: 'id_token',
+      redirect_uri: window.location.origin + '/auth/callback',
+      response_mode: 'fragment',
+      scope: 'openid profile email',
+      state,
+      nonce,
+    });
+    return 'https://login.microsoftonline.com/' + encodeURIComponent(microsoftTenant) + '/oauth2/v2.0/authorize?' + q.toString();
+  }
+
+  async function completeMicrosoftSignIn(idToken, nonce) {
+    const resp = await fetch('/control-auth', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken, nonce }),
+    });
+    if (!resp.ok) throw new Error('auth returned ' + resp.status);
+    const status = await resp.json();
+    controlAuthRequired = !!status.required;
+    controlAuthenticated = !controlAuthRequired || !!status.authenticated;
+    controlAuthProvider = status.provider || controlAuthProvider;
+    microsoftTenant = status.microsoftTenant || microsoftTenant;
+    microsoftClientId = status.microsoftClientId || microsoftClientId;
+    log('live controls signed in', 'system');
+    return controlAuthenticated;
+  }
+
+  async function handleMicrosoftCallback() {
+    if (!window.location.hash || !window.location.hash.includes('id_token=')) return;
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    const expectedState = sessionStorage.getItem('ambience.microsoft.state');
+    const expectedNonce = sessionStorage.getItem('ambience.microsoft.nonce');
+    sessionStorage.removeItem('ambience.microsoft.state');
+    sessionStorage.removeItem('ambience.microsoft.nonce');
+    history.replaceState(null, '', '/');
+    if (!params.get('id_token') || !expectedState || !expectedNonce || params.get('state') !== expectedState) {
+      log('live control sign-in failed', 'system');
+      return;
+    }
+    try {
+      const signedIn = await completeMicrosoftSignIn(params.get('id_token'), expectedNonce);
+      setControlsLocked(!signedIn);
+    } catch (err) {
+      console.error('control auth', err);
+      controlAuthenticated = false;
+      log('live control sign-in failed', 'system');
+      setControlsLocked(true);
+    }
+  }
+
   async function signInControls() {
+    if (controlAuthProvider === 'microsoft' && microsoftTenant && microsoftClientId) {
+      window.location.assign(microsoftAuthURL());
+      return;
+    }
     const password = window.prompt('live control password');
     if (!password) return;
     el.lockButton.disabled = true;
@@ -637,6 +705,7 @@
     }
     setControlsLocked(!controls.isLocked());
   });
+  handleMicrosoftCallback();
   refreshControlAuth();
 
   function setPanelCollapsed(on) {
