@@ -19,7 +19,8 @@ the source of issue-run execution for the native Ambience flow.
    `scripts/glimmung-native/env-prep.sh`.
 4. `env-prep` clones this repo, builds and verifies an Ambience validation
    image, deploys a public validation environment, checks it, and emits
-   `validation_url`, `namespace`, `image_tag`, and `claude_namespace`.
+   `validation_url`, `namespace`, `image_tag`, `claude_namespace`, and
+   `claude_ca_namespace`.
 5. Glimmung substitutes those phase outputs into `agent-execute`.
 6. The `agent-execute` native phase runs
    `scripts/glimmung-native/agent-execute.sh`.
@@ -60,6 +61,9 @@ The native runner registration has been smoke-tested end-to-end through
 Glimmung against this repo: a Glimmung-dispatched issue successfully
 ran `env-prep` and `agent-execute` against the registered Ambience
 workflow and produced a documentation-only commit on an agent branch.
+
+The native runner confirms the pushed agent branch directly through GitHub.
+It does not mutate validation namespace metadata for branch discovery.
 
 ## Runner Image
 
