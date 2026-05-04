@@ -29,9 +29,14 @@ native_init() {
   if [ ! -f "$NATIVE_SEQ_FILE" ]; then
     printf '0\n' >"$NATIVE_SEQ_FILE"
   fi
-  NATIVE_RESUME_FROM_STEP="${GLIMMUNG_RESUME_FROM_STEP:-}"
+  NATIVE_RESUME_FROM_JOB="${GLIMMUNG_ENTRYPOINT_JOB_ID:-}"
+  NATIVE_RESUME_FROM_STEP="${GLIMMUNG_RESUME_FROM_STEP:-${GLIMMUNG_ENTRYPOINT_STEP_SLUG:-}}"
   NATIVE_RESUME_SEEN=""
-  if [ -z "$NATIVE_RESUME_FROM_STEP" ]; then
+  if [ -z "$NATIVE_RESUME_FROM_JOB" ] && [ -z "$NATIVE_RESUME_FROM_STEP" ]; then
+    NATIVE_RESUME_SEEN="1"
+  elif [ -n "$NATIVE_RESUME_FROM_JOB" ] && [ "$NATIVE_RESUME_FROM_JOB" != "$GLIMMUNG_JOB_ID" ]; then
+    NATIVE_RESUME_SEEN="skip-job"
+  elif [ -z "$NATIVE_RESUME_FROM_STEP" ]; then
     NATIVE_RESUME_SEEN="1"
   fi
 }
@@ -118,6 +123,9 @@ native_log_file() {
 
 native_should_skip_step() {
   local step_slug="$1"
+  if [ "$NATIVE_RESUME_SEEN" = "skip-job" ]; then
+    return 0
+  fi
   if [ -n "$NATIVE_RESUME_SEEN" ]; then
     return 1
   fi
@@ -147,8 +155,13 @@ native_step_run() {
   local log_file rc metadata
 
   if native_should_skip_step "$step_slug"; then
-    metadata="$(jq -nc --arg resume_from_step "$NATIVE_RESUME_FROM_STEP" '{resume_from_step: $resume_from_step}')"
-    native_event "step_skipped" "$step_slug" "skipped before resume target ${NATIVE_RESUME_FROM_STEP}" "" "$metadata"
+    metadata="$(
+      jq -nc \
+        --arg resume_from_job "$NATIVE_RESUME_FROM_JOB" \
+        --arg resume_from_step "$NATIVE_RESUME_FROM_STEP" \
+        '{resume_from_job: $resume_from_job, resume_from_step: $resume_from_step}'
+    )"
+    native_event "step_skipped" "$step_slug" "skipped before resume target ${NATIVE_RESUME_FROM_STEP:-${NATIVE_RESUME_FROM_JOB}}" "" "$metadata"
     return 0
   fi
 
@@ -176,8 +189,11 @@ native_step_run() {
 }
 
 native_assert_resume_satisfied() {
+  if [ "$NATIVE_RESUME_SEEN" = "skip-job" ]; then
+    return 0
+  fi
   if [ -n "$NATIVE_RESUME_FROM_STEP" ] && [ -z "$NATIVE_RESUME_SEEN" ]; then
-    native_failed "unknown GLIMMUNG_RESUME_FROM_STEP=${NATIVE_RESUME_FROM_STEP}"
+    native_failed "unknown resume step ${NATIVE_RESUME_FROM_STEP}"
     exit 2
   fi
 }
