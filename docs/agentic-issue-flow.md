@@ -85,10 +85,15 @@ Codex, and the native Ambience scripts under `/opt/ambience-native/scripts`.
 ## Retry And Resume
 
 `agent-execute` is a verification phase with a recycle policy on
-`verify_fail` and `verify_malformed`. The app-owned step boundaries are the
-resume surface for future MCP/API dispatches; a caller that wants to resume
-from a particular point should pass `GLIMMUNG_RESUME_FROM_STEP=<step-slug>`
-when creating the next native attempt.
+`verify_fail` and `verify_malformed`. When verification fails — for example,
+when a screenshot capture errors out because a configured page is missing —
+Glimmung's recycle policy reuses the same `glimmung/<run>` agent branch and
+launches a follow-up `agent-execute` attempt so the agent can fix the issue
+and push forward on the existing branch. The app-owned step boundaries are
+the resume surface for future MCP/API dispatches; a caller that wants to
+resume from a particular point should pass
+`GLIMMUNG_RESUME_FROM_STEP=<step-slug>` when creating the next native
+attempt.
 
 ## Evidence
 
