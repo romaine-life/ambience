@@ -6,6 +6,16 @@ that receives config + event broadcasts via SSE. Conceptually independent
 of fzt — the name only matches the domain (`ambience.romaine.life`).
 Read `D:/shell-config/setup/claude/CLAUDE.md` for global Claude config.
 
+## Container Build Verification
+
+Agent pods are not expected to have Docker. Do not report missing local Docker
+as a blocker. Run available repo checks first, then use PR CI as the normal
+container build gate: `.github/workflows/docker-build-check.yml` performs
+throwaway builds for the app and native-runner images with `push: false`. If
+image-packaging feedback is needed before a PR is ready, manually dispatch that
+workflow with `git_ref`. Release/deploy workflows are the only path that
+publishes images.
+
 ## Architecture
 
 ```
