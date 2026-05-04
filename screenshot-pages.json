@@ -4,6 +4,5 @@
   { "path": "/dev", "label": "dev-default" },
   { "path": "/dev/rain", "label": "dev-rain" },
   { "path": "/dev/fireflies", "label": "dev-fireflies" },
-  { "path": "/dev/volcano", "label": "dev-volcano" },
-  { "path": "/__glimmung-retry-smoke-missing", "label": "retry-smoke-missing" }
+  { "path": "/dev/volcano", "label": "dev-volcano" }
 ]
