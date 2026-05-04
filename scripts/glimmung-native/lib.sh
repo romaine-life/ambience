@@ -26,9 +26,7 @@ native_init() {
     GLIMMUNG_RUN_ID
 
   NATIVE_SEQ_FILE="${NATIVE_SEQ_FILE:-/tmp/glimmung-native-seq}"
-  if [ ! -f "$NATIVE_SEQ_FILE" ]; then
-    printf '0\n' >"$NATIVE_SEQ_FILE"
-  fi
+  printf '0\n' >"$NATIVE_SEQ_FILE"
   NATIVE_RESUME_FROM_JOB="${GLIMMUNG_ENTRYPOINT_JOB_ID:-}"
   NATIVE_RESUME_FROM_STEP="${GLIMMUNG_RESUME_FROM_STEP:-${GLIMMUNG_ENTRYPOINT_STEP_SLUG:-}}"
   NATIVE_RESUME_SEEN=""
@@ -44,6 +42,9 @@ native_init() {
 native_next_seq() {
   local current next
   current="$(cat "$NATIVE_SEQ_FILE" 2>/dev/null || printf '0')"
+  if ! [[ "$current" =~ ^[0-9]+$ ]]; then
+    current="0"
+  fi
   next=$((current + 1))
   printf '%s\n' "$next" >"$NATIVE_SEQ_FILE"
   printf '%s' "$next"
@@ -70,6 +71,9 @@ native_event() {
   local metadata_json="${5:-{}}"
   local seq exit_json payload
   seq="$(native_next_seq)"
+  if ! jq -e . >/dev/null 2>&1 <<<"$metadata_json"; then
+    metadata_json="{}"
+  fi
   if [ -n "$exit_code" ]; then
     exit_json="$exit_code"
   else
