@@ -66,6 +66,9 @@ The native runner registration has been smoke-tested end-to-end through
 Glimmung against this repo: a Glimmung-dispatched issue successfully
 ran `env-prep` and `agent-execute` against the registered Ambience
 workflow and produced a documentation-only commit on an agent branch.
+Most recently re-exercised on 2026-05-04 as a production dogfood pass:
+both phases ran cleanly under the registered native runner image and the
+attempt produced a reviewable agent branch via the Report primitive.
 
 The native runner confirms the pushed agent branch directly through GitHub.
 It does not mutate validation namespace metadata for branch discovery.
