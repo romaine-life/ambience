@@ -69,6 +69,10 @@ workflow and produced a documentation-only commit on an agent branch.
 Most recently re-exercised on 2026-05-04 as a production dogfood pass:
 both phases ran cleanly under the registered native runner image and the
 attempt produced a reviewable agent branch via the Report primitive.
+The 2026-05-04 dogfood also covered an `agent-execute` retry attempt on
+the same Glimmung issue, confirming the verify-phase recycle policy
+re-runs the agent against a fresh validation environment without
+operator intervention.
 
 The native runner confirms the pushed agent branch directly through GitHub.
 It does not mutate validation namespace metadata for branch discovery.
