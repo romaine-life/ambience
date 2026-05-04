@@ -119,7 +119,31 @@ prepare_agent_context() {
     --dry-run=client -o yaml | kubectl apply -f -
 }
 
+ensure_repo_for_resume() {
+  if [ ! -d "${REPO_DIR}/.git" ]; then
+    clone_repo
+  fi
+}
+
+ensure_agent_context_for_resume() {
+  if [ -z "${PROXY_IP:-}" ]; then
+    PROXY_IP="$(kubectl -n "$CLAUDE_NAMESPACE" get svc claude-api-proxy -o jsonpath='{.spec.clusterIP}')"
+    if [ -z "$PROXY_IP" ]; then
+      echo "claude-api-proxy Service not found in ${CLAUDE_NAMESPACE}" >&2
+      return 1
+    fi
+    export PROXY_IP
+  fi
+  if ! kubectl -n "$NAMESPACE" get configmap agent-config >/dev/null 2>&1 \
+      || ! kubectl -n "$NAMESPACE" get secret agent-github-token >/dev/null 2>&1; then
+    ensure_repo_for_resume
+    prepare_agent_context
+  fi
+}
+
 run_agent() {
+  ensure_repo_for_resume
+  ensure_agent_context_for_resume
   (
     cd "$REPO_DIR"
     args=(
