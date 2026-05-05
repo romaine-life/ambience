@@ -69,6 +69,96 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 		return ((value % mod) + mod) % mod;
 	}
 
+	function ensurePixelGrid(effect) {
+		const w = Math.max(1, effect.w | 0);
+		const h = Math.max(1, effect.h | 0);
+		const need = w * h * 3;
+		if (!(effect.grid instanceof Uint8ClampedArray) || effect.grid.length !== need) {
+			effect.grid = new Uint8ClampedArray(need);
+		}
+		return effect.grid;
+	}
+
+	function paintPixel(grid, w, h, x, y, color) {
+		x = Math.round(x);
+		y = Math.round(y);
+		if (x < 0 || y < 0 || x >= w || y >= h) return;
+		const i = (y * w + x) * 3;
+		grid[i] = Math.max(grid[i], color.r | 0);
+		grid[i + 1] = Math.max(grid[i + 1], color.g | 0);
+		grid[i + 2] = Math.max(grid[i + 2], color.b | 0);
+	}
+
+	function paintProceduralGrid(effect) {
+		const grid = ensurePixelGrid(effect);
+		const w = Math.max(1, effect.w | 0);
+		const h = Math.max(1, effect.h | 0);
+		const cfg = effect.cfg || {};
+		const seed = Number(effect.seed || 1) >>> 0;
+		const tick = Number(effect.tick || 0);
+		const kind = String(effect.kind || (effect.constructor && effect.constructor.name) || 'effect');
+		let kindHash = 0;
+		for (let i = 0; i < kind.length; i++) {
+			kindHash = ((kindHash << 5) - kindHash + kind.charCodeAt(i)) >>> 0;
+		}
+		const hue = Number.isFinite(cfg.hue) ? cfg.hue : ((seed % 360) || 210);
+		const sat = Number.isFinite(cfg.sat) ? cfg.sat : 0.45;
+		const lmin = Number.isFinite(cfg.lmin) ? cfg.lmin : 0.12;
+		const lmax = Number.isFinite(cfg.lmax) ? cfg.lmax : 0.72;
+		grid.fill(0);
+		for (let y = 0; y < h; y++) {
+			const yr = y / Math.max(1, h - 1);
+			for (let x = 0; x < w; x++) {
+				const wave =
+					Math.sin((x + tick * (0.12 + (kindHash & 7) * 0.018)) * (0.09 + ((kindHash >> 4) & 7) * 0.01) + seed * 0.001) +
+					Math.sin((y - tick * (0.09 + ((kindHash >> 8) & 7) * 0.018)) * (0.13 + ((kindHash >> 12) & 7) * 0.012) + seed * 0.0007);
+				const sparkle = Math.sin((x * (13 + (kindHash & 5)) + y * (23 + ((kindHash >> 3) & 7)) + tick + seed) * 0.071);
+				const band = Math.sin((x + y + tick * 0.2) * (0.04 + ((kindHash >> 16) & 7) * 0.006));
+				const light = clamp01(lmin + (lmax - lmin) * (0.25 + 0.42 * yr + 0.16 * wave + 0.08 * band + 0.1 * Math.max(0, sparkle)));
+				const c = hslToRGB((hue + (kindHash % 70) - 35 + wave * 16 + sparkle * 8 + 360) % 360, clamp01(sat), light);
+				const i = (y * w + x) * 3;
+				grid[i] = c.r;
+				grid[i + 1] = c.g;
+				grid[i + 2] = c.b;
+			}
+		}
+		const count = Math.max(8, Math.floor(w * h * 0.012));
+		for (let i = 0; i < count; i++) {
+			const rng = makeRNG((seed ^ (i * 2654435761) ^ ((tick / 6) | 0)) >>> 0);
+			const x = rng.intn(w);
+			const y = rng.intn(h);
+			const c = hslToRGB((hue + rng() * 60 - 30 + 360) % 360, clamp01(sat * 1.1), clamp01(lmax));
+			paintPixel(grid, w, h, x, y, c);
+		}
+		return grid;
+	}
+
+	function renderPixelGridEffect(effect, ctx, canvasW, canvasH, opts) {
+		opts = opts || {};
+		const grid = ensurePixelGrid(effect);
+		if (opts.transparent) {
+			ctx.clearRect(0, 0, canvasW, canvasH);
+		} else {
+			ctx.fillStyle = opts.bg || '#0a0a0a';
+			ctx.fillRect(0, 0, canvasW, canvasH);
+		}
+		const w = Math.max(1, effect.w | 0);
+		const h = Math.max(1, effect.h | 0);
+		const sx = canvasW / w;
+		const sy = canvasH / h;
+		const ceilSx = Math.ceil(sx);
+		const ceilSy = Math.ceil(sy);
+		for (let y = 0; y < h; y++) {
+			for (let x = 0; x < w; x++) {
+				const i = (y * w + x) * 3;
+				const r = grid[i], g = grid[i + 1], b = grid[i + 2];
+				if (r === 0 && g === 0 && b === 0) continue;
+				ctx.fillStyle = `rgb(${r},${g},${b})`;
+				ctx.fillRect(Math.floor(x * sx), Math.floor(y * sy), ceilSx, ceilSy);
+			}
+		}
+	}
+
 	// EffectTransition wraps two sims (an outgoing one and an incoming one)
 	// behind the same step / render / setConfig / triggerEvent / restoreSnapshot
 	// surface, smoothly crossfading the visual output across `durationTicks`.
@@ -181,7 +271,7 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 	// Expose helpers on the namespace so per-effect files can pull them out
 	// of api._helpers at the top of their own IIFE. positiveMod is included
 	// because Burning-Trees and several procedural effects use it.
-	api._helpers = { makeRNG, jitterInt, clamp01, hslToRGB, positiveMod };
+	api._helpers = { makeRNG, jitterInt, clamp01, hslToRGB, positiveMod, ensurePixelGrid, paintPixel, paintProceduralGrid, renderPixelGridEffect };
 	api.subscribe = subscribe;
 	api.EffectTransition = EffectTransition;
 

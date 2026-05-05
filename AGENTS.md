@@ -123,6 +123,35 @@ chart/ambience/  Helm chart used by ArgoCD for both environments.
                  falling back to localhost.
 ```
 
+## Pixel-world contract
+
+The product is a persistent shared ambient pixel world, not a browser-only
+canvas scene. Do not add effect visuals that bypass the pixel grid.
+
+The intended contract is:
+
+1. The authority/server coordinates state, effect/scene timing, config,
+   discrete events, entropy, and snapshots.
+2. Clients already have the effect code loaded. They locally simulate from
+   snapshots/config/events such as "wind gust", "downpour", "intro", or
+   "ending" instead of receiving streamed pixel frames.
+3. Pixel streaming is intentionally avoided. It is too heavy for the goal and
+   solves responsiveness when this project is mainly about persistence across
+   clients and sessions.
+4. Every effect owns a low-resolution pixel grid and updates that grid with
+   effect-specific pixel math. Browser canvas, terminal sixel, and social PNG
+   preview are output adapters for the grid.
+5. Browser effect files must not draw ambience visuals with canvas-native
+   gradients, paths, arcs, strokes, or other scene-rendering APIs. The shared
+   renderer may use `fillRect` to scale grid cells to the canvas; effect files
+   should write pixels into their grids.
+6. Entropy should be felt later, not as immediate frame noise. A good use is
+   biasing future generated configurations/scenes while clients continue to
+   converge from the event stream and their playback buffer.
+
+If an effect needs richer art direction, refine its grid math. Do not add a
+parallel non-grid rendering layer.
+
 ## Preferred iteration loop
 
 When the deployment/platform foundation is already stable, prefer using

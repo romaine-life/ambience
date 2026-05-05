@@ -55,6 +55,7 @@
 		constructor(w, h, cfg, seed) {
 			this.w = w;
 			this.h = h;
+			this.grid = new Uint8ClampedArray(w * h * 3);
 			this.seed = Number(seed || Date.now());
 			this.tick = 0;
 			this.timers = {};
@@ -140,6 +141,7 @@
 			if (!this.timers.gust || this.timers.gust <= 0) {
 				this.values.gust_push = 0;
 			}
+			api._helpers.paintProceduralGrid(this);
 		}
 
 		_densityLevel() {
@@ -160,84 +162,7 @@
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
-			opts = opts || {};
-			if (opts.transparent) {
-				ctx.clearRect(0, 0, canvasW, canvasH);
-			} else {
-				const sky = ctx.createLinearGradient(0, 0, 0, canvasH);
-				sky.addColorStop(0, '#09111d');
-				sky.addColorStop(0.58, '#102033');
-				sky.addColorStop(1, '#17263a');
-				ctx.fillStyle = sky;
-				ctx.fillRect(0, 0, canvasW, canvasH);
-			}
-
-			const sx = canvasW / this.w;
-			const sy = canvasH / this.h;
-			const ceilSx = Math.ceil(sx);
-			const ceilSy = Math.ceil(sy);
-			const groundRow = Math.floor(this.h * 0.8);
-
-			const moonX = canvasW * (0.16 + this._hash(401) * 0.18);
-			const moonY = canvasH * (0.14 + this._hash(402) * 0.08);
-			const moonR = Math.max(12, Math.min(canvasW, canvasH) * 0.035);
-			const moon = ctx.createRadialGradient(moonX, moonY, 0, moonX, moonY, moonR * 2.6);
-			moon.addColorStop(0, 'rgba(225, 234, 255, 0.18)');
-			moon.addColorStop(1, 'rgba(225, 234, 255, 0)');
-			ctx.fillStyle = moon;
-			ctx.fillRect(0, 0, canvasW, canvasH);
-
-			for (let y = groundRow; y < this.h; y++) {
-				const ratio = (y - groundRow) / Math.max(1, this.h - groundRow);
-				const hue = ((this.cfg.hue - 8) % 360 + 360) % 360;
-				const light = clamp01(0.06 + 0.2 * ratio);
-				const color = hslToRGB(hue, clamp01(this.cfg.sat * 0.55), light);
-				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, y, this.w, 1, `rgb(${color.r},${color.g},${color.b})`, 1);
-			}
-
-			const treeCount = 13;
-			for (let i = 0; i < treeCount; i++) {
-				const center = Math.floor((i + 0.5) * this.w / treeCount + (this._hash(500 + i) - 0.5) * 6);
-				const trunkH = 1 + Math.floor(this._hash(530 + i) * 2);
-				const crownH = 8 + Math.floor(this._hash(560 + i) * 9);
-				const maxHalf = 2 + Math.floor(this._hash(590 + i) * 4);
-				const hue = ((this.cfg.hue - 26) % 360 + 360) % 360;
-				const treeColor = hslToRGB(hue, clamp01(this.cfg.sat * 0.6), 0.18 + this._hash(620 + i) * 0.08);
-				for (let row = 0; row < crownH; row++) {
-					const width = Math.max(1, maxHalf - Math.floor(row / 2));
-					const y = groundRow - crownH + row;
-					for (let dx = -width; dx <= width; dx++) {
-						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, center + dx, y, 1, 1, `rgb(${treeColor.r},${treeColor.g},${treeColor.b})`, 1);
-					}
-				}
-				for (let row = 0; row < trunkH; row++) {
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, center, groundRow + row - trunkH, 1, 1, `rgb(${treeColor.r},${treeColor.g},${treeColor.b})`, 1);
-				}
-			}
-
-			const density = this._densityLevel();
-			const layers = Math.max(1, Math.round(this.cfg.layers));
-			for (let layer = 0; layer < layers; layer++) {
-				const layerRatio = layers === 1 ? 1 : layer / (layers - 1);
-				const layerCount = Math.max(8, Math.round(this.w * density * (0.35 + layerRatio * 0.8)));
-				const baseSpeed = this.cfg.speed * (0.4 + layerRatio * 0.85);
-				const drift = this.cfg.drift * (0.35 + layerRatio * 0.65) + (this.values.gust_push || 0) * 0.035 * (0.5 + layerRatio * 0.65);
-				const size = Math.max(1, Math.round(this.cfg.size + layerRatio));
-				for (let i = 0; i < layerCount; i++) {
-					const idx = layer * 1000 + i;
-					const baseX = this._hash(1000 + idx) * this.w;
-					const baseY = this._hash(2000 + idx) * Math.max(1, groundRow - 2);
-					const sway = (this._hash(3000 + idx) * 2 - 1) * this.cfg.sway * (1.4 + layerRatio * 2.4);
-					const fall = baseY + this.tick * baseSpeed * (0.75 + this._hash(4000 + idx) * 0.5);
-					const row = positiveMod(fall, Math.max(1, groundRow - 2));
-					const col = positiveMod(baseX + this.tick * drift + Math.sin(this.tick * 0.035 + idx * 0.19) * sway, this.w);
-					const hue = ((this.cfg.hue + (this._hash(5000 + idx) * 2 - 1) * this.cfg.hue_sp) % 360 + 360) % 360;
-					const light = clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * (0.35 + 0.55 * (0.3 + layerRatio * 0.7)));
-					const alpha = clamp01(0.35 + 0.55 * (0.25 + layerRatio * 0.75));
-					const color = hslToRGB(hue, this.cfg.sat, light);
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, Math.round(col), Math.round(row), size, size, `rgb(${color.r},${color.g},${color.b})`, alpha);
-				}
-			}
+			api._helpers.renderPixelGridEffect(this, ctx, canvasW, canvasH, opts);
 		}
 	}
 

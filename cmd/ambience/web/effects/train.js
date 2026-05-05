@@ -68,6 +68,7 @@
 		constructor(w, h, cfg, seed) {
 			this.w = w;
 			this.h = h;
+			this.grid = new Uint8ClampedArray(w * h * 3);
 			this.seed = Number(seed || Date.now());
 			this.tick = 0;
 			this.timers = {};
@@ -178,6 +179,7 @@
 				delete this.values.express_total;
 				delete this.values.express_dir;
 			}
+			api._helpers.paintProceduralGrid(this);
 		}
 
 		// Returns { kind, dir, total, left, lifecycle } when a train is in
@@ -223,89 +225,7 @@
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
-			opts = opts || {};
-			const cfg = this.cfg;
-			const lifecycle = this._lifecycleLevel();
-
-			if (opts.transparent) {
-				ctx.clearRect(0, 0, canvasW, canvasH);
-			} else {
-				const skyTop = hslToRGB((cfg.hue + 6) % 360, clamp01(cfg.sat * 0.5), clamp01(cfg.lmin * 0.95));
-				const skyMid = hslToRGB(cfg.hue, cfg.sat, clamp01(cfg.lmin + (cfg.lmax - cfg.lmin) * 0.32));
-				const skyLow = hslToRGB((cfg.hue - cfg.hue_sp * 0.5 + 360) % 360, clamp01(cfg.sat * 0.78), clamp01(cfg.lmin + (cfg.lmax - cfg.lmin) * 0.6));
-				const sky = ctx.createLinearGradient(0, 0, 0, canvasH);
-				sky.addColorStop(0, `rgb(${skyTop.r},${skyTop.g},${skyTop.b})`);
-				sky.addColorStop(0.62, `rgb(${skyMid.r},${skyMid.g},${skyMid.b})`);
-				sky.addColorStop(1, `rgb(${skyLow.r},${skyLow.g},${skyLow.b})`);
-				ctx.fillStyle = sky;
-				ctx.fillRect(0, 0, canvasW, canvasH);
-			}
-
-			const sx = canvasW / this.w;
-			const sy = canvasH / this.h;
-			const ceilSx = Math.ceil(sx);
-			const ceilSy = Math.ceil(sy);
-			const horizon = Math.max(6, Math.min(this.h - 8, Math.floor(this.h * cfg.horizon)));
-			const trackY = Math.max(horizon + 2, Math.min(this.h - 4, Math.floor(this.h * cfg.track_y)));
-
-			// Distant ridgeline a few rows above the rail line. Slow, fixed
-			// silhouette so the scene reads as "long quiet stretch of land"
-			// when no train is in flight.
-			const ridgeColor = hslToRGB((cfg.hue + 12) % 360, clamp01(cfg.sat * 0.32), clamp01(cfg.lmin * 0.7 + 0.02));
-			const ridgeRows = new Array(this.w);
-			for (let x = 0; x < this.w; x++) {
-				const wave = Math.sin(x * 0.07 + this._hash(101) * 6.28) * 1.6 +
-					Math.sin(x * 0.024 + 2.1) * 2.6 +
-					Math.sin(x * 0.012 + 4.7) * 1.1;
-				ridgeRows[x] = Math.round(horizon - 1 - Math.abs(wave) * 0.7);
-			}
-			ctx.fillStyle = `rgb(${ridgeColor.r},${ridgeColor.g},${ridgeColor.b})`;
-			ctx.beginPath();
-			ctx.moveTo(0, Math.floor(horizon * sy));
-			for (let x = 0; x < this.w; x++) {
-				ctx.lineTo(Math.floor(x * sx), Math.floor(ridgeRows[x] * sy));
-			}
-			ctx.lineTo(canvasW, Math.floor(horizon * sy));
-			ctx.closePath();
-			ctx.fill();
-
-			// Foreground ground from horizon downward — solid fill with gentle
-			// dust shading near the track line.
-			const groundTop = hslToRGB((cfg.hue + cfg.hue_sp + 360) % 360, clamp01(cfg.sat * 0.36), clamp01(cfg.lmin + 0.04));
-			const groundLow = hslToRGB((cfg.hue + cfg.hue_sp * 1.4 + 360) % 360, clamp01(cfg.sat * 0.28), clamp01(cfg.lmin * 0.85));
-			const ground = ctx.createLinearGradient(0, Math.floor(horizon * sy), 0, canvasH);
-			ground.addColorStop(0, `rgb(${groundTop.r},${groundTop.g},${groundTop.b})`);
-			ground.addColorStop(1, `rgb(${groundLow.r},${groundLow.g},${groundLow.b})`);
-			ctx.fillStyle = ground;
-			ctx.fillRect(0, Math.floor(horizon * sy), canvasW, canvasH - Math.floor(horizon * sy));
-
-			// Sleeper ties: short dark dashes on the rail line. Static between
-			// passes, period locked to grid so the scene reads as still.
-			const tieColor = hslToRGB((cfg.hue + 20) % 360, clamp01(cfg.sat * 0.18), clamp01(cfg.lmin * 0.6));
-			for (let x = 0; x < this.w; x += 4) {
-				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, trackY + 1, 2, 1, `rgb(${tieColor.r},${tieColor.g},${tieColor.b})`, 0.65);
-			}
-
-			// Twin rails — a single bright cell wide.
-			const railColor = hslToRGB(cfg.hue, clamp01(cfg.sat * 0.22), clamp01(cfg.lmax * 0.78));
-			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, trackY, this.w, 1, `rgb(${railColor.r},${railColor.g},${railColor.b})`, 0.78);
-			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, trackY + 2, this.w, 1, `rgb(${railColor.r},${railColor.g},${railColor.b})`, 0.5);
-
-			const pass = this._activePass();
-			if (pass) {
-				this._renderPass(ctx, sx, sy, ceilSx, ceilSy, trackY, pass, lifecycle);
-			} else if (this.timers.ending > 0) {
-				// Lingering ending halo after the last train cleared.
-				this._renderEndingGlow(ctx, sx, sy, ceilSx, ceilSy, trackY, lifecycle);
-			}
-
-			// Subtle low-haze near the track for depth.
-			const haze = ctx.createLinearGradient(0, Math.floor((trackY - 2) * sy), 0, Math.floor((trackY + 6) * sy));
-			haze.addColorStop(0, 'rgba(0,0,0,0)');
-			haze.addColorStop(0.4, `rgba(0,0,0,${0.06 + (1 - lifecycle) * 0.04})`);
-			haze.addColorStop(1, 'rgba(0,0,0,0)');
-			ctx.fillStyle = haze;
-			ctx.fillRect(0, Math.floor((trackY - 2) * sy), canvasW, Math.ceil(8 * sy));
+			api._helpers.renderPixelGridEffect(this, ctx, canvasW, canvasH, opts);
 		}
 
 		_renderPass(ctx, sx, sy, ceilSx, ceilSy, trackY, pass, lifecycle) {
@@ -350,15 +270,14 @@
 			const cfg = this.cfg;
 			const baseAlpha = clamp01((cfg.intro_glow + (1 - cfg.intro_glow) * progress) * cfg.light_glow * intensity * (isExpress ? 1.25 : 1));
 			const edgeX = dir > 0 ? -2 : this.w + 2;
-			const cx = (dir > 0 ? edgeX + 6 + progress * 4 : edgeX - 6 - progress * 4) * sx;
-			const cy = (trackY - 1) * sy;
-			const radius = Math.max(8, sx * 14);
-			const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-			grad.addColorStop(0, `rgba(255, 230, 170, ${0.3 * baseAlpha})`);
-			grad.addColorStop(0.45, `rgba(255, 200, 130, ${0.16 * baseAlpha})`);
-			grad.addColorStop(1, 'rgba(255, 200, 130, 0)');
-			ctx.fillStyle = grad;
-			ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
+			const cx = dir > 0 ? edgeX + 6 + progress * 4 : edgeX - 6 - progress * 4;
+			const light = hslToRGB(42, 0.75, 0.72);
+			for (let y = -2; y <= 2; y++) {
+				for (let x = -6; x <= 6; x++) {
+					if (Math.abs(x) + Math.abs(y) > 7) continue;
+					this._fillCell(ctx, sx, sy, 1, 1, Math.round(cx + x), trackY - 1 + y, 1, 1, `rgb(${light.r},${light.g},${light.b})`, baseAlpha * 0.35);
+				}
+			}
 		}
 
 		_renderTailLinger(ctx, sx, sy, ceilSx, ceilSy, trackY, dir, progress, intensity, isExpress) {
@@ -435,16 +354,13 @@
 			const headlightY = topY + Math.max(0, Math.floor(trainHeight * 0.55));
 			const lightColor = hslToRGB(54, 0.78, 0.72);
 			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, headlightX, headlightY, 1, 1, `rgb(${lightColor.r},${lightColor.g},${lightColor.b})`, clamp01(0.9 * intensity));
-			const haloX = (headlightX + (dir > 0 ? 0.5 : 0.5)) * sx;
-			const haloY = (headlightY + 0.5) * sy;
-			const haloR = Math.max(10, sx * (10 + (isExpress ? 4 : 0)));
-			const halo = ctx.createRadialGradient(haloX, haloY, 0, haloX, haloY, haloR);
 			const haloAlpha = clamp01(cfg.light_glow * intensity * (isExpress ? 1.35 : 1));
-			halo.addColorStop(0, `rgba(255, 232, 170, ${0.5 * haloAlpha})`);
-			halo.addColorStop(0.5, `rgba(255, 210, 130, ${0.18 * haloAlpha})`);
-			halo.addColorStop(1, 'rgba(255, 210, 130, 0)');
-			ctx.fillStyle = halo;
-			ctx.fillRect(haloX - haloR, haloY - haloR, haloR * 2, haloR * 2);
+			for (let y = -2; y <= 2; y++) {
+				for (let x = -5; x <= 5; x++) {
+					if (Math.abs(x) + Math.abs(y) > 6) continue;
+					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, headlightX + x, headlightY + y, 1, 1, `rgb(${lightColor.r},${lightColor.g},${lightColor.b})`, haloAlpha * 0.25);
+				}
+			}
 
 			// Smoke / steam plume drifting back from the stack.
 			const smokeStrength = clamp01(cfg.smoke * intensity * (isExpress ? 1.25 : 1));
@@ -490,12 +406,9 @@
 				void offset;
 			}
 
-			// Subtle ground glow under the headlight to sell brightness.
-			const underGlow = ctx.createRadialGradient(haloX, (baseY + 2) * sy, 0, haloX, (baseY + 2) * sy, sx * 6);
-			underGlow.addColorStop(0, `rgba(255, 220, 160, ${0.18 * haloAlpha})`);
-			underGlow.addColorStop(1, 'rgba(255, 220, 160, 0)');
-			ctx.fillStyle = underGlow;
-			ctx.fillRect(haloX - sx * 6, (baseY + 2) * sy - sx * 6, sx * 12, sx * 12);
+			for (let x = -4; x <= 4; x++) {
+				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, headlightX + x, baseY + 2, 1, 1, `rgb(${lightColor.r},${lightColor.g},${lightColor.b})`, haloAlpha * 0.16);
+			}
 		}
 	}
 

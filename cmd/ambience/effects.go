@@ -36,6 +36,7 @@ type effectRuntime interface {
 	Persisted() (persistedEffectState, error)
 	RestorePersisted(persistedEffectState) error
 	Trigger(name string) bool
+	Frame() [][]sim.Pixel
 
 	Step()
 	CurrentTick() int

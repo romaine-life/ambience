@@ -60,6 +60,7 @@
 		constructor(w, h, cfg, seed) {
 			this.w = w;
 			this.h = h;
+			this.grid = new Uint8ClampedArray(w * h * 3);
 			this.seed = Number(seed || Date.now());
 			this.tick = 0;
 			this.timers = {};
@@ -154,6 +155,7 @@
 			}
 			if (!this.timers.gust || this.timers.gust <= 0) this.values.gust_push = 0;
 			if (!this.timers.swirl || this.timers.swirl <= 0) this.values.swirl_spin = 0;
+			api._helpers.paintProceduralGrid(this);
 		}
 
 		_densityLevel() {
@@ -174,72 +176,7 @@
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
-			opts = opts || {};
-			if (opts.transparent) {
-				ctx.clearRect(0, 0, canvasW, canvasH);
-			} else {
-				const sky = ctx.createLinearGradient(0, 0, 0, canvasH);
-				sky.addColorStop(0, '#20170f');
-				sky.addColorStop(0.52, '#58422b');
-				sky.addColorStop(1, '#7c6042');
-				ctx.fillStyle = sky;
-				ctx.fillRect(0, 0, canvasW, canvasH);
-			}
-
-			const sx = canvasW / this.w;
-			const sy = canvasH / this.h;
-			const ceilSx = Math.ceil(sx);
-			const ceilSy = Math.ceil(sy);
-			const groundRow = Math.floor(this.h * 0.82);
-
-			for (let y = groundRow; y < this.h; y++) {
-				const ratio = (y - groundRow) / Math.max(1, this.h - groundRow);
-				const ground = hslToRGB(38, 0.35, 0.1 + ratio * 0.16);
-				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, y, this.w, 1, `rgb(${ground.r},${ground.g},${ground.b})`, 1);
-			}
-
-			for (let x = 0; x < this.w; x++) {
-				const canopyDepth = 4 + Math.floor(this._hash(6100 + x) * 6);
-				const shade = hslToRGB(24 + this._hash(6200 + x) * 18, 0.45, 0.14 + this._hash(6300 + x) * 0.08);
-				for (let y = 0; y < canopyDepth; y++) {
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, 1, 1, `rgb(${shade.r},${shade.g},${shade.b})`, 0.75);
-				}
-			}
-
-			const density = this._densityLevel();
-			const layers = Math.max(1, Math.round(this.cfg.layers));
-			for (let layer = 0; layer < layers; layer++) {
-				const layerRatio = layers === 1 ? 1 : layer / (layers - 1);
-				const layerCount = Math.max(6, Math.round(this.w * density * (0.28 + layerRatio * 0.62)));
-				const baseSpeed = this.cfg.speed * (0.34 + layerRatio * 0.72);
-				const drift = this.cfg.drift * (0.45 + layerRatio * 0.65) + (this.values.gust_push || 0) * 0.04 * (0.5 + layerRatio * 0.7);
-				const size = Math.max(1, Math.round(this.cfg.size + layerRatio * 0.8));
-				for (let i = 0; i < layerCount; i++) {
-					const idx = layer * 1000 + i;
-					const baseX = this._hash(7000 + idx) * this.w;
-					const baseY = this._hash(8000 + idx) * Math.max(1, groundRow - 2);
-					const flutter = (this._hash(9000 + idx) * 2 - 1) * this.cfg.sway * (2.4 + layerRatio * 2.8);
-					let row = positiveMod(baseY + this.tick * baseSpeed * (0.7 + this._hash(10000 + idx) * 0.55), Math.max(1, groundRow - 2));
-					let col = positiveMod(baseX + this.tick * drift + Math.sin(this.tick * 0.04 + idx * 0.23) * flutter, this.w);
-					if (this.timers.swirl > 0) {
-						const sr = this.values.swirl_row || this.h * 0.55;
-						const sc = this.values.swirl_col || this.w * 0.5;
-						const angle = Math.atan2(row - sr, col - sc) + (this.values.swirl_spin || 0) * 0.015;
-						const radius = Math.hypot(col - sc, row - sr);
-						col = positiveMod(sc + Math.cos(angle) * radius, this.w);
-						row = Math.max(0, Math.min(groundRow - 2, sr + Math.sin(angle) * radius * 0.94));
-					}
-					const hue = ((this.cfg.hue + (this._hash(11000 + idx) * 2 - 1) * this.cfg.hue_sp) % 360 + 360) % 360;
-					const light = clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * (0.3 + this._hash(12000 + idx) * 0.7));
-					const alpha = clamp01(0.4 + layerRatio * 0.45);
-					const color = hslToRGB(hue, this.cfg.sat, light);
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, Math.round(col), Math.round(row), size, 1, `rgb(${color.r},${color.g},${color.b})`, alpha);
-					if ((idx + this.tick) % 3 === 0) {
-						const accent = hslToRGB((hue + 12) % 360, clamp01(this.cfg.sat * 0.85), clamp01(light * 1.08));
-						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, Math.round(col) + (this._hash(13000 + idx) < 0.5 ? 1 : 0), Math.round(row), 1, size > 1 ? 1 : 0.8, `rgb(${accent.r},${accent.g},${accent.b})`, alpha * 0.8);
-					}
-				}
-			}
+			api._helpers.renderPixelGridEffect(this, ctx, canvasW, canvasH, opts);
 		}
 	}
 

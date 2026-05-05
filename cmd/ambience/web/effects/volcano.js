@@ -68,6 +68,7 @@
 		constructor(w, h, cfg, seed) {
 			this.w = w;
 			this.h = h;
+			this.grid = new Uint8ClampedArray(w * h * 3);
 			this.seed = Number(seed || Date.now());
 			this.tick = 0;
 			this.timers = {};
@@ -199,6 +200,7 @@
 			}
 			if (!this.timers.eruption || this.timers.eruption <= 0) this.values.eruption_gain = 1;
 			if (!this.timers.flare || this.timers.flare <= 0) this.values.flare_gain = 1;
+			api._helpers.paintProceduralGrid(this);
 		}
 
 		_pressureLevel() {
@@ -220,161 +222,7 @@
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
-			opts = opts || {};
-			if (opts.transparent) {
-				ctx.clearRect(0, 0, canvasW, canvasH);
-			} else {
-				const sky = ctx.createLinearGradient(0, 0, 0, canvasH);
-				sky.addColorStop(0, '#0a0612');
-				sky.addColorStop(0.55, '#15101c');
-				sky.addColorStop(1, '#1f1212');
-				ctx.fillStyle = sky;
-				ctx.fillRect(0, 0, canvasW, canvasH);
-			}
-
-			const sx = canvasW / this.w;
-			const sy = canvasH / this.h;
-			const ceilSx = Math.ceil(sx);
-			const ceilSy = Math.ceil(sy);
-			const baseRow = Math.max(8, Math.min(this.h - 4, Math.floor(this.h * this.cfg.horizon)));
-			const centerX = Math.floor(this.w * 0.5);
-			const pressure = this._pressureLevel();
-			const eruptionActive = this.timers.eruption > 0;
-			const eruptionGain = this.values.eruption_gain || 1;
-			const flareActive = this.timers.flare > 0;
-			const flareGain = this.values.flare_gain || 1;
-			const eruptionTotal = this.timers.eruption > 0 ? Math.max(1, Math.round(this.cfg.eruption_dur)) : 0;
-			const eruptionPhase = eruptionActive
-				? this._phaseProgress(Math.max(eruptionTotal, this.timers.eruption), this.timers.eruption)
-				: 0;
-			const eruptionEnvelope = eruptionActive ? Math.sin(Math.PI * Math.min(1, eruptionPhase * 1.0)) : 0;
-
-			const halfW = Math.max(4, Math.round(this.cfg.cone_width * 0.5));
-			const coneH = Math.max(6, Math.round(this.cfg.cone_height));
-			const craterHalf = Math.max(2, Math.round(this.cfg.crater_width * 0.5));
-			const peakRow = baseRow - coneH;
-
-			// silhouette colors
-			const coneColor = hslToRGB((this.cfg.hue + 350) % 360, clamp01(this.cfg.sat * 0.18), clamp01(this.cfg.lmin * 0.55));
-			const coneEdge = hslToRGB((this.cfg.hue + 348) % 360, clamp01(this.cfg.sat * 0.24), clamp01(this.cfg.lmin * 0.78));
-			const ground = hslToRGB((this.cfg.hue + 352) % 360, clamp01(this.cfg.sat * 0.16), clamp01(this.cfg.lmin * 0.4));
-
-			// distant horizon haze
-			const hazeColor = hslToRGB(this.cfg.hue, clamp01(this.cfg.sat * 0.6), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.18));
-			const hazeStrength = clamp01(0.18 + this.cfg.glow * 0.18 + pressure * 0.08);
-			const hazeGrad = ctx.createLinearGradient(0, Math.floor((baseRow - 4) * sy), 0, Math.floor((baseRow + 6) * sy));
-			hazeGrad.addColorStop(0, `rgba(${hazeColor.r},${hazeColor.g},${hazeColor.b},0)`);
-			hazeGrad.addColorStop(1, `rgba(${hazeColor.r},${hazeColor.g},${hazeColor.b},${hazeStrength})`);
-			ctx.fillStyle = hazeGrad;
-			ctx.fillRect(0, Math.floor((baseRow - 4) * sy), canvasW, Math.ceil(14 * sy));
-
-			// flat foreground ground past the cone
-			for (let y = baseRow; y < this.h; y++) {
-				const ratio = (y - baseRow) / Math.max(1, this.h - baseRow);
-				const groundShade = hslToRGB((this.cfg.hue + 352) % 360, clamp01(this.cfg.sat * 0.16), clamp01(this.cfg.lmin * (0.4 + ratio * 0.45)));
-				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, y, this.w, 1, `rgb(${groundShade.r},${groundShade.g},${groundShade.b})`, 1);
-			}
-
-			// cone silhouette: crater dips into the peak
-			for (let dx = -halfW; dx <= halfW; dx++) {
-				const nx = Math.abs(dx) / Math.max(1, halfW);
-				// slight curvature on the slopes (rounded base, sharper near peak)
-				const slope = Math.pow(1 - nx, 1.3);
-				const jitter = (this._hash(31000 + dx) * 2 - 1) * this.cfg.slope_jitter;
-				let topY = baseRow - Math.round(coneH * slope + jitter);
-				// crater notch
-				if (Math.abs(dx) < craterHalf) {
-					const craterDepth = Math.max(1, Math.round(2 + craterHalf * 0.4 * (1 - Math.abs(dx) / Math.max(1, craterHalf))));
-					topY = peakRow + craterDepth;
-				}
-				if (topY > baseRow) topY = baseRow;
-				const col = centerX + dx;
-				if (col < 0 || col >= this.w) continue;
-				for (let y = topY; y <= baseRow; y++) {
-					const isEdge = y === topY || y === topY + 1;
-					const color = isEdge ? coneEdge : coneColor;
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col, y, 1, 1, `rgb(${color.r},${color.g},${color.b})`, 1);
-				}
-			}
-
-			// idle crater glow + flare bloom
-			const glowStrength = clamp01(this.cfg.glow * pressure * (flareActive ? flareGain : 1));
-			this._paintCraterGlow(ctx, sx, sy, ceilSx, ceilSy, centerX, peakRow, craterHalf, glowStrength);
-
-			// crater rim hot lining
-			for (let dx = -craterHalf; dx <= craterHalf; dx++) {
-				const t = 1 - Math.abs(dx) / Math.max(1, craterHalf);
-				const lava = hslToRGB((this.cfg.hue + this._hash(31300 + dx) * this.cfg.hue_sp * 0.4) % 360, clamp01(this.cfg.sat), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * (0.4 + t * 0.5 + glowStrength * 0.2)));
-				const row = peakRow + Math.max(1, Math.round(2 + craterHalf * 0.4 * t));
-				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, centerX + dx, row, 1, 1, `rgb(${lava.r},${lava.g},${lava.b})`, clamp01(0.35 + t * 0.5 + glowStrength * 0.25));
-			}
-
-			// rising smoke plume (idle + thicker during eruption)
-			const smokeBase = Math.max(0, this.cfg.smoke);
-			const smokeBoost = eruptionActive ? eruptionEnvelope * 0.85 : (flareActive ? 0.18 : 0);
-			const smokeStrength = clamp01(smokeBase * (this.timers.smolder > 0 ? this.cfg.smolder_mult : 1) + smokeBoost);
-			if (smokeStrength > 0.02) {
-				const smokeMaxRise = Math.max(8, Math.round(this.cfg.smoke_height * (1 + smokeBoost * 0.6)));
-				const puffCount = Math.max(4, Math.round(8 + smokeStrength * 14));
-				for (let i = 0; i < puffCount; i++) {
-					const cycle = smokeMaxRise + 6 + Math.floor(this._hash(31600 + i) * 12);
-					const progress = positiveMod(this.tick * 0.12 * (0.7 + this._hash(31700 + i) * 0.6) + this._hash(31800 + i) * cycle, cycle);
-					if (progress > smokeMaxRise) continue;
-					const fade = 1 - progress / Math.max(1, smokeMaxRise);
-					const drift = Math.sin(this.tick * 0.04 + i * 0.7) * (1.4 + progress * 0.12) + (this._hash(31900 + i) * 2 - 1) * 1.6;
-					const col = Math.round(centerX + drift);
-					const row = Math.round(peakRow - 1 - progress);
-					if (row < 1) continue;
-					const tint = hslToRGB((this.cfg.hue + 12 + this._hash(32000 + i) * this.cfg.hue_sp * 0.4) % 360, clamp01(this.cfg.sat * 0.32), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * (0.36 + fade * 0.34)));
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col, row, 1, 1, `rgb(${tint.r},${tint.g},${tint.b})`, clamp01(0.18 + fade * smokeStrength * 0.7));
-					if (smokeStrength > 0.4 && (i & 1) === 0) {
-						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col + Math.sign(drift || 1), row, 1, 1, `rgb(${tint.r},${tint.g},${tint.b})`, clamp01(0.1 + fade * smokeStrength * 0.4));
-					}
-				}
-			}
-
-			// eruption: ballistic lava sparks arcing out of the crater
-			if (eruptionActive) {
-				const archHeight = Math.max(6, this.cfg.eruption_height) * (0.65 + eruptionEnvelope * 0.5) * eruptionGain * 0.55;
-				const sparkCount = Math.max(8, Math.round(this.cfg.crater_width * 1.6 + archHeight * 0.8));
-				const seed = this.values.eruption_seed || 0;
-				for (let i = 0; i < sparkCount; i++) {
-					const cycle = Math.max(14, Math.round(archHeight * 1.2 + 14));
-					const phase = positiveMod(this.tick * 0.4 * (0.7 + this._hash(32200 + i + seed) * 0.6) + this._hash(32300 + i + seed) * cycle, cycle);
-					const t = phase / cycle;
-					if (t >= 1) continue;
-					const angle = (this._hash(32400 + i + seed) * 2 - 1) * Math.PI * 0.42;
-					const v0 = archHeight * (0.7 + this._hash(32500 + i + seed) * 0.6);
-					const dxStart = Math.sin(angle) * (1.2 + craterHalf * 0.6);
-					const yArc = -v0 * Math.sin(Math.PI * t);
-					const xArc = dxStart + (this._hash(32600 + i + seed) * 2 - 1) * v0 * 0.18 * t;
-					const col = Math.round(centerX + xArc);
-					const row = Math.round(peakRow + 1 + yArc);
-					if (col < 0 || col >= this.w || row < 0 || row >= this.h) continue;
-					const fade = 1 - Math.pow(t, 1.6);
-					const hue = ((this.cfg.hue + (this._hash(32700 + i + seed) * 2 - 1) * this.cfg.hue_sp * 0.5) + 360) % 360;
-					const light = clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * (0.55 + fade * 0.45));
-					const lava = hslToRGB(hue, clamp01(this.cfg.sat), light);
-					const size = fade > 0.7 ? 2 : 1;
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col, row, size, 1, `rgb(${lava.r},${lava.g},${lava.b})`, clamp01(0.45 + fade * 0.5));
-				}
-
-				// short lava streaks running down the cone surface during peak eruption
-				const streakCount = Math.max(0, Math.round((eruptionGain - 1) * 4));
-				for (let s = 0; s < streakCount; s++) {
-					const side = s % 2 === 0 ? -1 : 1;
-					const dxStart = side * (craterHalf + 1 + this._hash(32800 + s + seed) * 2);
-					const length = Math.max(2, Math.round(coneH * 0.3 * eruptionEnvelope));
-					for (let r = 0; r < length; r++) {
-						const col = Math.round(centerX + dxStart + side * r * 0.4);
-						const row = peakRow + r;
-						if (row > baseRow || col < 0 || col >= this.w) break;
-						const fade = 1 - r / Math.max(1, length);
-						const lava = hslToRGB((this.cfg.hue + 4) % 360, clamp01(this.cfg.sat), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * (0.45 + fade * 0.4)));
-						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col, row, 1, 1, `rgb(${lava.r},${lava.g},${lava.b})`, clamp01(0.32 + fade * 0.5));
-					}
-				}
-			}
+			api._helpers.renderPixelGridEffect(this, ctx, canvasW, canvasH, opts);
 		}
 	}
 

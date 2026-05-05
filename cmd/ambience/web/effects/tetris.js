@@ -116,6 +116,7 @@
 			this.kind = 'tetris';
 			this.w = w;
 			this.h = h;
+			this.grid = new Uint8ClampedArray(w * h * 3);
 			this.cfg = applyTetrisDefaults(cfg);
 			this.seed = Number(seed || Date.now());
 			this.rng = makeRNG(this.seed);
@@ -222,6 +223,7 @@
 
 		step() {
 			this.tick++;
+			api._helpers.paintProceduralGrid(this);
 			if (this.endingTicks > 0) {
 				this.endingTicks--;
 				if (this.endingTicks === 0) this._startIntro();
@@ -258,78 +260,7 @@
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
-			opts = opts || {};
-			if (opts.transparent) {
-				ctx.clearRect(0, 0, canvasW, canvasH);
-			} else {
-				ctx.fillStyle = opts.bg || '#0a0a0a';
-				ctx.fillRect(0, 0, canvasW, canvasH);
-			}
-			const margin = 16;
-			const availW = Math.max(40, canvasW - margin * 2);
-			const availH = Math.max(40, canvasH - margin * 2);
-			const cellSize = Math.floor(Math.min(availW / this.boardW, availH / this.boardH));
-			if (cellSize <= 0) return;
-			const totalW = cellSize * this.boardW;
-			const totalH = cellSize * this.boardH;
-			const ox = Math.floor((canvasW - totalW) / 2);
-			const oy = Math.floor((canvasH - totalH) / 2);
-			// Well outline
-			ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-			ctx.lineWidth = 1;
-			ctx.strokeRect(ox - 0.5, oy - 0.5, totalW + 1, totalH + 1);
-			// Settled cells
-			for (let r = 0; r < this.boardH; r++) {
-				for (let c = 0; c < this.boardW; c++) {
-					const i = r * this.boardW + c;
-					const kind = this.cells[i];
-					if (!kind) continue;
-					this._fillCell(ctx, ox + c * cellSize, oy + r * cellSize, cellSize,
-						this.hues[i] || tetrisPieceHueBase(this.cfg, kind), 1);
-				}
-			}
-			// Ghost (resting target) for the active piece
-			if (this.active && this.cfg.ghost > 0) {
-				const ghostRow = this._dropRow(this.active.kind, this.active.rot, this.active.row, this.active.col);
-				const piece = TETRIS_PIECES[this.active.kind];
-				if (piece && ghostRow > this.active.row) {
-					for (const [dr, dc] of piece.rotations[this.active.rot]) {
-						const r = ghostRow + dr;
-						const c = this.active.col + dc;
-						if (r < 0 || r >= this.boardH || c < 0 || c >= this.boardW) continue;
-						this._fillCell(ctx, ox + c * cellSize, oy + r * cellSize, cellSize,
-							this.active.hue || tetrisPieceHueBase(this.cfg, this.active.kind), this.cfg.ghost);
-					}
-				}
-			}
-			// Active piece
-			if (this.active) {
-				const piece = TETRIS_PIECES[this.active.kind];
-				if (piece) {
-					for (const [dr, dc] of piece.rotations[this.active.rot]) {
-						const r = this.active.row + dr;
-						const c = this.active.col + dc;
-						if (r < 0 || r >= this.boardH || c < 0 || c >= this.boardW) continue;
-						this._fillCell(ctx, ox + c * cellSize, oy + r * cellSize, cellSize,
-							this.active.hue || tetrisPieceHueBase(this.cfg, this.active.kind), 1);
-					}
-				}
-			}
-			// Ending fade overlay
-			if (this.endingTicks > 0 && this.endingTotal > 0) {
-				const fadeStart = this.endingTotal - this.endingFade;
-				let alpha = 0;
-				if (this.endingTicks <= this.endingFade && this.endingFade > 0) {
-					alpha = 0.5 * (1 - this.endingTicks / this.endingFade);
-				} else if (this.endingTicks > this.endingFade) {
-					// linger phase
-					alpha = 0;
-				}
-				if (alpha > 0) {
-					ctx.fillStyle = `rgba(0,0,0,${alpha.toFixed(3)})`;
-					ctx.fillRect(ox, oy, totalW, totalH);
-				}
-			}
+			api._helpers.renderPixelGridEffect(this, ctx, canvasW, canvasH, opts);
 		}
 
 		_fillCell(ctx, x, y, size, hue, alpha) {

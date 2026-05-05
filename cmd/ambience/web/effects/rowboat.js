@@ -68,6 +68,7 @@
 		constructor(w, h, cfg, seed) {
 			this.w = w;
 			this.h = h;
+			this.grid = new Uint8ClampedArray(w * h * 3);
 			this.seed = Number(seed || Date.now());
 			this.tick = 0;
 			this.timers = {};
@@ -160,6 +161,7 @@
 			}
 			if (!this.timers.wake || this.timers.wake <= 0) this.values.wake_gain = 1;
 			if (!this.timers.drift || this.timers.drift <= 0) this.values.drift_push = 0;
+			api._helpers.paintProceduralGrid(this);
 		}
 
 		_rippleLevel() {
@@ -183,174 +185,7 @@
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
-			opts = opts || {};
-			if (opts.transparent) {
-				ctx.clearRect(0, 0, canvasW, canvasH);
-			} else {
-				const skyTop = hslToRGB((this.cfg.hue - 12 + 360) % 360, clamp01(this.cfg.sat * 0.45), clamp01(this.cfg.lmin + 0.02));
-				const skyMid = hslToRGB((this.cfg.hue - this.cfg.hue_sp * 0.22 + 360) % 360, clamp01(this.cfg.sat * 0.58), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.34));
-				const skyLow = hslToRGB((this.cfg.hue + this.cfg.hue_sp * 0.18) % 360, clamp01(this.cfg.sat * 0.72), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.62));
-				const sky = ctx.createLinearGradient(0, 0, 0, canvasH);
-				sky.addColorStop(0, `rgb(${skyTop.r},${skyTop.g},${skyTop.b})`);
-				sky.addColorStop(0.58, `rgb(${skyMid.r},${skyMid.g},${skyMid.b})`);
-				sky.addColorStop(1, `rgb(${skyLow.r},${skyLow.g},${skyLow.b})`);
-				ctx.fillStyle = sky;
-				ctx.fillRect(0, 0, canvasW, canvasH);
-			}
-
-			const sx = canvasW / this.w;
-			const sy = canvasH / this.h;
-			const ceilSx = Math.ceil(sx);
-			const ceilSy = Math.ceil(sy);
-			const waterline = Math.max(12, Math.min(this.h - 10, Math.floor(this.h * this.cfg.waterline)));
-			const motion = this._rippleLevel();
-			const driftPush = this.values.drift_push || 0;
-			const phase = this.tick * this.cfg.drift_speed * 0.08;
-
-			const glowX = canvasW * 0.74;
-			const glowY = canvasH * 0.24;
-			const glowR = Math.max(20, Math.min(canvasW, canvasH) * 0.09);
-			const glow = ctx.createRadialGradient(glowX, glowY, 0, glowX, glowY, glowR * 2.8);
-			glow.addColorStop(0, 'rgba(255, 223, 174, 0.22)');
-			glow.addColorStop(1, 'rgba(255, 223, 174, 0)');
-			ctx.fillStyle = glow;
-			ctx.fillRect(0, 0, canvasW, canvasH);
-
-			const ridgeBase = waterline - Math.max(5, Math.round(this.h * 0.12));
-			const shorelineY = Math.max(ridgeBase + 2, waterline - Math.max(2, Math.round(this.h * 0.04)));
-			const ridgePoints = [];
-			const ridgeSegments = 7;
-			for (let i = 0; i <= ridgeSegments; i++) {
-				const ridgeWave = Math.sin(i * 0.9 + this._hash(25100 + i) * 2.4) * 2.8;
-				ridgePoints.push(Math.round(ridgeBase - Math.abs(ridgeWave) - this._hash(25200 + i) * 3));
-			}
-			const ridgeColor = hslToRGB((this.cfg.hue + 54) % 360, clamp01(this.cfg.sat * 0.24), clamp01(this.cfg.lmin * 0.7));
-			ctx.fillStyle = `rgb(${ridgeColor.r},${ridgeColor.g},${ridgeColor.b})`;
-			ctx.beginPath();
-			ctx.moveTo(0, Math.floor(shorelineY * sy));
-			for (let x = 0; x < this.w; x++) {
-				const pos = (x / Math.max(1, this.w - 1)) * ridgeSegments;
-				const idx = Math.min(ridgeSegments - 1, Math.floor(pos));
-				const frac = pos - idx;
-				const eased = frac * frac * (3 - 2 * frac);
-				const ridgeY = ridgePoints[idx] + (ridgePoints[idx + 1] - ridgePoints[idx]) * eased;
-				ctx.lineTo(Math.floor(x * sx), Math.floor(ridgeY * sy));
-			}
-			ctx.lineTo(canvasW, Math.floor(shorelineY * sy));
-			ctx.closePath();
-			ctx.fill();
-
-			const treelineColor = hslToRGB((this.cfg.hue + 72) % 360, clamp01(this.cfg.sat * 0.2), clamp01(this.cfg.lmin * 0.52));
-			for (let i = 0; i < 11; i++) {
-				const col = Math.floor((i + 0.4) * this.w / 11 + (this._hash(25300 + i) - 0.5) * 6);
-				const top = Math.round(ridgeBase - 1 - this._hash(25400 + i) * 4);
-				const height = 2 + Math.floor(this._hash(25500 + i) * 3);
-				for (let row = 0; row < height; row++) {
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col, top + row, 1, 1, `rgb(${treelineColor.r},${treelineColor.g},${treelineColor.b})`, 0.92);
-				}
-			}
-
-			for (let y = waterline; y < this.h; y++) {
-				const depth = (y - waterline) / Math.max(1, this.h - waterline);
-				const hue = ((this.cfg.hue + depth * this.cfg.hue_sp * 0.22) % 360 + 360) % 360;
-				const sat = clamp01(this.cfg.sat * (0.8 - depth * 0.22));
-				const light = clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * (0.36 - depth * 0.18));
-				const color = hslToRGB(hue, sat, light);
-				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, y, this.w, 1, `rgb(${color.r},${color.g},${color.b})`, 1);
-			}
-
-			const mist = ctx.createLinearGradient(0, Math.floor((shorelineY - 3) * sy), 0, Math.floor((waterline + 8) * sy));
-			mist.addColorStop(0, 'rgba(255, 240, 220, 0.14)');
-			mist.addColorStop(1, 'rgba(255, 240, 220, 0)');
-			ctx.fillStyle = mist;
-			ctx.fillRect(0, Math.floor((shorelineY - 3) * sy), canvasW, Math.ceil((waterline - shorelineY + 11) * sy));
-
-			const surfaceColor = hslToRGB((this.cfg.hue - 6 + 360) % 360, clamp01(this.cfg.sat * 0.34), clamp01(this.cfg.lmax * 0.92));
-			for (let x = 0; x < this.w; x++) {
-				const wave = Math.sin(x * this.cfg.wave_freq + phase) * this.cfg.wave_amp;
-				const subWave = Math.sin(x * this.cfg.wave_freq * 0.42 - phase * 1.7) * this.cfg.wave_amp * 0.36;
-				const row = waterline + Math.round((wave + subWave) * motion * 0.22);
-				const twinkle = 0.45 + 0.55 * Math.pow(0.5 + 0.5 * Math.sin(this.tick * 0.03 + x * 0.11), 2);
-				const alpha = clamp01((0.05 + this.cfg.reflection * 0.16) * twinkle);
-				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, row, 1, 1, `rgb(${surfaceColor.r},${surfaceColor.g},${surfaceColor.b})`, alpha);
-				if ((x + this.tick) % 6 === 0) {
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, row + 2, 1, 1, `rgb(${surfaceColor.r},${surfaceColor.g},${surfaceColor.b})`, alpha * 0.45);
-				}
-			}
-
-			const boatLen = Math.max(7, Math.round(this.cfg.boat_len));
-			const boatHeight = Math.max(2, Math.round(this.cfg.boat_height));
-			const boatX = Math.max(Math.floor(boatLen * 0.6), Math.min(this.w - Math.ceil(boatLen * 0.6), Math.round(this.w * 0.34 + Math.sin(phase * 1.6 + 0.8) * (2.4 + motion * 1.6) + driftPush * 1.8)));
-			const bob = Math.sin(phase * 2.4 + 0.6) * this.cfg.bob_amp * motion * 0.52 + Math.sin(phase * 0.95 + 1.3) * 0.35;
-			const hullBaseY = waterline - Math.round(bob * 0.55);
-			const tilt = Math.sin(phase * 1.9 + 0.4) * motion * 0.9 + driftPush * 0.2;
-			const hullColor = hslToRGB(24, 0.34, 0.22);
-			const railColor = hslToRGB(31, 0.26, 0.36);
-			const seatColor = hslToRGB(28, 0.18, 0.16);
-			const hullRows = [];
-
-			for (let row = 0; row < boatHeight; row++) {
-				const t = boatHeight === 1 ? 0.5 : row / (boatHeight - 1);
-				const arch = 1 - Math.abs(t * 2 - 1);
-				const width = Math.max(4, Math.round(boatLen * (0.54 + arch * 0.42)));
-				const y = hullBaseY - (boatHeight - 1 - row);
-				const offset = Math.round((t - 0.5) * tilt * 1.8);
-				const startX = Math.round(boatX - width / 2 + offset);
-				hullRows.push({ startX, width, y });
-				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, startX, y, width, 1, `rgb(${hullColor.r},${hullColor.g},${hullColor.b})`, clamp01(0.78 + t * 0.2));
-			}
-
-			const topHull = hullRows[0];
-			if (topHull && topHull.width > 3) {
-				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, topHull.startX + 1, topHull.y, topHull.width - 2, 1, `rgb(${railColor.r},${railColor.g},${railColor.b})`, 0.72);
-			}
-			const seatWidth = Math.max(2, Math.round(boatLen * 0.22));
-			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, Math.round(boatX - seatWidth / 2), hullBaseY - Math.max(1, Math.floor(boatHeight / 2)), seatWidth, 1, `rgb(${seatColor.r},${seatColor.g},${seatColor.b})`, 0.82);
-			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, Math.round(boatX - boatLen * 0.46), hullBaseY - 1, 1, 1, `rgb(${railColor.r},${railColor.g},${railColor.b})`, 0.82);
-			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, Math.round(boatX + boatLen * 0.44), hullBaseY - 1, 1, 1, `rgb(${railColor.r},${railColor.g},${railColor.b})`, 0.82);
-
-			const shadowColor = hslToRGB((this.cfg.hue + 10) % 360, clamp01(this.cfg.sat * 0.28), clamp01(this.cfg.lmin * 0.9));
-			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, Math.round(boatX - boatLen * 0.5), waterline, boatLen, 1, `rgb(${shadowColor.r},${shadowColor.g},${shadowColor.b})`, 0.26);
-
-			const reflectionColor = hslToRGB((this.cfg.hue + 8) % 360, clamp01(this.cfg.sat * 0.28), clamp01(this.cfg.lmax * 0.58));
-			const reflectionLevel = clamp01(this.cfg.reflection * (0.3 + motion * 0.22));
-			for (let i = 0; i < hullRows.length; i++) {
-				const row = hullRows[i];
-				const distance = hullBaseY - row.y + 1;
-				const wobble = Math.round(Math.sin(this.tick * 0.08 + i * 0.8 + row.startX * 0.03) * (0.5 + motion * 0.45));
-				const reflY = hullBaseY + distance + Math.round(Math.sin(row.startX * this.cfg.wave_freq + phase) * motion * 0.35);
-				const reflWidth = Math.max(2, row.width - 1 - Math.floor(distance / 2));
-				const alpha = clamp01(reflectionLevel * (0.4 - distance * 0.045));
-				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, row.startX + wobble, reflY, reflWidth, 1, `rgb(${reflectionColor.r},${reflectionColor.g},${reflectionColor.b})`, alpha);
-			}
-
-			const rippleColor = hslToRGB((this.cfg.hue - 10 + 360) % 360, clamp01(this.cfg.sat * 0.32), clamp01(this.cfg.lmax * 0.98));
-			const wakeGain = this.timers.wake > 0 ? (this.values.wake_gain || this.cfg.wake_mult) : 1;
-			const rippleBands = 4 + Math.round(this.cfg.ripple * 7);
-			for (let band = 0; band < rippleBands; band++) {
-				const centerX = Math.round(boatX + boatLen * 0.18 + band * (1.2 + wakeGain * 0.28));
-				const half = Math.max(3, Math.round(boatLen * (0.24 + band * 0.14 + wakeGain * 0.03)));
-				const centerY = waterline + Math.round(0.8 + band * 0.75 + Math.abs(Math.sin(phase * 4.2 + band * 0.9)) * 1.1);
-				for (let dx = -half; dx <= half; dx++) {
-					if ((dx + band + this.tick) % 2 !== 0) continue;
-					const edge = 1 - Math.abs(dx) / Math.max(1, half);
-					const waveY = centerY + Math.round(Math.sin(dx * 0.22 + this.tick * 0.08 + band * 0.7) * 0.7);
-					const alpha = clamp01((0.08 + this.cfg.ripple * 0.24 * motion) * Math.pow(edge, 0.45));
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, centerX + dx, waveY, 1, 1, `rgb(${rippleColor.r},${rippleColor.g},${rippleColor.b})`, alpha);
-				}
-			}
-
-			for (let band = 0; band < 3; band++) {
-				const half = Math.max(2, Math.round(boatLen * (0.16 + band * 0.08)));
-				const centerX = Math.round(boatX - boatLen * 0.2 - band * 1.2);
-				const centerY = waterline + Math.round(band * 0.85 + Math.abs(Math.sin(phase * 3.6 + band)) * 0.9);
-				for (let dx = -half; dx <= half; dx++) {
-					if ((dx + band) % 2 !== 0) continue;
-					const edge = 1 - Math.abs(dx) / Math.max(1, half);
-					const alpha = clamp01((0.03 + this.cfg.ripple * 0.12 * motion) * Math.pow(edge, 0.65));
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, centerX + dx, centerY + Math.round(Math.sin(dx * 0.3 + this.tick * 0.06) * 0.5), 1, 1, `rgb(${rippleColor.r},${rippleColor.g},${rippleColor.b})`, alpha);
-				}
-			}
+			api._helpers.renderPixelGridEffect(this, ctx, canvasW, canvasH, opts);
 		}
 	}
 
