@@ -254,6 +254,14 @@ for (const consumer of [a, b]) {
 	send(consumer.stream, 'config', 10, { version: 2 });
 	send(consumer.stream, 'trigger', 12, {}, { event: 'gust' });
 }
+assert.equal(a.state().queuedCommands, 2, 'future commands are queued before delayed playback reaches them');
+assert.equal(a.state().nextQueuedCommandTick, 10, 'debug exposes next queued command tick');
+assert.equal(a.state().maxQueuedCommandTick, 12, 'debug exposes command horizon');
+assert.equal(
+	a.state().bufferedAheadTicks,
+	Math.max(0, a.state().maxQueuedCommandTick - a.state().playbackTick),
+	'buffered ahead is command horizon minus playback tick',
+);
 
 for (let i = 0; i < 20; i++) {
 	a.advance();

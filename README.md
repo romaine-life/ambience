@@ -156,6 +156,36 @@ compare browser subscribers such as `ambience.romaine.life` and
 `homepage.romaine.life` without adding transport volume. Terminal sixel
 does not expose comparable sync telemetry yet.
 
+Example browser sync telemetry:
+
+```js
+window.AmbienceClient.getDebugState()
+// {
+//   effectType: "rain",
+//   ready: true,
+//   authorityTick: 24810,
+//   playbackTick: 24760,
+//   simTick: 24759,
+//   driftTicks: 1,
+//   delayTicks: 50,
+//   bufferedAheadTicks: 8,
+//   queuedCommands: 2,
+//   nextQueuedCommandTick: 24762,
+//   maxQueuedCommandTick: 24768,
+//   haveAuthoritySample: true
+// }
+```
+
+`authorityTick` is the latest estimated server tick from sparse `clock`
+samples. `playbackTick` is the delayed target tick the browser is trying
+to render. `driftTicks` is `playbackTick - simTick`; small positive values
+mean the local sim is catching up, while zero means it is on the delayed
+target. `bufferedAheadTicks` is `maxQueuedCommandTick - playbackTick`,
+clamped at zero; it only describes queued authority commands already
+received by the browser, not future commands that have not arrived.
+`nextQueuedCommandTick` and `maxQueuedCommandTick` are `null` when the
+command queue is empty.
+
 The deterministic client-side sync harness lives at
 `scripts/test-client-sync.mjs`. It runs two isolated browser-client
 instances against the same scripted authority stream and checks that they

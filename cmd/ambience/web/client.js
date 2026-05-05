@@ -66,18 +66,33 @@
 			return 1;
 		}
 
-		function debugState(currentTick, queuedCommands) {
+		function debugState(currentTick, queueInfo) {
 			const current = Number.isFinite(currentTick) ? currentTick : 0;
 			const authorityTick = estimatedAuthorityTick(current);
 			const playbackTick = targetPlaybackTick(current);
+			const queuedCommands = typeof queueInfo === 'number'
+				? queueInfo
+				: (queueInfo && Number.isFinite(queueInfo.queuedCommands) ? queueInfo.queuedCommands : 0);
+			const nextQueuedCommandTick = queueInfo && Number.isFinite(queueInfo.nextQueuedCommandTick)
+				? queueInfo.nextQueuedCommandTick
+				: null;
+			const maxQueuedCommandTick = queueInfo && Number.isFinite(queueInfo.maxQueuedCommandTick)
+				? queueInfo.maxQueuedCommandTick
+				: null;
+			const bufferedAheadTicks = maxQueuedCommandTick === null
+				? 0
+				: Math.max(0, maxQueuedCommandTick - playbackTick);
 			return {
 				authorityTick,
 				playbackTick,
 				simTick: current,
 				driftTicks: playbackTick - current,
 				delayTicks,
+				bufferedAheadTicks,
 				tickMs,
-				queuedCommands: queuedCommands || 0,
+				queuedCommands,
+				nextQueuedCommandTick,
+				maxQueuedCommandTick,
 				haveAuthoritySample,
 			};
 		}
@@ -275,6 +290,22 @@
 		});
 	}
 
+	function commandQueueTelemetry() {
+		let nextQueuedCommandTick = null;
+		let maxQueuedCommandTick = null;
+		for (const item of pendingCommands) {
+			const tick = Number.isFinite(item.cmd.tick) ? item.cmd.tick : null;
+			if (tick === null) continue;
+			if (nextQueuedCommandTick === null || tick < nextQueuedCommandTick) nextQueuedCommandTick = tick;
+			if (maxQueuedCommandTick === null || tick > maxQueuedCommandTick) maxQueuedCommandTick = tick;
+		}
+		return {
+			queuedCommands: pendingCommands.length,
+			nextQueuedCommandTick,
+			maxQueuedCommandTick,
+		};
+	}
+
 	function applyDueCommands(playbackTick) {
 		while (pendingCommands.length > 0) {
 			const item = pendingCommands[0];
@@ -345,7 +376,7 @@
 				sim: getSimDebug(sim),
 				lastError,
 			},
-			clock.debugState(getSimTick(sim), pendingCommands.length),
+			clock.debugState(getSimTick(sim), commandQueueTelemetry()),
 		),
 	};
 
