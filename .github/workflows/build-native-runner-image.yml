@@ -66,6 +66,9 @@ jobs:
       - name: ACR login
         run: az acr login --name romainecr
 
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Resolve image tag
         run: |
           tag="native-$(git rev-parse --short=7 HEAD)"
@@ -73,7 +76,11 @@ jobs:
           echo "Built ref $(git rev-parse HEAD) as romainecr.azurecr.io/ambience-agent-runner:${tag}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build and push image
-        run: |
-          image="romainecr.azurecr.io/ambience-agent-runner:${TAG}"
-          docker build -f .github/runner/Dockerfile -t "$image" .
-          docker push "$image"
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .github/runner/Dockerfile
+          push: true
+          tags: romainecr.azurecr.io/ambience-agent-runner:${{ env.TAG }}
+          cache-from: type=registry,ref=romainecr.azurecr.io/ambience-build-cache:native-runner
+          cache-to: type=registry,ref=romainecr.azurecr.io/ambience-build-cache:native-runner,mode=max
