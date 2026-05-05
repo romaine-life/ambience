@@ -65,6 +65,7 @@
 		constructor(w, h, cfg, seed) {
 			this.w = w;
 			this.h = h;
+			this.grid = new Uint8ClampedArray(w * h * 3);
 			this.seed = Number(seed || Date.now());
 			this.tick = 0;
 			this.timers = {};
@@ -163,6 +164,7 @@
 				this.values.shift_push = 0;
 				this.values.shift_seed = 0;
 			}
+			api._helpers.paintProceduralGrid(this);
 		}
 
 		_intensityLevel() {
@@ -183,130 +185,7 @@
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
-			opts = opts || {};
-			if (opts.transparent) {
-				ctx.clearRect(0, 0, canvasW, canvasH);
-			} else {
-				const sky = ctx.createLinearGradient(0, 0, 0, canvasH);
-				sky.addColorStop(0, '#02060f');
-				sky.addColorStop(0.52, '#07101c');
-				sky.addColorStop(1, '#0a1220');
-				ctx.fillStyle = sky;
-				ctx.fillRect(0, 0, canvasW, canvasH);
-			}
-
-			const sx = canvasW / this.w;
-			const sy = canvasH / this.h;
-			const ceilSx = Math.ceil(sx);
-			const ceilSy = Math.ceil(sy);
-			const groundRow = Math.floor(this.h * 0.82);
-			const intensity = this._intensityLevel();
-			const bands = Math.max(1, Math.round(this.cfg.bands));
-			const shiftPush = this.values.shift_push || 0;
-			const shiftSeed = this.values.shift_seed || 0;
-
-			const horizonGlow = ctx.createLinearGradient(0, canvasH * 0.5, 0, canvasH);
-			horizonGlow.addColorStop(0, 'rgba(36, 84, 92, 0)');
-			horizonGlow.addColorStop(1, `rgba(48, 168, 140, ${clamp01(0.18 + intensity * 0.16)})`);
-			ctx.fillStyle = horizonGlow;
-			ctx.fillRect(0, canvasH * 0.48, canvasW, canvasH * 0.52);
-
-			const baseGround = hslToRGB(212, 0.2, 0.04);
-			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, groundRow - 1, this.w, this.h - groundRow + 1, `rgb(${baseGround.r},${baseGround.g},${baseGround.b})`, 1);
-
-			const starCount = Math.max(12, Math.round(this.w * 0.18));
-			for (let i = 0; i < starCount; i++) {
-				const col = Math.floor(this._hash(19000 + i) * this.w);
-				const row = Math.floor(this._hash(19100 + i) * Math.max(1, groundRow - 10));
-				const twinkle = 0.35 + 0.65 * Math.pow(0.5 + 0.5 * Math.sin(this.tick * (0.018 + this._hash(19200 + i) * 0.02) + i), 2);
-				const alpha = clamp01((0.14 + twinkle * 0.22) * (1 - Math.min(0.65, intensity * 0.55)));
-				const color = hslToRGB(205 + this._hash(19300 + i) * 18, 0.18, 0.72 + this._hash(19400 + i) * 0.2);
-				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, col, row, 1, 1, `rgb(${color.r},${color.g},${color.b})`, alpha);
-			}
-
-			const ridgePoints = [];
-			const ridgeSegments = 7;
-			const ridgeColor = hslToRGB(210, 0.24, 0.055);
-			for (let i = 0; i <= ridgeSegments; i++) {
-				ridgePoints.push(groundRow - 4 - Math.floor(this._hash(19500 + i) * 6) - Math.floor((0.5 + 0.5 * Math.sin(i * 1.3 + this._hash(19600 + i) * 4)) * 4));
-			}
-			const ridgeCoords = [];
-			for (let x = 0; x < this.w; x++) {
-				const pos = (x / Math.max(1, this.w - 1)) * ridgeSegments;
-				const idx = Math.min(ridgeSegments - 1, Math.floor(pos));
-				const frac = pos - idx;
-				const eased = frac * frac * (3 - 2 * frac);
-				const ridge = Math.round(ridgePoints[idx] + (ridgePoints[idx + 1] - ridgePoints[idx]) * eased + Math.sin(x * 0.08 + shiftSeed) * 0.8);
-				ridgeCoords.push({ x, ridge });
-			}
-			ctx.fillStyle = `rgb(${ridgeColor.r},${ridgeColor.g},${ridgeColor.b})`;
-			ctx.beginPath();
-			ctx.moveTo(0, canvasH);
-			for (const point of ridgeCoords) {
-				ctx.lineTo(Math.floor(point.x * sx), Math.floor(point.ridge * sy));
-			}
-			ctx.lineTo(canvasW, canvasH);
-			ctx.closePath();
-			ctx.fill();
-
-			const treeCount = 12;
-			for (let i = 0; i < treeCount; i++) {
-				const center = Math.floor((i + 0.5) * this.w / treeCount + (this._hash(19900 + i) - 0.5) * 5);
-				const trunkH = 1 + Math.floor(this._hash(20000 + i) * 2);
-				const crownH = 5 + Math.floor(this._hash(20100 + i) * 5);
-				const half = 1 + Math.floor(this._hash(20200 + i) * 2);
-				const baseY = groundRow - 1 - Math.floor(this._hash(20300 + i) * 4);
-				const treeColor = hslToRGB(210 + this._hash(20400 + i) * 10, 0.22, 0.045 + this._hash(20500 + i) * 0.02);
-				for (let row = 0; row < crownH; row++) {
-					const width = Math.max(1, half - Math.floor(row / 2));
-					const y = baseY - crownH + row;
-					for (let dx = -width; dx <= width; dx++) {
-						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, center + dx, y, 1, 1, `rgb(${treeColor.r},${treeColor.g},${treeColor.b})`, 1);
-					}
-				}
-				for (let row = 0; row < trunkH; row++) {
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, center, baseY - row, 1, 1, `rgb(${treeColor.r},${treeColor.g},${treeColor.b})`, 1);
-				}
-			}
-
-			for (let band = 0; band < bands; band++) {
-				const bandRatio = bands === 1 ? 0.5 : band / (bands - 1);
-				const phase = this.tick * this.cfg.speed * (0.18 + bandRatio * 0.12) + band * 1.6 + shiftSeed;
-				const amp = this.cfg.wave_amp * (0.8 + bandRatio * 0.35);
-				const freq = this.cfg.wave_freq * (0.82 + bandRatio * 0.26);
-				const thickness = this.cfg.thickness * (0.8 + bandRatio * 0.28);
-				const curtain = this.cfg.curtain_len * (0.8 + bandRatio * 0.22);
-				const baseY = this.h * (0.16 + bandRatio * 0.08) + Math.sin(this.tick * 0.01 + band * 0.8) * 1.1;
-				const hueBase = ((this.cfg.hue + (bandRatio - 0.5) * this.cfg.hue_sp * 1.15 + shiftPush * 5) % 360 + 360) % 360;
-
-				for (let x = 0; x < this.w; x++) {
-					const nx = x / Math.max(1, this.w - 1);
-					const arch = Math.sin(nx * Math.PI * (1.08 + bandRatio * 0.24) + band * 0.75);
-					const wave = Math.sin(x * freq + phase + this.tick * this.cfg.drift * 0.04);
-					const subWave = Math.sin(x * freq * 0.47 - phase * 0.62 + band * 2.1);
-					const center = baseY + arch * amp * 0.72 + wave * amp * 0.52 + subWave * amp * 0.22 + shiftPush * Math.sin(x * 0.07 + phase) * 1.05;
-					const startY = Math.max(0, Math.floor(center - thickness * 1.15));
-					const endY = Math.min(groundRow - 2, Math.ceil(center + curtain));
-					for (let y = startY; y <= endY; y++) {
-						const dy = y - center;
-						const core = Math.exp(-(dy * dy) / Math.max(1, thickness * thickness * 1.4));
-						const tail = y >= center ? Math.exp(-(y - center) / Math.max(1, curtain)) : 0;
-						const shimmer = 0.76 + 0.24 * Math.sin(this.tick * 0.03 + x * 0.1 + band * 1.7);
-						const strength = (core * 0.9 + tail * 0.7) * intensity * shimmer * (0.58 + 0.42 * Math.max(0.2, arch));
-						if (strength < 0.025) continue;
-						const hue = ((hueBase + Math.sin(y * 0.18 + x * 0.06 + phase) * this.cfg.hue_sp * 0.32 + band * 6) % 360 + 360) % 360;
-						const sat = clamp01(this.cfg.sat * (0.84 + core * 0.28));
-						const light = clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * Math.min(1, 0.24 + strength));
-						const color = hslToRGB(hue, sat, light);
-						const alpha = clamp01(strength * (0.34 + core * 0.46));
-						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, 1, 1, `rgb(${color.r},${color.g},${color.b})`, alpha);
-						if (core > 0.62 && y < groundRow - 3) {
-							const accent = hslToRGB((hue + 12) % 360, clamp01(sat * 0.9), clamp01(light * 1.08));
-							this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, 1, 1, `rgb(${accent.r},${accent.g},${accent.b})`, alpha * 0.45);
-						}
-					}
-				}
-			}
+			api._helpers.renderPixelGridEffect(this, ctx, canvasW, canvasH, opts);
 		}
 	}
 

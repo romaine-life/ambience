@@ -66,6 +66,7 @@ func newAuthorityProxy(ctx context.Context, rawURL string) (*authorityProxy, err
 }
 
 func registerEdgeRoutes(mux *http.ServeMux, proxy *authorityProxy) {
+	mux.HandleFunc("/og-image.png", proxy.serveHTTP)
 	mux.HandleFunc("/effects/", proxy.serveHTTP)
 	mux.HandleFunc("/snapshot", cors(proxy.serveSnapshot))
 	mux.HandleFunc("/events", cors(proxy.serveEvents))
@@ -82,6 +83,17 @@ func registerEdgeRoutes(mux *http.ServeMux, proxy *authorityProxy) {
 
 func (p *authorityProxy) ready() bool {
 	return p.mirror.ready()
+}
+
+func (p *authorityProxy) socialImageVersion() string {
+	if p == nil || p.mirror == nil {
+		return ""
+	}
+	snap, _, ok := p.mirror.snapshot()
+	if !ok {
+		return ""
+	}
+	return socialImageVersion(snap)
 }
 
 func (p *authorityProxy) effectSchemaExists(effect string) (bool, error) {

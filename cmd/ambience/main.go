@@ -107,7 +107,8 @@ func main() {
 		if err := bootAuthority(ctx); err != nil {
 			log.Fatal(err)
 		}
-		registerStaticRoutes(mux, static, localEffectLookup)
+		registerStaticRoutes(mux, static, localEffectLookup, sharedSocialImageVersion)
+		mux.HandleFunc("/og-image.png", serveOGImage(sharedFrame))
 		registerSchemaRoute(mux)
 		registerAuthorityRoutes(mux)
 		registerDevRoutes(mux)
@@ -117,7 +118,7 @@ func main() {
 			log.Fatal(err)
 		}
 		baseReady = proxy.ready
-		registerStaticRoutes(mux, static, proxy.effectSchemaExists)
+		registerStaticRoutes(mux, static, proxy.effectSchemaExists, proxy.socialImageVersion)
 		registerEdgeRoutes(mux, proxy)
 	default:
 		log.Fatalf("unsupported ambience role %q", cfg.role)
@@ -231,7 +232,7 @@ func registerCommonRoutes(mux *http.ServeMux, ready func() bool) {
 	mux.HandleFunc("/readyz", serveReadyz(ready))
 }
 
-func registerStaticRoutes(mux *http.ServeMux, static staticAssets, lookup effectLookup) {
+func registerStaticRoutes(mux *http.ServeMux, static staticAssets, lookup effectLookup, socialVersion socialVersionProvider) {
 	handler := serveDevPageWithEffectLookup(static, lookup)
 	mux.HandleFunc("/dev", handler)
 	mux.HandleFunc("/dev/", handler)
@@ -249,8 +250,9 @@ func registerStaticRoutes(mux *http.ServeMux, static staticAssets, lookup effect
 	// it as a platform route, kept out of product-route space. Contract:
 	// nelsong6/glimmung/docs/styleguide-contract.md.
 	mux.HandleFunc("/_styleguide", serveExactStaticFile(static, "/_styleguide", "styleguide.html"))
-	mux.HandleFunc("/auth/callback", serveExactStaticFile(static, "/auth/callback", "index.html"))
-	mux.HandleFunc("/", serveExactStaticFile(static, "/", "index.html"))
+	index := serveIndexPage(static, socialVersion)
+	mux.HandleFunc("/auth/callback", index)
+	mux.HandleFunc("/", index)
 }
 
 func registerSchemaRoute(mux *http.ServeMux) {

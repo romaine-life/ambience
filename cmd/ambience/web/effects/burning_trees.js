@@ -71,6 +71,7 @@
 			this.kind = 'burning-trees';
 			this.w = w;
 			this.h = h;
+			this.grid = new Uint8ClampedArray(w * h * 3);
 			this.cfg = applyBurningTreesDefaults(cfg);
 			this.seed = Number(seed || Date.now());
 			this.rng = makeRNG(this.seed);
@@ -185,78 +186,11 @@
 			this._advanceTrees();
 			// Spread/spawn rolls happen on the authority only — clients don't
 			// fire those, they just replay the resulting trigger commands.
+			api._helpers.paintProceduralGrid(this);
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
-			opts = opts || {};
-			if (opts.transparent) {
-				ctx.clearRect(0, 0, canvasW, canvasH);
-			} else {
-				const sky = ctx.createLinearGradient(0, 0, 0, canvasH);
-				const burnSky = this._anyBurning();
-				if (burnSky) {
-					sky.addColorStop(0, '#0a0712');
-					sky.addColorStop(0.55, '#1a0f10');
-					sky.addColorStop(1, '#150705');
-				} else {
-					sky.addColorStop(0, '#0d1a18');
-					sky.addColorStop(0.55, '#152724');
-					sky.addColorStop(1, '#1d2419');
-				}
-				ctx.fillStyle = sky;
-				ctx.fillRect(0, 0, canvasW, canvasH);
-			}
-
-			const sx = canvasW / this.w;
-			const sy = canvasH / this.h;
-			const ceilSx = Math.ceil(sx);
-			const ceilSy = Math.ceil(sy);
-			const baseRow = Math.max(8, Math.min(this.h - 2, Math.floor(this.h * this.cfg.baseline)));
-
-			// Soil — flat ground band beneath the trees.
-			for (let y = baseRow; y < this.h; y++) {
-				const ratio = (y - baseRow) / Math.max(1, this.h - baseRow);
-				const dirt = hslToRGB((this.cfg.canopy_hue + 12) % 360, clamp01(this.cfg.sat * 0.18), clamp01(this.cfg.lmin * (0.4 + ratio * 0.6)));
-				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, 0, y, this.w, 1, `rgb(${dirt.r},${dirt.g},${dirt.b})`, 1);
-			}
-
-			const introProgress = this._introProgress();
-			const endingProgress = this._endingProgress();
-			const ashLinger = this._ashLingerLevel();
-			const intensity = this._intensityLevel();
-
-			// Per-tree paint pass — the tree row is the meat of the effect.
-			const n = this.states.length || 1;
-			const rowHalf = Math.max(1, this.cfg.tree_width * 0.5);
-			const rowSpan = this.w / n;
-			for (let i = 0; i < n; i++) {
-				const cx = Math.floor(rowSpan * (i + 0.5));
-				const treeRng = this._treeNoise(i);
-				const heightFrac = 0.5 + 0.5 * treeRng[0];
-				const fullH = Math.max(2, Math.round(this.cfg.tree_min_h + (this.cfg.tree_max_h - this.cfg.tree_min_h) * heightFrac));
-				let stateH = fullH;
-				if (this.introTicks > 0) {
-					const grow = this.cfg.intro_growth + (1 - this.cfg.intro_growth) * introProgress;
-					stateH = Math.max(2, Math.round(fullH * grow));
-				}
-				const halfW = Math.max(1, Math.round(rowHalf + treeRng[1] * 1.5));
-				const state = this.states[i];
-				const burnEnv = this._burnEnvelope(i);
-				this._paintTree(ctx, sx, sy, ceilSx, ceilSy, cx, baseRow, stateH, halfW, i, treeRng, state, burnEnv, ashLinger, intensity, endingProgress);
-			}
-
-			// Vignette + warm wash if anything is on fire.
-			if (this._anyActiveFlame()) {
-				const center = canvasW * 0.5;
-				const vignY = Math.floor(baseRow * sy);
-				const radius = Math.max(canvasW, canvasH) * 0.55;
-				const wash = ctx.createRadialGradient(center, vignY, radius * 0.2, center, vignY, radius);
-				const tint = hslToRGB(this.cfg.flame_hue, clamp01(this.cfg.sat * 0.6), clamp01(this.cfg.lmax * 0.7));
-				wash.addColorStop(0, `rgba(${tint.r},${tint.g},${tint.b},${0.06 + intensity * 0.05})`);
-				wash.addColorStop(1, 'rgba(0,0,0,0)');
-				ctx.fillStyle = wash;
-				ctx.fillRect(0, 0, canvasW, canvasH);
-			}
+			api._helpers.renderPixelGridEffect(this, ctx, canvasW, canvasH, opts);
 		}
 
 		// _paintTree draws one tree at column cx with stump on baseRow. Trees
@@ -396,17 +330,13 @@
 			const stage = state === BTREE_STATE_BURNING ? 1 : (state === BTREE_STATE_IGNITING ? 0.55 : 0.35);
 			const strength = clamp01(this.cfg.glow * stage * intensity * (0.6 + burnEnv * 0.45));
 			if (strength < 0.05) return;
-			const glowX = cx * sx;
-			const glowY = anchorRow * sy;
-			const radius = Math.max(20, halfW * sx * (4 + strength * 6));
-			const grad = ctx.createRadialGradient(glowX, glowY, 0, glowX, glowY, radius);
 			const core = hslToRGB((this.cfg.flame_hue + 6) % 360, clamp01(this.cfg.sat), clamp01(this.cfg.lmax * 0.85));
-			const outer = hslToRGB((this.cfg.flame_hue - 4 + 360) % 360, clamp01(this.cfg.sat * 0.7), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.5));
-			grad.addColorStop(0, `rgba(${core.r},${core.g},${core.b},${0.32 + strength * 0.28})`);
-			grad.addColorStop(0.5, `rgba(${outer.r},${outer.g},${outer.b},${0.14 + strength * 0.18})`);
-			grad.addColorStop(1, `rgba(${outer.r},${outer.g},${outer.b},0)`);
-			ctx.fillStyle = grad;
-			ctx.fillRect(glowX - radius, glowY - radius, radius * 2, radius * 2);
+			for (let y = -2; y <= 2; y++) {
+				for (let x = -halfW - 2; x <= halfW + 2; x++) {
+					if (Math.abs(x) + Math.abs(y) > halfW + 3) continue;
+					this._fillCell(ctx, sx, sy, 1, 1, cx + x, anchorRow + y, 1, 1, `rgb(${core.r},${core.g},${core.b})`, strength * 0.35);
+				}
+			}
 		}
 
 		_paintSmoke(ctx, sx, sy, ceilSx, ceilSy, cx, canopyTop, halfW, i, burnEnv, state) {

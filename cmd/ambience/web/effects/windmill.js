@@ -59,6 +59,7 @@
 		constructor(w, h, cfg, seed) {
 			this.w = w;
 			this.h = h;
+			this.grid = new Uint8ClampedArray(w * h * 3);
 			this.seed = Number(seed || Date.now());
 			this.tick = 0;
 			this.timers = {};
@@ -142,6 +143,7 @@
 				if (this.timers[key] > 0) this.timers[key]--;
 			}
 			if (!this.timers.gust || this.timers.gust <= 0) this.values.gust_gain = 1;
+			api._helpers.paintProceduralGrid(this);
 		}
 
 		_rotationLevel() {
@@ -162,103 +164,7 @@
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
-			opts = opts || {};
-			if (opts.transparent) {
-				ctx.clearRect(0, 0, canvasW, canvasH);
-			} else {
-				const skyTop = hslToRGB((this.cfg.hue + 210) % 360, clamp01(this.cfg.sat * 0.5), clamp01(this.cfg.lmin * 0.95));
-				const skyMid = hslToRGB((this.cfg.hue + 248) % 360, clamp01(this.cfg.sat * 0.42), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.32));
-				const skyLow = hslToRGB(this.cfg.hue, clamp01(this.cfg.sat * 0.82), clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * 0.78));
-				const sky = ctx.createLinearGradient(0, 0, 0, canvasH);
-				sky.addColorStop(0, `rgb(${skyTop.r},${skyTop.g},${skyTop.b})`);
-				sky.addColorStop(0.58, `rgb(${skyMid.r},${skyMid.g},${skyMid.b})`);
-				sky.addColorStop(1, `rgb(${skyLow.r},${skyLow.g},${skyLow.b})`);
-				ctx.fillStyle = sky;
-				ctx.fillRect(0, 0, canvasW, canvasH);
-			}
-
-			const sx = canvasW / this.w;
-			const sy = canvasH / this.h;
-			const ceilSx = Math.ceil(sx);
-			const ceilSy = Math.ceil(sy);
-			const horizon = Math.max(8, Math.min(this.h - 8, Math.floor(this.h * this.cfg.horizon)));
-			const centerX = Math.floor(this.w * 0.58);
-			const rotationLevel = this._rotationLevel();
-			const angle = this.tick * this.cfg.turn_speed * rotationLevel + Math.PI * 0.08;
-			const towerH = Math.max(10, Math.round(this.cfg.tower_height));
-			const towerW = Math.max(3, Math.round(this.cfg.tower_width));
-			const bladeLen = Math.max(5, Math.round(this.cfg.blade_len));
-			const bladeWidth = Math.max(1, this.cfg.blade_width);
-
-			const horizonGlow = ctx.createLinearGradient(0, Math.floor((horizon - 3) * sy), 0, Math.floor((horizon + 7) * sy));
-			horizonGlow.addColorStop(0, `rgba(255, 214, 163, ${0.04 + this.cfg.glow * 0.12})`);
-			horizonGlow.addColorStop(1, 'rgba(255, 214, 163, 0)');
-			ctx.fillStyle = horizonGlow;
-			ctx.fillRect(0, Math.floor((horizon - 3) * sy), canvasW, Math.ceil(12 * sy));
-
-			const hillRows = new Array(this.w);
-			for (let x = 0; x < this.w; x++) {
-				const broad = Math.sin(x * 0.045 + 0.4) * 1.2 + Math.sin(x * 0.012 + 1.3) * 2.1;
-				const mound = Math.exp(-Math.pow((x - centerX) / 18, 2)) * 6.2 + Math.exp(-Math.pow((x - this.w * 0.18) / 24, 2)) * 2.1;
-				hillRows[x] = Math.round(horizon + broad - mound);
-			}
-
-			const hillColor = hslToRGB((this.cfg.hue + 205) % 360, clamp01(this.cfg.sat * 0.16), 0.08);
-			ctx.fillStyle = `rgb(${hillColor.r},${hillColor.g},${hillColor.b})`;
-			ctx.beginPath();
-			ctx.moveTo(0, canvasH);
-			for (let x = 0; x < this.w; x++) {
-				ctx.lineTo(Math.floor(x * sx), Math.floor(hillRows[x] * sy));
-			}
-			ctx.lineTo(canvasW, canvasH);
-			ctx.closePath();
-			ctx.fill();
-
-			const baseY = hillRows[Math.max(0, Math.min(this.w - 1, centerX))];
-			const hubY = baseY - towerH + 2;
-			const millColor = hslToRGB((this.cfg.hue + 208) % 360, clamp01(this.cfg.sat * 0.08), 0.1);
-			for (let y = hubY; y <= baseY; y++) {
-				const ratio = (y - hubY) / Math.max(1, baseY - hubY);
-				const half = Math.max(1, Math.round((towerW * (0.38 + ratio * 0.62)) * 0.5));
-				for (let dx = -half; dx <= half; dx++) {
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, centerX + dx, y, 1, 1, `rgb(${millColor.r},${millColor.g},${millColor.b})`, 1);
-				}
-			}
-
-			for (let dx = -Math.max(2, Math.round(towerW * 0.42)); dx <= Math.max(2, Math.round(towerW * 0.42)); dx++) {
-				const roofY = hubY - 2 + Math.abs(dx) * 0.4;
-				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, centerX + dx, Math.round(roofY), 1, 1, `rgb(${millColor.r},${millColor.g},${millColor.b})`, 1);
-			}
-
-			const windowGlow = hslToRGB(42, 0.72, clamp01(0.38 + this.cfg.glow * 0.5));
-			const windowY = Math.round(hubY + towerH * 0.46);
-			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, centerX, windowY, 1, 2, `rgb(${windowGlow.r},${windowGlow.g},${windowGlow.b})`, clamp01(0.18 + this.cfg.glow * 0.58));
-
-			const bladeColor = hslToRGB((this.cfg.hue + 210) % 360, clamp01(this.cfg.sat * 0.08), 0.13);
-			for (let blade = 0; blade < 4; blade++) {
-				const theta = angle + blade * Math.PI * 0.5;
-				const px = -Math.sin(theta);
-				const py = Math.cos(theta) * 0.88;
-				for (let r = 1; r <= bladeLen; r++) {
-					const fade = 1 - r / Math.max(1, bladeLen);
-					const bx = centerX + Math.cos(theta) * r;
-					const by = hubY + Math.sin(theta) * r * 0.88;
-					const half = Math.max(0, Math.round(bladeWidth * fade * 0.55));
-					for (let spread = -half; spread <= half; spread++) {
-						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, Math.round(bx + px * spread * 0.7), Math.round(by + py * spread * 0.7), 1, 1, `rgb(${bladeColor.r},${bladeColor.g},${bladeColor.b})`, 1);
-					}
-				}
-			}
-
-			this._fillCell(ctx, sx, sy, ceilSx, ceilSy, centerX - 1, hubY - 1, 3, 3, `rgb(${millColor.r},${millColor.g},${millColor.b})`, 1);
-
-			const grassColor = hslToRGB((this.cfg.hue + 120) % 360, 0.16, 0.14);
-			for (let x = 0; x < this.w; x += 2) {
-				const top = hillRows[x];
-				if ((x + this.tick) % 5 !== 0) continue;
-				const sway = this.timers.gust > 0 ? (this.values.gust_gain || this.cfg.gust_mult) * 0.2 : this.timers.lull > 0 ? -this.cfg.lull_mult * 0.08 : 0.04;
-				this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x + Math.round(Math.sin(this.tick * 0.05 + x * 0.1) * sway), top - 1, 1, 2, `rgb(${grassColor.r},${grassColor.g},${grassColor.b})`, 0.28);
-			}
+			api._helpers.renderPixelGridEffect(this, ctx, canvasW, canvasH, opts);
 		}
 	}
 

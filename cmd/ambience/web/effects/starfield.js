@@ -54,6 +54,7 @@
 		constructor(w, h, cfg, seed) {
 			this.w = w;
 			this.h = h;
+			this.grid = new Uint8ClampedArray(w * h * 3);
 			this.seed = Number(seed || Date.now());
 			this.tick = 0;
 			this.timers = {};
@@ -137,6 +138,7 @@
 			for (const key of Object.keys(this.timers)) {
 				if (this.timers[key] > 0) this.timers[key]--;
 			}
+			api._helpers.paintProceduralGrid(this);
 		}
 
 		_densityLevel() {
@@ -155,63 +157,7 @@
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
-			opts = opts || {};
-			if (opts.transparent) {
-				ctx.clearRect(0, 0, canvasW, canvasH);
-			} else {
-				const sky = ctx.createLinearGradient(0, 0, 0, canvasH);
-				sky.addColorStop(0, '#050912');
-				sky.addColorStop(0.6, '#090f20');
-				sky.addColorStop(1, '#0b1128');
-				ctx.fillStyle = sky;
-				ctx.fillRect(0, 0, canvasW, canvasH);
-			}
-
-			const sx = canvasW / this.w;
-			const sy = canvasH / this.h;
-			const ceilSx = Math.ceil(sx);
-			const ceilSy = Math.ceil(sy);
-			const density = this._densityLevel();
-			const layers = Math.max(1, Math.round(this.cfg.layers));
-			const burst = this.timers['twinkle-burst'] > 0 ? this.cfg.twinkle_burst_mult : 1;
-
-			for (let layer = 0; layer < layers; layer++) {
-				const layerRatio = layers === 1 ? 1 : layer / (layers - 1);
-				const layerCount = Math.max(10, Math.round(this.w * density * (0.4 + layerRatio * 1.2)));
-				const speed = this.cfg.speed * (0.18 + layerRatio * 0.82);
-				const drift = this.cfg.drift * (0.25 + layerRatio * 0.9);
-				const size = Math.max(1, Math.round(this.cfg.size + layerRatio));
-				for (let i = 0; i < layerCount; i++) {
-					const idx = layer * 1400 + i;
-					const baseX = this._hash(15000 + idx) * this.w;
-					const baseY = this._hash(16000 + idx) * this.h;
-					const col = positiveMod(baseX + this.tick * drift * speed * 2, this.w);
-					const row = baseY;
-					const hue = ((this.cfg.hue + (this._hash(17000 + idx) * 2 - 1) * this.cfg.hue_sp) % 360 + 360) % 360;
-					const twinkle = 0.4 + 0.6 * Math.pow(0.5 + 0.5 * Math.sin(this.tick * (0.02 + this._hash(18000 + idx) * 0.03) + idx), 2);
-					const light = clamp01((this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * (0.3 + layerRatio * 0.7)) * twinkle * burst);
-					const alpha = clamp01(0.35 + 0.25 * layerRatio + 0.25 * twinkle);
-					const color = hslToRGB(hue, this.cfg.sat, light);
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, Math.round(col), Math.round(row), size, size, `rgb(${color.r},${color.g},${color.b})`, alpha);
-				}
-			}
-
-			if (this.timers['shooting-star'] > 0) {
-				const total = Math.max(1, this.values['shooting-star_total'] || this.cfg.shooting_star_dur);
-				const progress = 1 - (this.timers['shooting-star'] / total);
-				const dir = this.values.shooting_dir || 1;
-				const row = this.values.shooting_row || this.h * 0.25;
-				const start = this.values.shooting_start || this.w * 0.25;
-				const head = positiveMod(start + dir * progress * this.w * 0.6, this.w);
-				for (let i = 0; i < 7; i++) {
-					const fade = 1 - i / 7;
-					const x = Math.round(head - dir * i * 1.5);
-					const y = Math.round(row + i * 0.6);
-					const light = clamp01(this.cfg.lmax * this.cfg.shooting_star_mult * fade * 0.55);
-					const color = hslToRGB(this.cfg.hue - 8, clamp01(this.cfg.sat * 0.9), light);
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, y, 1 + (i === 0 ? 1 : 0), 1, `rgb(${color.r},${color.g},${color.b})`, fade);
-				}
-			}
+			api._helpers.renderPixelGridEffect(this, ctx, canvasW, canvasH, opts);
 		}
 	}
 

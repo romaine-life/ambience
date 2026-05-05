@@ -60,6 +60,7 @@
 		constructor(w, h, cfg, seed) {
 			this.w = w;
 			this.h = h;
+			this.grid = new Uint8ClampedArray(w * h * 3);
 			this.seed = Number(seed || Date.now());
 			this.tick = 0;
 			this.timers = {};
@@ -143,6 +144,7 @@
 				if (this.timers[key] > 0) this.timers[key]--;
 			}
 			if (!this.timers.gust || this.timers.gust <= 0) this.values.gust_push = 0;
+			api._helpers.paintProceduralGrid(this);
 		}
 
 		_motionLevel() {
@@ -163,98 +165,7 @@
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
-			opts = opts || {};
-			if (opts.transparent) {
-				ctx.clearRect(0, 0, canvasW, canvasH);
-			} else {
-				const sky = ctx.createLinearGradient(0, 0, 0, canvasH);
-				sky.addColorStop(0, '#16213f');
-				sky.addColorStop(0.56, '#556785');
-				sky.addColorStop(1, '#d2ad66');
-				ctx.fillStyle = sky;
-				ctx.fillRect(0, 0, canvasW, canvasH);
-			}
-
-			const sx = canvasW / this.w;
-			const sy = canvasH / this.h;
-			const ceilSx = Math.ceil(sx);
-			const ceilSy = Math.ceil(sy);
-			const motion = this._motionLevel();
-			const density = Math.max(0.08, this.cfg.density);
-			const layers = Math.max(1, Math.round(this.cfg.layers));
-			const gustPush = this.values.gust_push || 0;
-			const fieldBase = Math.floor(this.h * this.cfg.field_top);
-
-			const sunX = canvasW * (0.16 + this._hash(21000) * 0.18);
-			const sunY = canvasH * (0.2 + this._hash(21001) * 0.06);
-			const sunR = Math.max(18, Math.min(canvasW, canvasH) * 0.06);
-			const sun = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, sunR * 2.8);
-			sun.addColorStop(0, 'rgba(255, 228, 153, 0.2)');
-			sun.addColorStop(1, 'rgba(255, 228, 153, 0)');
-			ctx.fillStyle = sun;
-			ctx.fillRect(0, 0, canvasW, canvasH);
-
-			const hillColor = hslToRGB(38, 0.18, 0.3);
-			const hillPoints = [];
-			for (let i = 0; i <= 8; i++) {
-				hillPoints.push(Math.floor(this.h * 0.56) - Math.floor(this._hash(21100 + i) * 5) - Math.floor((0.5 + 0.5 * Math.sin(i * 0.9 + this._hash(21200 + i) * 3)) * 5));
-			}
-			ctx.fillStyle = `rgb(${hillColor.r},${hillColor.g},${hillColor.b})`;
-			ctx.beginPath();
-			ctx.moveTo(0, canvasH);
-			for (let x = 0; x < this.w; x++) {
-				const pos = (x / Math.max(1, this.w - 1)) * 8;
-				const idx = Math.min(7, Math.floor(pos));
-				const frac = pos - idx;
-				const eased = frac * frac * (3 - 2 * frac);
-				const y = hillPoints[idx] + (hillPoints[idx + 1] - hillPoints[idx]) * eased;
-				ctx.lineTo(Math.floor(x * sx), Math.floor(y * sy));
-			}
-			ctx.lineTo(canvasW, canvasH);
-			ctx.closePath();
-			ctx.fill();
-
-			const groundGrad = ctx.createLinearGradient(0, Math.floor(fieldBase * sy), 0, canvasH);
-			groundGrad.addColorStop(0, '#b28d45');
-			groundGrad.addColorStop(0.45, '#be9c56');
-			groundGrad.addColorStop(1, '#8e6e32');
-			ctx.fillStyle = groundGrad;
-			ctx.fillRect(0, Math.floor(fieldBase * sy), canvasW, canvasH - Math.floor(fieldBase * sy));
-
-			for (let layer = 0; layer < layers; layer++) {
-				const layerRatio = layers === 1 ? 1 : layer / (layers - 1);
-				const amp = motion * (2.4 + layerRatio * 4.8);
-				const speed = this.cfg.speed * (0.4 + layerRatio * 0.65);
-				const drift = this.cfg.drift * (0.25 + layerRatio * 0.75) + gustPush * 0.04 * (0.5 + layerRatio * 0.5);
-				const topBase = fieldBase - this.cfg.stalk_h * (0.28 + layerRatio * 0.46);
-				const tipChance = clamp01(density * (0.4 + layerRatio * 0.22));
-				for (let x = 0; x < this.w;) {
-					const clumpSeed = layer * 4000 + x;
-					const width = Math.max(1, Math.min(4, Math.round(1 + this._hash(21700 + clumpSeed) * (1.2 + layerRatio * 2.4))));
-					const sampleX = Math.min(this.w - 1, x + width * 0.5);
-					const idx = layer * 2000 + sampleX;
-					const wave = Math.sin(sampleX * this.cfg.wave_freq * (0.85 + layerRatio * 0.25) + this.tick * speed + layer * 1.7);
-					const subWave = Math.sin(sampleX * this.cfg.wave_freq * 0.42 - this.tick * speed * 0.62 + layer * 2.3);
-					const lean = wave * amp + subWave * amp * 0.32 + Math.sin(this.tick * 0.012 + sampleX * 0.05) * drift * 3.2;
-					const top = Math.max(0, Math.min(this.h - 2, topBase + lean + this._hash(21300 + idx) * 2));
-					const depth = Math.max(6, Math.round(this.cfg.stalk_h * (0.48 + layerRatio * 0.42)));
-					const hue = ((this.cfg.hue + (this._hash(21400 + idx) * 2 - 1) * this.cfg.hue_sp) % 360 + 360) % 360;
-					const light = clamp01(this.cfg.lmin + (this.cfg.lmax - this.cfg.lmin) * (0.18 + layerRatio * 0.6));
-					const alpha = clamp01(0.34 + layerRatio * 0.24);
-					const color = hslToRGB(hue, this.cfg.sat, light);
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, Math.round(top), width, depth, `rgb(${color.r},${color.g},${color.b})`, alpha);
-					const shadow = hslToRGB(hue, clamp01(this.cfg.sat * 0.72), clamp01(light * 0.76));
-					this._fillCell(ctx, sx, sy, ceilSx, ceilSy, x, Math.round(top), width, Math.max(1, Math.round(depth * 0.28)), `rgb(${shadow.r},${shadow.g},${shadow.b})`, clamp01(alpha * 0.55));
-
-					if (this._hash(21500 + idx) < tipChance) {
-						const tipHeight = 1 + Math.floor(this._hash(21600 + idx) * (1 + layerRatio * 3));
-						const tipX = Math.max(0, Math.min(this.w - 1, Math.round(x + width * 0.5 + lean * 0.18)));
-						const accent = hslToRGB((hue + 4) % 360, clamp01(this.cfg.sat * 0.82), clamp01(light * 1.08));
-						this._fillCell(ctx, sx, sy, ceilSx, ceilSy, tipX, Math.round(top) - tipHeight + 1, 1, tipHeight, `rgb(${accent.r},${accent.g},${accent.b})`, clamp01(alpha * 0.9));
-					}
-					x += width;
-				}
-			}
+			api._helpers.renderPixelGridEffect(this, ctx, canvasW, canvasH, opts);
 		}
 	}
 

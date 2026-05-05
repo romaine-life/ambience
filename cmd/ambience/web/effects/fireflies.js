@@ -134,25 +134,7 @@
 		}
 
 		render(ctx, canvasW, canvasH, opts) {
-			opts = opts || {};
-			if (opts.transparent) {
-				ctx.clearRect(0, 0, canvasW, canvasH);
-			} else {
-				ctx.fillStyle = opts.bg || '#0a0a0a';
-				ctx.fillRect(0, 0, canvasW, canvasH);
-			}
-			const sx = canvasW / this.w;
-			const sy = canvasH / this.h;
-			const ceilSx = Math.ceil(sx), ceilSy = Math.ceil(sy);
-			for (let y = 0; y < this.h; y++) {
-				for (let x = 0; x < this.w; x++) {
-					const i = (y * this.w + x) * 3;
-					const r = this.grid[i], g = this.grid[i + 1], b = this.grid[i + 2];
-					if (r === 0 && g === 0 && b === 0) continue;
-					ctx.fillStyle = `rgb(${r},${g},${b})`;
-					ctx.fillRect(Math.floor(x * sx), Math.floor(y * sy), ceilSx, ceilSy);
-				}
-			}
+			api._helpers.renderPixelGridEffect(this, ctx, canvasW, canvasH, opts);
 		}
 
 		_stepFirefly(ff) {
