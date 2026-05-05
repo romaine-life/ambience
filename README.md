@@ -2,13 +2,15 @@
 
 Shared-world ambient pixel-art effects. A 10 Hz server decides which
 effect is active, which scene/config is current, and when discrete
-events fire, then broadcasts those commands via SSE; every consumer
-(browser canvas, terminal sixel) runs its own sim replica and applies
-the commands in sync. Browser canvases run the Go `sim` package through
-WebAssembly, so the server, browser, terminal, and generated social
-images share the same pixel simulation source.
+events fire, then broadcasts those commands via SSE. Browser consumers
+run their own delayed Go/WASM sim replicas and apply the commands against
+an authority clock. Terminal sixel support currently remains a
+best-effort, rain-only subscriber and is not part of the lock-step sync
+guarantee. The server, browser, terminal, and generated social images
+share the same Go `sim` package as their pixel simulation source.
 
-The long-term target is clock-like lock-step rendering across consumers:
+The long-term target is clock-like lock-step rendering across browser
+consumers:
 if `ambience.romaine.life` is open on one machine and a subscriber such
 as `homepage.romaine.life` is open on another, they should appear to be
 displaying the same shared world at the same moment, modulo ordinary
@@ -55,9 +57,12 @@ Configure via
 transparent-vs-opaque render, entropy on/off).
 
 For terminal consumers, `github.com/nelsong6/ambience/terminal` is a Go
-package that subscribes + renders via sixel. Used by fzt-automate;
-currently has platform-specific rendering issues on Windows Terminal —
-see [`docs/terminal-integration-status.md`](docs/terminal-integration-status.md).
+package that subscribes + renders rain via sixel. It is best-effort for
+now: it applies snapshots/config/triggers immediately, ignores authority
+clock buffering, and is excluded from the current browser sync acceptance
+criteria. See
+[`docs/terminal-integration-status.md`](docs/terminal-integration-status.md)
+and [issue #197](https://github.com/nelsong6/ambience/issues/197).
 
 ## Architecture
 
@@ -77,8 +82,9 @@ cmd/ambience-wasm/
 sim/             Pure Go simulation logic. No I/O. Consumed by the
                  server and by the terminal client.
 
-terminal/        SSE subscriber + local sim replica + sixel renderer
-                 as a Go package. Consumed by fzt-automate.
+terminal/        Best-effort rain-only SSE subscriber + local sim replica
+                 + sixel renderer as a Go package. Consumed by
+                 fzt-automate; not authority-clock buffered yet.
 
 tools/conpty-capture/
                  Python/pywinpty tool that captures Windows terminal
@@ -146,8 +152,9 @@ visual details that do not make subscribers visibly diverge.
 The browser client exposes `window.AmbienceClient.getDebugState()` when it
 is running. That returns the estimated authority tick, delayed playback
 tick, local sim tick, drift, queue depth, and active effect type; use it to
-compare `ambience.romaine.life` with subscribers such as
-`homepage.romaine.life` without adding transport volume.
+compare browser subscribers such as `ambience.romaine.life` and
+`homepage.romaine.life` without adding transport volume. Terminal sixel
+does not expose comparable sync telemetry yet.
 
 The deterministic client-side sync harness lives at
 `scripts/test-client-sync.mjs`. It runs two isolated browser-client
@@ -157,7 +164,8 @@ metadata, queued config/trigger commands, effect rotation, a resume-style
 catch-up, a fresh snapshot convergence path, and unsupported effect
 registry handling. It is still a browser-client harness; HTTP
 Last-Event-ID replay is covered by server-side direct-authority and edge
-mirror tests, while terminal-client synchronization is covered separately.
+mirror tests, while terminal-client synchronization is explicitly out of
+scope until [issue #197](https://github.com/nelsong6/ambience/issues/197).
 
 ## Effects model
 
