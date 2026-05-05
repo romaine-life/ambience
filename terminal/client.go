@@ -1,8 +1,7 @@
-// Package terminal is a best-effort ambience client for terminal-resident
+// Package terminal is a rain-only ambience client for terminal-resident
 // consumers (e.g., fzt-automate). It subscribes to an ambience server's SSE
-// command stream, runs a local rain-only sim replica, and emits sixel output
-// via Render. Unlike the browser client, it does not yet use authority-clock
-// buffered playback.
+// command stream, runs a local sim replica behind the authority clock, and
+// emits sixel output via Render.
 //
 // Usage:
 //
@@ -28,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +58,9 @@ type Config struct {
 	// RecordEvery — save one frame every N ticks. 0 disables recording
 	// even when RecordDir is set.
 	RecordEvery int
+	// DelayTicks is the authority-clock playback delay. Defaults to 50 ticks,
+	// matching the browser client.
+	DelayTicks int
 }
 
 // snapshotWire matches the server's generic snapshot envelope. The terminal
@@ -77,6 +80,112 @@ type commandWire struct {
 	Data  json.RawMessage `json:"data,omitempty"`
 }
 
+type queuedCommand struct {
+	cmd  commandWire
+	data json.RawMessage
+}
+
+type playbackClock struct {
+	tickRate          time.Duration
+	delayTicks        int
+	softCatchupDrift  int
+	hardCatchupDrift  int
+	maxCatchupSteps   int
+	authorityTick     int
+	authoritySampleAt time.Time
+	haveSample        bool
+	now               func() time.Time
+}
+
+func newPlaybackClock(tickRate time.Duration, delayTicks int) playbackClock {
+	if tickRate <= 0 {
+		tickRate = 100 * time.Millisecond
+	}
+	if delayTicks < 0 {
+		delayTicks = 0
+	}
+	return playbackClock{
+		tickRate:         tickRate,
+		delayTicks:       delayTicks,
+		softCatchupDrift: 20,
+		hardCatchupDrift: 100,
+		maxCatchupSteps:  5,
+		now:              time.Now,
+	}
+}
+
+func (p *playbackClock) noteAuthorityTick(tick int, sampleAt time.Time) {
+	p.authorityTick = tick
+	if sampleAt.IsZero() {
+		sampleAt = p.now()
+	}
+	p.authoritySampleAt = sampleAt
+	p.haveSample = true
+}
+
+func (p *playbackClock) estimatedAuthorityTick(fallback int) int {
+	if !p.haveSample {
+		if fallback < 0 {
+			return 0
+		}
+		return fallback
+	}
+	elapsed := 0
+	if p.tickRate > 0 {
+		elapsed = int(p.now().Sub(p.authoritySampleAt) / p.tickRate)
+	}
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	return p.authorityTick + elapsed
+}
+
+func (p *playbackClock) targetPlaybackTick(fallback int) int {
+	target := p.estimatedAuthorityTick(fallback) - p.delayTicks
+	if target < 0 {
+		return 0
+	}
+	return target
+}
+
+func (p *playbackClock) stepsFor(currentTick int) int {
+	target := p.targetPlaybackTick(currentTick)
+	drift := target - currentTick
+	if drift <= 0 {
+		return 0
+	}
+	if drift > p.hardCatchupDrift {
+		return p.maxCatchupSteps
+	}
+	if drift > 1 {
+		if p.maxCatchupSteps < 2 {
+			return p.maxCatchupSteps
+		}
+		return 2
+	}
+	return 1
+}
+
+// DebugState is a point-in-time view of the terminal client's rain-only
+// authority-clock playback state.
+type DebugState struct {
+	EffectType            string `json:"effectType"`
+	RainOnly              bool   `json:"rainOnly"`
+	Ready                 bool   `json:"ready"`
+	AuthorityTick         int    `json:"authorityTick"`
+	PlaybackTick          int    `json:"playbackTick"`
+	SimTick               int    `json:"simTick"`
+	DriftTicks            int    `json:"driftTicks"`
+	DelayTicks            int    `json:"delayTicks"`
+	BufferedAheadTicks    int    `json:"bufferedAheadTicks"`
+	TickMs                int    `json:"tickMs"`
+	QueuedCommands        int    `json:"queuedCommands"`
+	NextQueuedCommandTick *int   `json:"nextQueuedCommandTick"`
+	MaxQueuedCommandTick  *int   `json:"maxQueuedCommandTick"`
+	HaveAuthoritySample   bool   `json:"haveAuthoritySample"`
+	LastError             string `json:"lastError,omitempty"`
+}
+
 // Reference grid dims for which the atmosphere's default config is tuned.
 // Clients with grids much larger than this scale Speed + SpawnBurst so a
 // full-surface overlay doesn't look like a sparse drizzle.
@@ -89,8 +198,8 @@ const (
 type Client struct {
 	cfg Config
 
-	// The local sim replica. Owned by the tick goroutine; other goroutines
-	// only call its thread-safe methods (SetConfig, TriggerEvent, RestoreState).
+	// The local sim replica. All methods used here are internally synchronized
+	// by sim.Rain.
 	sim *sim.Rain
 
 	// Last config received from the server (unscaled). We keep it so we can
@@ -106,6 +215,13 @@ type Client struct {
 	grid   [][]sim.Pixel
 
 	cancel context.CancelFunc
+
+	stateMu       sync.Mutex
+	ready         bool
+	effectType    string
+	lastError     string
+	pending       []queuedCommand
+	playbackClock playbackClock
 
 	// Render-time scratch buffers.
 	renderMu sync.Mutex
@@ -153,6 +269,9 @@ func New(cfg Config) *Client {
 	if cfg.TickRate <= 0 {
 		cfg.TickRate = 100 * time.Millisecond
 	}
+	if cfg.DelayTicks <= 0 {
+		cfg.DelayTicks = 50
+	}
 	if cfg.ServerURL == "" {
 		cfg.ServerURL = "https://ambience.romaine.life"
 	}
@@ -164,10 +283,11 @@ func New(cfg Config) *Client {
 	}
 
 	return &Client{
-		cfg:  cfg,
-		sim:  sim.NewRain(cfg.GridW, cfg.GridH, time.Now().UnixNano(), sim.Config{}),
-		grid: grid,
-		img:  image.NewRGBA(image.Rect(0, 0, cfg.GridW, cfg.GridH)),
+		cfg:           cfg,
+		sim:           sim.NewRain(cfg.GridW, cfg.GridH, time.Now().UnixNano(), sim.Config{}),
+		grid:          grid,
+		img:           image.NewRGBA(image.Rect(0, 0, cfg.GridW, cfg.GridH)),
+		playbackClock: newPlaybackClock(cfg.TickRate, cfg.DelayTicks),
 	}
 }
 
@@ -274,10 +394,54 @@ func (c *Client) applyCommand(payload string) {
 		c.reportError(err)
 		return
 	}
+	c.stateMu.Lock()
+	c.playbackClock.noteAuthorityTick(cmd.Tick, time.Time{})
+	c.stateMu.Unlock()
+
+	data := cmd.Data
+	switch cmd.Kind {
+	case "snapshot":
+		c.applyCommandNow(cmd, data)
+	case "clock":
+		return
+	case "config", "trigger":
+		c.queueCommand(cmd, data)
+	default:
+		return
+	}
+}
+
+func (c *Client) queueCommand(cmd commandWire, data json.RawMessage) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	c.pending = append(c.pending, queuedCommand{cmd: cmd, data: append(json.RawMessage(nil), data...)})
+	sort.SliceStable(c.pending, func(i, j int) bool {
+		return c.pending[i].cmd.Tick < c.pending[j].cmd.Tick
+	})
+}
+
+func (c *Client) applyDueCommands(playbackTick int) {
+	var due []queuedCommand
+	c.stateMu.Lock()
+	for len(c.pending) > 0 {
+		tick := c.pending[0].cmd.Tick
+		if tick > playbackTick {
+			break
+		}
+		due = append(due, c.pending[0])
+		c.pending = c.pending[1:]
+	}
+	c.stateMu.Unlock()
+	for _, item := range due {
+		c.applyCommandNow(item.cmd, item.data)
+	}
+}
+
+func (c *Client) applyCommandNow(cmd commandWire, data json.RawMessage) {
 	switch cmd.Kind {
 	case "snapshot":
 		var snap snapshotWire
-		if err := json.Unmarshal(cmd.Data, &snap); err != nil {
+		if err := json.Unmarshal(data, &snap); err != nil {
 			c.reportError(err)
 			return
 		}
@@ -304,10 +468,16 @@ func (c *Client) applyCommand(payload string) {
 		c.baseConfigSet = true
 		c.applyScaledConfig()
 		c.configMu.Unlock()
-		c.sim.RestoreState(state.State)
+		c.sim.RestoreSnapshot(state)
+		c.stateMu.Lock()
+		c.ready = true
+		c.effectType = "rain"
+		c.lastError = ""
+		c.discardQueuedThroughLocked(snap.Tick)
+		c.stateMu.Unlock()
 	case "config":
 		var cfg sim.Config
-		if err := json.Unmarshal(cmd.Data, &cfg); err != nil {
+		if err := json.Unmarshal(data, &cfg); err != nil {
 			c.reportError(err)
 			return
 		}
@@ -319,6 +489,19 @@ func (c *Client) applyCommand(payload string) {
 	case "trigger":
 		c.sim.TriggerEvent(cmd.Event)
 	}
+}
+
+func (c *Client) discardQueuedThroughLocked(tick int) {
+	if len(c.pending) == 0 {
+		return
+	}
+	keep := c.pending[:0]
+	for _, item := range c.pending {
+		if item.cmd.Tick > tick {
+			keep = append(keep, item)
+		}
+	}
+	c.pending = keep
 }
 
 // tickLoop advances the local sim + refreshes the grid snapshot for Render.
@@ -334,7 +517,7 @@ func (c *Client) tickLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			c.sim.Step()
+			c.stepTowardAuthorityClock()
 			snap := c.sim.GridCopy()
 			c.gridMu.Lock()
 			c.grid = snap
@@ -346,6 +529,74 @@ func (c *Client) tickLoop(ctx context.Context) {
 				}
 			}
 		}
+	}
+}
+
+func (c *Client) stepTowardAuthorityClock() {
+	current := c.sim.CurrentTick()
+	c.stateMu.Lock()
+	ready := c.ready
+	steps := c.playbackClock.stepsFor(current)
+	c.stateMu.Unlock()
+	if !ready {
+		return
+	}
+	if steps <= 0 {
+		c.applyDueCommands(current)
+		return
+	}
+	for i := 0; i < steps; i++ {
+		c.applyDueCommands(c.sim.CurrentTick() + 1)
+		c.sim.Step()
+	}
+	c.applyDueCommands(c.sim.CurrentTick())
+}
+
+// DebugState returns browser-comparable sync telemetry for the rain-only
+// terminal client.
+func (c *Client) DebugState() DebugState {
+	simTick := c.sim.CurrentTick()
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+
+	var nextTick *int
+	var maxTick *int
+	for _, item := range c.pending {
+		tick := item.cmd.Tick
+		if nextTick == nil || tick < *nextTick {
+			v := tick
+			nextTick = &v
+		}
+		if maxTick == nil || tick > *maxTick {
+			v := tick
+			maxTick = &v
+		}
+	}
+	authorityTick := c.playbackClock.estimatedAuthorityTick(simTick)
+	playbackTick := c.playbackClock.targetPlaybackTick(simTick)
+	bufferedAhead := 0
+	if maxTick != nil {
+		bufferedAhead = *maxTick - playbackTick
+		if bufferedAhead < 0 {
+			bufferedAhead = 0
+		}
+	}
+	return DebugState{
+		EffectType:            c.effectType,
+		RainOnly:              true,
+		Ready:                 c.ready,
+		AuthorityTick:         authorityTick,
+		PlaybackTick:          playbackTick,
+		SimTick:               simTick,
+		DriftTicks:            playbackTick - simTick,
+		DelayTicks:            c.playbackClock.delayTicks,
+		BufferedAheadTicks:    bufferedAhead,
+		TickMs:                int(c.cfg.TickRate / time.Millisecond),
+		QueuedCommands:        len(c.pending),
+		NextQueuedCommandTick: nextTick,
+		MaxQueuedCommandTick:  maxTick,
+		HaveAuthoritySample:   c.playbackClock.haveSample,
+		LastError:             c.lastError,
 	}
 }
 
@@ -443,6 +694,9 @@ func (c *Client) reportError(err error) {
 	if err == nil {
 		return
 	}
+	c.stateMu.Lock()
+	c.lastError = err.Error()
+	c.stateMu.Unlock()
 	if c.cfg.OnError != nil {
 		c.cfg.OnError(err)
 		return

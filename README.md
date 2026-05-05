@@ -4,10 +4,11 @@ Shared-world ambient pixel-art effects. A 10 Hz server decides which
 effect is active, which scene/config is current, and when discrete
 events fire, then broadcasts those commands via SSE. Browser consumers
 run their own delayed Go/WASM sim replicas and apply the commands against
-an authority clock. Terminal sixel support currently remains a
-best-effort, rain-only subscriber and is not part of the lock-step sync
-guarantee. The server, browser, terminal, and generated social images
-share the same Go `sim` package as their pixel simulation source.
+an authority clock. Terminal sixel support participates in the same
+authority-clock buffering for rain-only mode; all-effect terminal support
+is still separate future work. The server, browser, terminal, and
+generated social images share the same Go `sim` package as their pixel
+simulation source.
 
 The long-term target is clock-like lock-step rendering across browser
 consumers:
@@ -57,12 +58,12 @@ Configure via
 transparent-vs-opaque render, entropy on/off).
 
 For terminal consumers, `github.com/nelsong6/ambience/terminal` is a Go
-package that subscribes + renders rain via sixel. It is best-effort for
-now: it applies snapshots/config/triggers immediately, ignores authority
-clock buffering, and is excluded from the current browser sync acceptance
-criteria. See
-[`docs/terminal-integration-status.md`](docs/terminal-integration-status.md)
-and [issue #197](https://github.com/nelsong6/ambience/issues/197).
+package that subscribes + renders rain via sixel. It applies snapshots
+immediately, queues future config/trigger commands behind the delayed
+authority playback tick, and exposes `Client.DebugState()` telemetry for
+rain-only sync debugging. It does not yet instantiate every live effect;
+that needs a separate terminal runtime/registry design. See
+[`docs/terminal-integration-status.md`](docs/terminal-integration-status.md).
 
 ## Architecture
 
@@ -82,9 +83,9 @@ cmd/ambience-wasm/
 sim/             Pure Go simulation logic. No I/O. Consumed by the
                  server and by the terminal client.
 
-terminal/        Best-effort rain-only SSE subscriber + local sim replica
-                 + sixel renderer as a Go package. Consumed by
-                 fzt-automate; not authority-clock buffered yet.
+terminal/        Rain-only SSE subscriber + delayed authority-clock local
+                 sim replica + sixel renderer as a Go package. Consumed by
+                 fzt-automate; all-effect terminal support is future work.
 
 tools/conpty-capture/
                  Python/pywinpty tool that captures Windows terminal
@@ -154,7 +155,7 @@ is running. That returns the estimated authority tick, delayed playback
 tick, local sim tick, drift, queue depth, and active effect type; use it to
 compare browser subscribers such as `ambience.romaine.life` and
 `homepage.romaine.life` without adding transport volume. Terminal sixel
-does not expose comparable sync telemetry yet.
+exposes comparable rain-only telemetry through `Client.DebugState()`.
 
 Example browser sync telemetry:
 
@@ -194,8 +195,8 @@ metadata, queued config/trigger commands, effect rotation, a resume-style
 catch-up, a fresh snapshot convergence path, and unsupported effect
 registry handling. It is still a browser-client harness; HTTP
 Last-Event-ID replay is covered by server-side direct-authority and edge
-mirror tests, while terminal-client synchronization is explicitly out of
-scope until [issue #197](https://github.com/nelsong6/ambience/issues/197).
+mirror tests. Terminal rain-only authority-clock buffering is covered by
+Go tests in `terminal/`.
 
 ## Effects model
 
@@ -395,7 +396,8 @@ and Dust with randomized starting stats plus a `randomize` button on
 `/dev/<effect>`. Consumers: ambience's own demo, fzt-showcase (DOS
 terminal), my-homepage (bookmark terminal). Entropy flow wired.
 
-Terminal integration via fzt-automate is tabled pending platform
+Terminal rain-only sync is implemented in the `terminal` package, but
+fzt-automate rendering integration is still tabled pending platform
 rendering work — see issues
 [#11–#15](https://github.com/nelsong6/ambience/issues?q=is%3Aopen+label%3Aterminal-client).
 
