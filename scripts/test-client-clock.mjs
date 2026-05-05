@@ -81,17 +81,36 @@ function makeClock() {
 {
 	const clock = makeClock();
 	clock.noteAuthorityTick(100);
-	const state = JSON.parse(JSON.stringify(clock.debugState(45, 3)));
+	const state = JSON.parse(JSON.stringify(clock.debugState(45, {
+		queuedCommands: 3,
+		nextQueuedCommandTick: 52,
+		maxQueuedCommandTick: 75,
+	})));
 	assert.deepEqual(state, {
 		authorityTick: 100,
 		playbackTick: 50,
 		simTick: 45,
 		driftTicks: 5,
 		delayTicks: 50,
+		bufferedAheadTicks: 25,
 		tickMs: 100,
 		queuedCommands: 3,
+		nextQueuedCommandTick: 52,
+		maxQueuedCommandTick: 75,
 		haveAuthoritySample: true,
 	});
+}
+
+{
+	const clock = makeClock();
+	clock.noteAuthorityTick(120);
+	const state = JSON.parse(JSON.stringify(clock.debugState(70, {
+		queuedCommands: 1,
+		nextQueuedCommandTick: 65,
+		maxQueuedCommandTick: 65,
+	})));
+	assert.equal(state.playbackTick, 70);
+	assert.equal(state.bufferedAheadTicks, 0, 'buffered-ahead is clamped once playback reaches the command horizon');
 }
 
 console.log('client playback clock ok');
