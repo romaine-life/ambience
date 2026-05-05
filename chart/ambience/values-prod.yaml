@@ -3,7 +3,7 @@ domain:
   tlsSecretName: ambience-tls
 
 image:
-  tag: aea3a59
+  tag: 558efc3
 
 edge:
   replicas: 2
