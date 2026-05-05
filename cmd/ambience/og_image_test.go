@@ -42,6 +42,25 @@ func TestServeOGImageReturnsPNG(t *testing.T) {
 	}
 }
 
+func TestRenderOGImageWithProceduralFrameIsVisible(t *testing.T) {
+	beach := sim.NewBeach(gridW, gridH, 1, nil)
+	beach.Step()
+	img := renderPixelGridImage(beach.GridCopy(), ogImageWidth, ogImageHeight)
+	bounds := img.Bounds()
+	visible := 0
+	background := color.RGBA{10, 10, 10, 255}
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			if img.RGBAAt(x, y) != background {
+				visible++
+			}
+		}
+	}
+	if visible < ogImageWidth*ogImageHeight/2 {
+		t.Fatalf("visible pixels = %d, want non-black procedural OG frame", visible)
+	}
+}
+
 func TestServeIndexPageInjectsVersionedOGImage(t *testing.T) {
 	static := newStaticAssets(fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte(`<meta property="og:image" content="__AMBIENCE_OG_IMAGE__">`)},

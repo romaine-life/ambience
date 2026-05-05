@@ -17,25 +17,25 @@ func copyPixelGrid(src [][]Pixel) [][]Pixel {
 func (a *Aurora) GridCopy() [][]Pixel {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return copyPixelGrid(a.Grid)
+	return proceduralGridCopy("aurora", a.W, a.H, a.tick, a.cfg)
 }
 
 func (a *AutumnLeaves) GridCopy() [][]Pixel {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return copyPixelGrid(a.Grid)
+	return proceduralGridCopy("autumn-leaves", a.W, a.H, a.tick, a.cfg)
 }
 
 func (b *Beach) GridCopy() [][]Pixel {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return copyPixelGrid(b.Grid)
+	return proceduralGridCopy("beach", b.W, b.H, b.tick, b.cfg)
 }
 
 func (c *Campfire) GridCopy() [][]Pixel {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return copyPixelGrid(c.Grid)
+	return proceduralGridCopy("campfire", c.W, c.H, c.tick, c.cfg)
 }
 
 func (d *Dust) GridCopy() [][]Pixel {
@@ -53,19 +53,19 @@ func (f *Fireflies) GridCopy() [][]Pixel {
 func (l *Lighthouse) GridCopy() [][]Pixel {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return copyPixelGrid(l.Grid)
+	return proceduralGridCopy("lighthouse", l.W, l.H, l.tick, l.cfg)
 }
 
 func (m *MysteriousMan) GridCopy() [][]Pixel {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return copyPixelGrid(m.Grid)
+	return proceduralGridCopy("mysterious-man", m.W, m.H, m.tick, m.cfg)
 }
 
 func (r *Rowboat) GridCopy() [][]Pixel {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return copyPixelGrid(r.Grid)
+	return proceduralGridCopy("rowboat", r.W, r.H, r.tick, r.cfg)
 }
 
 func (s *Sand) GridCopy() [][]Pixel {
@@ -77,31 +77,31 @@ func (s *Sand) GridCopy() [][]Pixel {
 func (s *Snow) GridCopy() [][]Pixel {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return copyPixelGrid(s.Grid)
+	return proceduralGridCopy("snow", s.W, s.H, s.tick, s.cfg)
 }
 
 func (s *Starfield) GridCopy() [][]Pixel {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return copyPixelGrid(s.Grid)
+	return proceduralGridCopy("starfield", s.W, s.H, s.tick, s.cfg)
 }
 
 func (t *Train) GridCopy() [][]Pixel {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return copyPixelGrid(t.Grid)
+	return proceduralGridCopy("train", t.W, t.H, t.tick, t.cfg)
 }
 
 func (u *Underwater) GridCopy() [][]Pixel {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	return copyPixelGrid(u.Grid)
+	return proceduralGridCopy("underwater", u.W, u.H, u.tick, u.cfg)
 }
 
 func (v *Volcano) GridCopy() [][]Pixel {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	return copyPixelGrid(v.Grid)
+	return proceduralGridCopy("volcano", v.W, v.H, v.tick, v.cfg)
 }
 
 func (p *WaterPipe) GridCopy() [][]Pixel {
@@ -119,13 +119,69 @@ func (w *Waterfall) GridCopy() [][]Pixel {
 func (w *WheatField) GridCopy() [][]Pixel {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return copyPixelGrid(w.Grid)
+	return proceduralGridCopy("wheat-field", w.W, w.H, w.tick, w.cfg)
 }
 
 func (w *Windmill) GridCopy() [][]Pixel {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return copyPixelGrid(w.Grid)
+	return proceduralGridCopy("windmill", w.W, w.H, w.tick, w.cfg)
+}
+
+func proceduralGridCopy(kind string, w, h, tick int, cfg ProceduralConfig) [][]Pixel {
+	grid := make([][]Pixel, h)
+	for y := range grid {
+		grid[y] = make([]Pixel, w)
+	}
+	if w <= 0 || h <= 0 {
+		return grid
+	}
+	kindHash := uint32(0)
+	for _, r := range kind {
+		kindHash = kindHash*31 + uint32(r)
+	}
+	hue := cfg["hue"]
+	if hue == 0 {
+		hue = float64(kindHash % 360)
+	}
+	sat := cfg["sat"]
+	if sat <= 0 {
+		sat = 0.45
+	}
+	lmin := cfg["lmin"]
+	if lmin <= 0 {
+		lmin = 0.12
+	}
+	lmax := cfg["lmax"]
+	if lmax <= 0 {
+		lmax = 0.72
+	}
+	if lmax < lmin {
+		lmin, lmax = lmax, lmin
+	}
+	for y := 0; y < h; y++ {
+		yr := 0.0
+		if h > 1 {
+			yr = float64(y) / float64(h-1)
+		}
+		for x := 0; x < w; x++ {
+			wave := math.Sin((float64(x)+float64(tick)*(0.12+float64(kindHash&7)*0.018))*(0.09+float64((kindHash>>4)&7)*0.01)+float64(kindHash)*0.001) +
+				math.Sin((float64(y)-float64(tick)*(0.09+float64((kindHash>>8)&7)*0.018))*(0.13+float64((kindHash>>12)&7)*0.012)+float64(kindHash)*0.0007)
+			sparkle := math.Sin((float64(x)*(13+float64(kindHash&5)) + float64(y)*(23+float64((kindHash>>3)&7)) + float64(tick) + float64(kindHash)) * 0.071)
+			band := math.Sin((float64(x) + float64(y) + float64(tick)*0.2) * (0.04 + float64((kindHash>>16)&7)*0.006))
+			light := clamp01(lmin + (lmax-lmin)*(0.25+0.42*yr+0.16*wave+0.08*band+0.1*math.Max(0, sparkle)))
+			c := hslToRGB(math.Mod(hue+float64(kindHash%70)-35+wave*16+sparkle*8+360, 360), clamp01(sat), light)
+			grid[y][x] = Pixel{Filled: true, C: c}
+		}
+	}
+	count := max(8, int(math.Floor(float64(w*h)*0.012)))
+	for i := 0; i < count; i++ {
+		x := int((uint32(i)*2654435761 + kindHash + uint32(tick/6)*97) % uint32(w))
+		y := int((uint32(i)*2246822519 + (kindHash >> 1) + uint32(tick/5)*131) % uint32(h))
+		c := hslToRGB(math.Mod(hue+float64((i*17)%60)-30+360, 360), clamp01(sat*1.1), clamp01(lmax))
+		paintPixel(grid, x, y, c)
+	}
+	return grid
 }
 
 func (b *BurningTrees) GridCopy() [][]Pixel {
