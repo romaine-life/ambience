@@ -19,27 +19,34 @@ go.run(result.instance);
 
 await new Promise((resolve) => setTimeout(resolve, 0));
 
-const id = globalThis.ambienceWasm.newRuntime('rain', 160, 80, '1', JSON.stringify({ spawn: 1, burst: 4 }));
-if (id < 0) {
-	throw new Error('newRuntime failed');
+const effects = Array.from(globalThis.ambienceWasm.supportedEffects());
+const summaries = [];
+for (const effect of effects) {
+	const cfg = effect === 'rain' ? { spawn: 1, burst: 4 } : {};
+	const id = globalThis.ambienceWasm.newRuntime(effect, 160, 80, '1', JSON.stringify(cfg));
+	if (id < 0) {
+		throw new Error(`newRuntime failed for ${effect}`);
+	}
+	globalThis.ambienceWasm.step(id, 20);
+	const frame = globalThis.ambienceWasm.frame(id);
+	let nonzero = 0;
+	for (const b of frame) {
+		if (b !== 0) nonzero++;
+	}
+	const resultSummary = {
+		effect,
+		id,
+		tick: globalThis.ambienceWasm.tick(id),
+		width: globalThis.ambienceWasm.width(id),
+		height: globalThis.ambienceWasm.height(id),
+		bytes: frame.length,
+		nonzero,
+	};
+	summaries.push(resultSummary);
+	if (resultSummary.tick !== 20 || resultSummary.bytes !== 160 * 80 * 3 || nonzero <= 0) {
+		throw new Error(`wasm ${effect} smoke failed: ${JSON.stringify(resultSummary)}`);
+	}
+	globalThis.ambienceWasm.destroy(id);
 }
-globalThis.ambienceWasm.step(id, 20);
-const frame = globalThis.ambienceWasm.frame(id);
-let nonzero = 0;
-for (const b of frame) {
-	if (b !== 0) nonzero++;
-}
-const resultSummary = {
-	id,
-	tick: globalThis.ambienceWasm.tick(id),
-	width: globalThis.ambienceWasm.width(id),
-	height: globalThis.ambienceWasm.height(id),
-	bytes: frame.length,
-	nonzero,
-};
-console.log(JSON.stringify(resultSummary));
-if (resultSummary.tick !== 20 || resultSummary.bytes !== 160 * 80 * 3 || nonzero <= 0) {
-	throw new Error('wasm rain smoke failed');
-}
-globalThis.ambienceWasm.destroy(id);
+console.log(JSON.stringify({ effects: summaries.length, summaries }));
 process.exit(0);

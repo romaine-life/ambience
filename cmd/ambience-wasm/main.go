@@ -5,20 +5,32 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"syscall/js"
 
 	"github.com/nelsong6/ambience/sim"
 )
 
 type runtime struct {
-	kind string
-	rain *sim.Rain
+	kind    string
+	effect  wasmEffect
+	set     func(json.RawMessage) error
+	restore func(effectEnvelope) error
 }
 
-type rainEnvelope struct {
+type wasmEffect interface {
+	Step()
+	CurrentTick() int
+	TriggerEvent(string) bool
+	GridCopy() [][]sim.Pixel
+}
+
+type resizable interface {
+	Resize(int, int)
+}
+
+type effectEnvelope struct {
 	Tick   int             `json:"tick"`
-	Config sim.Config      `json:"config"`
+	Config json.RawMessage `json:"config"`
 	State  json.RawMessage `json:"state"`
 	Seed   int64           `json:"seed"`
 	GridW  int             `json:"gridW"`
@@ -32,18 +44,47 @@ var (
 
 func main() {
 	js.Global().Set("ambienceWasm", map[string]any{
-		"newRuntime":      js.FuncOf(newRuntime),
-		"destroy":         js.FuncOf(destroy),
-		"setConfig":       js.FuncOf(setConfig),
-		"restoreSnapshot": js.FuncOf(restoreSnapshot),
-		"triggerEvent":    js.FuncOf(triggerEvent),
-		"step":            js.FuncOf(step),
-		"tick":            js.FuncOf(tick),
-		"width":           js.FuncOf(width),
-		"height":          js.FuncOf(height),
-		"frame":           js.FuncOf(frame),
+		"supportedEffects": js.FuncOf(supportedEffects),
+		"newRuntime":       js.FuncOf(newRuntime),
+		"destroy":          js.FuncOf(destroy),
+		"setConfig":        js.FuncOf(setConfig),
+		"restoreSnapshot":  js.FuncOf(restoreSnapshot),
+		"triggerEvent":     js.FuncOf(triggerEvent),
+		"step":             js.FuncOf(step),
+		"tick":             js.FuncOf(tick),
+		"width":            js.FuncOf(width),
+		"height":           js.FuncOf(height),
+		"frame":            js.FuncOf(frame),
 	})
 	select {}
+}
+
+func supportedEffects(js.Value, []js.Value) any {
+	effects := []any{
+		"aurora",
+		"autumn-leaves",
+		"beach",
+		"burning-trees",
+		"campfire",
+		"dust",
+		"fireflies",
+		"lighthouse",
+		"mysterious-man",
+		"rain",
+		"rowboat",
+		"sand",
+		"snow",
+		"starfield",
+		"tetris",
+		"train",
+		"underwater",
+		"volcano",
+		"water-pipe",
+		"waterfall",
+		"wheat-field",
+		"windmill",
+	}
+	return js.ValueOf(effects)
 }
 
 func newRuntime(_ js.Value, args []js.Value) any {
@@ -55,32 +96,129 @@ func newRuntime(_ js.Value, args []js.Value) any {
 	h := args[2].Int()
 	seed := int64(1)
 	if len(args) > 3 {
-		parsed, err := jsInt64(args[3])
-		if err == nil && parsed != 0 {
-			seed = parsed
+		seed = jsInt64(args[3])
+		if seed == 0 {
+			seed = 1
 		}
 	}
-	configJSON := "{}"
+	configJSON := json.RawMessage("{}")
 	if len(args) > 4 && args[4].Type() == js.TypeString {
-		configJSON = args[4].String()
+		configJSON = json.RawMessage(args[4].String())
 	}
+	rt, err := makeRuntime(kind, w, h, seed, configJSON)
+	if err != nil {
+		return fail(err.Error())
+	}
+	id := nextID
+	nextID++
+	runtimes[id] = rt
+	return id
+}
+
+func makeRuntime(kind string, w, h int, seed int64, cfg json.RawMessage) (*runtime, error) {
 	switch kind {
+	case "aurora":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewAurora)
+	case "autumn-leaves":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewAutumnLeaves)
+	case "beach":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewBeach)
+	case "burning-trees":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewBurningTrees)
+	case "campfire":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewCampfire)
+	case "dust":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewDust)
+	case "fireflies":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewFireflies)
+	case "lighthouse":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewLighthouse)
+	case "mysterious-man":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewMysteriousMan)
 	case "rain":
-		var cfg sim.Config
-		if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
-			return fail(fmt.Sprintf("decode rain config: %v", err))
-		}
-		id := nextID
-		nextID++
-		runtimes[id] = &runtime{kind: kind, rain: sim.NewRain(w, h, seed, cfg)}
-		return id
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewRain)
+	case "rowboat":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewRowboat)
+	case "sand":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewSand)
+	case "snow":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewSnow)
+	case "starfield":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewStarfield)
+	case "tetris":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewTetris)
+	case "train":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewTrain)
+	case "underwater":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewUnderwater)
+	case "volcano":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewVolcano)
+	case "water-pipe":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewWaterPipe)
+	case "waterfall":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewWaterfall)
+	case "wheat-field":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewWheatField)
+	case "windmill":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewWindmill)
 	default:
-		return fail("unsupported effect: " + kind)
+		return nil, fmt.Errorf("unsupported effect %q", kind)
 	}
 }
 
+type typedEffect[C any, S any] interface {
+	wasmEffect
+	resizable
+	SetConfig(C)
+	RestoreSnapshot(S)
+}
+
+func makeTypedRuntime[C any, S any, T typedEffect[C, S]](kind string, w, h int, seed int64, cfgRaw json.RawMessage, ctor func(int, int, int64, C) T) (*runtime, error) {
+	var cfg C
+	if len(cfgRaw) > 0 {
+		if err := json.Unmarshal(cfgRaw, &cfg); err != nil {
+			return nil, fmt.Errorf("decode %s config: %w", kind, err)
+		}
+	}
+	effect := ctor(w, h, seed, cfg)
+	rt := &runtime{
+		kind:   kind,
+		effect: effect,
+	}
+	rt.set = func(raw json.RawMessage) error {
+		var cfg C
+		if len(raw) > 0 {
+			if err := json.Unmarshal(raw, &cfg); err != nil {
+				return fmt.Errorf("decode %s config: %w", kind, err)
+			}
+		}
+		effect.SetConfig(cfg)
+		return nil
+	}
+	rt.restore = func(env effectEnvelope) error {
+		if len(env.Config) > 0 {
+			if err := rt.set(env.Config); err != nil {
+				return err
+			}
+		}
+		if env.GridW > 0 && env.GridH > 0 {
+			effect.Resize(env.GridW, env.GridH)
+		}
+		if len(env.State) == 0 {
+			return nil
+		}
+		var snap S
+		if err := json.Unmarshal(env.State, &snap); err != nil {
+			return fmt.Errorf("decode %s snapshot: %w", kind, err)
+		}
+		effect.RestoreSnapshot(snap)
+		return nil
+	}
+	return rt, nil
+}
+
 func destroy(_ js.Value, args []js.Value) any {
-	if rt := lookup(args); rt != nil {
+	if len(args) > 0 && args[0].Type() == js.TypeNumber {
 		delete(runtimes, args[0].Int())
 	}
 	return true
@@ -94,17 +232,10 @@ func setConfig(_ js.Value, args []js.Value) any {
 	if len(args) < 2 || args[1].Type() != js.TypeString {
 		return fail("setConfig requires config JSON")
 	}
-	switch rt.kind {
-	case "rain":
-		var cfg sim.Config
-		if err := json.Unmarshal([]byte(args[1].String()), &cfg); err != nil {
-			return fail(fmt.Sprintf("decode rain config: %v", err))
-		}
-		rt.rain.SetConfig(cfg)
-		return true
-	default:
-		return false
+	if err := rt.set(json.RawMessage(args[1].String())); err != nil {
+		return fail(err.Error())
 	}
+	return true
 }
 
 func restoreSnapshot(_ js.Value, args []js.Value) any {
@@ -115,33 +246,14 @@ func restoreSnapshot(_ js.Value, args []js.Value) any {
 	if len(args) < 2 || args[1].Type() != js.TypeString {
 		return fail("restoreSnapshot requires snapshot JSON")
 	}
-	switch rt.kind {
-	case "rain":
-		var env rainEnvelope
-		raw := []byte(args[1].String())
-		if err := json.Unmarshal(raw, &env); err != nil {
-			return fail(fmt.Sprintf("decode rain envelope: %v", err))
-		}
-		if env.GridW > 0 && env.GridH > 0 {
-			rt.rain.Resize(env.GridW, env.GridH)
-		}
-		rt.rain.SetConfig(env.Config)
-		stateRaw := env.State
-		if len(stateRaw) == 0 {
-			stateRaw = raw
-		}
-		var snap sim.RainSnapshot
-		if err := json.Unmarshal(stateRaw, &snap); err != nil {
-			return fail(fmt.Sprintf("decode rain state: %v", err))
-		}
-		if snap.Tick == 0 && env.Tick > 0 {
-			snap.Tick = env.Tick
-		}
-		rt.rain.RestoreSnapshot(snap)
-		return true
-	default:
-		return false
+	var env effectEnvelope
+	if err := json.Unmarshal([]byte(args[1].String()), &env); err != nil {
+		return fail(fmt.Sprintf("decode snapshot envelope: %v", err))
 	}
+	if err := rt.restore(env); err != nil {
+		return fail(err.Error())
+	}
+	return true
 }
 
 func triggerEvent(_ js.Value, args []js.Value) any {
@@ -149,12 +261,7 @@ func triggerEvent(_ js.Value, args []js.Value) any {
 	if rt == nil || len(args) < 2 {
 		return false
 	}
-	switch rt.kind {
-	case "rain":
-		return rt.rain.TriggerEvent(args[1].String())
-	default:
-		return false
-	}
+	return rt.effect.TriggerEvent(args[1].String())
 }
 
 func step(_ js.Value, args []js.Value) any {
@@ -166,15 +273,10 @@ func step(_ js.Value, args []js.Value) any {
 	if len(args) > 1 && args[1].Type() == js.TypeNumber {
 		steps = max(1, args[1].Int())
 	}
-	switch rt.kind {
-	case "rain":
-		for range steps {
-			rt.rain.Step()
-		}
-		return true
-	default:
-		return false
+	for range steps {
+		rt.effect.Step()
 	}
+	return true
 }
 
 func tick(_ js.Value, args []js.Value) any {
@@ -182,12 +284,7 @@ func tick(_ js.Value, args []js.Value) any {
 	if rt == nil {
 		return 0
 	}
-	switch rt.kind {
-	case "rain":
-		return rt.rain.CurrentTick()
-	default:
-		return 0
-	}
+	return rt.effect.CurrentTick()
 }
 
 func width(_ js.Value, args []js.Value) any {
@@ -195,12 +292,8 @@ func width(_ js.Value, args []js.Value) any {
 	if rt == nil {
 		return 0
 	}
-	switch rt.kind {
-	case "rain":
-		return rt.rain.W
-	default:
-		return 0
-	}
+	_, w := gridBounds(rt.effect.GridCopy())
+	return w
 }
 
 func height(_ js.Value, args []js.Value) any {
@@ -208,12 +301,8 @@ func height(_ js.Value, args []js.Value) any {
 	if rt == nil {
 		return 0
 	}
-	switch rt.kind {
-	case "rain":
-		return rt.rain.H
-	default:
-		return 0
-	}
+	h, _ := gridBounds(rt.effect.GridCopy())
+	return h
 }
 
 func frame(_ js.Value, args []js.Value) any {
@@ -221,27 +310,15 @@ func frame(_ js.Value, args []js.Value) any {
 	if rt == nil {
 		return js.Global().Get("Uint8ClampedArray").New(0)
 	}
-	var grid [][]sim.Pixel
-	switch rt.kind {
-	case "rain":
-		grid = rt.rain.GridCopy()
-	default:
-		return js.Global().Get("Uint8ClampedArray").New(0)
-	}
-	buf := flattenGrid(grid)
+	buf := flattenGrid(rt.effect.GridCopy())
 	out := js.Global().Get("Uint8ClampedArray").New(len(buf))
 	js.CopyBytesToJS(out, buf)
 	return out
 }
 
 func flattenGrid(grid [][]sim.Pixel) []byte {
-	w := 0
-	for _, row := range grid {
-		if len(row) > w {
-			w = len(row)
-		}
-	}
-	buf := make([]byte, len(grid)*w*3)
+	h, w := gridBounds(grid)
+	buf := make([]byte, h*w*3)
 	for y, row := range grid {
 		for x, p := range row {
 			if !p.Filled {
@@ -256,6 +333,16 @@ func flattenGrid(grid [][]sim.Pixel) []byte {
 	return buf
 }
 
+func gridBounds(grid [][]sim.Pixel) (int, int) {
+	w := 0
+	for _, row := range grid {
+		if len(row) > w {
+			w = len(row)
+		}
+	}
+	return len(grid), w
+}
+
 func lookup(args []js.Value) *runtime {
 	if len(args) == 0 || args[0].Type() != js.TypeNumber {
 		return nil
@@ -263,14 +350,18 @@ func lookup(args []js.Value) *runtime {
 	return runtimes[args[0].Int()]
 }
 
-func jsInt64(v js.Value) (int64, error) {
+func jsInt64(v js.Value) int64 {
 	switch v.Type() {
 	case js.TypeString:
-		return strconv.ParseInt(v.String(), 10, 64)
+		var out int64
+		if err := json.Unmarshal([]byte(v.String()), &out); err == nil {
+			return out
+		}
+		return 0
 	case js.TypeNumber:
-		return int64(v.Float()), nil
+		return int64(v.Float())
 	default:
-		return 0, fmt.Errorf("unsupported int64 value")
+		return 0
 	}
 }
 

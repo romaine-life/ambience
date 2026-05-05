@@ -22,6 +22,11 @@ func TestProceduralGridCopiesAreVisible(t *testing.T) {
 			s.Step()
 			return s.GridCopy()
 		}},
+		{name: "burning-trees", grid: func() [][]Pixel {
+			s := NewBurningTrees(160, 80, 1, BurningTreesConfig{})
+			s.Step()
+			return s.GridCopy()
+		}},
 		{name: "campfire", grid: func() [][]Pixel {
 			s := NewCampfire(160, 80, 1, nil)
 			s.Step()

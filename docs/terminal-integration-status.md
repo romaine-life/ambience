@@ -58,8 +58,8 @@ Browser dev has:
 - `mcp__Claude_Preview__*` tools for autonomous screenshot + inspect
 - No sixel / ConPTY / CONOUT$ / alt-screen interaction to fight
 
-The sim code is shared (Go server + JS port in `cmd/ambience/web/sim.js`),
-so aesthetic work done in-browser transfers to any terminal port later.
+The sim code is shared through Go (`sim/` plus the browser WASM bridge), so
+aesthetic work done in-browser transfers to any terminal port later.
 
 ## Paths back to terminal
 

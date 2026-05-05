@@ -4,7 +4,9 @@ Shared-world ambient pixel-art effects. A 10 Hz server decides which
 effect is active, which scene/config is current, and when discrete
 events fire, then broadcasts those commands via SSE; every consumer
 (browser canvas, terminal sixel) runs its own sim replica and applies
-the commands in sync.
+the commands in sync. Browser canvases run the Go `sim` package through
+WebAssembly, so the server, browser, terminal, and generated social
+images share the same pixel simulation source.
 
 The long-term target is clock-like lock-step rendering across consumers:
 if `ambience.romaine.life` is open on one machine and a subscriber such
@@ -20,9 +22,15 @@ Canonical live view: <https://ambience.romaine.life>.
 ## Quick start
 
 ```sh
+./scripts/build-web-wasm.sh
 go run ./cmd/ambience
 # open http://localhost:8080/
 ```
+
+The Docker image runs `build-web-wasm.sh` automatically before embedding web
+assets. Local `go run` needs that script once per checkout or after WASM
+bridge changes so `/ambience.wasm` and `/wasm_exec.js` exist under
+`cmd/ambience/web/`.
 
 `/` renders the current effect full-screen. `/dev` opens a per-session
 effect-tuning page with an effect switcher, presets when the active
@@ -39,9 +47,10 @@ Any web page can drop ambience in as a background overlay:
 <script src="https://ambience.romaine.life/client.js"></script>
 ```
 
-`client.js` auto-initializes on any `<canvas data-ambience>`, subscribes
-to the shared atmosphere, runs the sim locally, and posts keystroke-
-derived entropy back so typing subtly steers the world. Configure via
+`client.js` auto-initializes on any `<canvas data-ambience>`, loads the
+Go/WASM runtime, subscribes to the shared atmosphere, runs the sim locally,
+and posts keystroke-derived entropy back so typing subtly steers the world.
+Configure via
 `data-ambience-*` attributes on the canvas (server URL, grid dims,
 transparent-vs-opaque render, entropy on/off).
 
@@ -56,10 +65,14 @@ see [`docs/terminal-integration-status.md`](docs/terminal-integration-status.md)
 cmd/ambience/    HTTP server + atmosphere goroutine. Decides event
                  timing (downpour/calm/gust/splash) and broadcasts
                  state commands. Does NOT stream pixel frames.
-  web/           Embedded static: index.html (demo), sim.js (JS port
-                 of the sim), controls.js (shared control helper),
+  web/           Embedded static: index.html (demo), sim.js
+                 (AmbienceSim namespace/helpers), wasm_runtime.js
+                 (Go/WASM sim loader), controls.js (shared control helper),
                  client.js (auto-init shim for consumers), dev.html
                  (knob-tuning page).
+
+cmd/ambience-wasm/
+                 Go/WASM bridge that exposes sim runtimes to browser JS.
 
 sim/             Pure Go simulation logic. No I/O. Consumed by the
                  server and by the terminal client.
@@ -147,9 +160,9 @@ Every effect fills a 5-slot template — see
 4. **Event modifiers** — per-event randomization
 5. **End conditions** — natural conclusions (optional)
 
-New effects plug in via per-effect files under `cmd/ambience/web/effects/`.
-The server bundles those files into `/sim.js`, and browser clients look
-up the constructor by the `type` the server broadcasts. Consumer pages
+New effects plug in through Go types in `sim/`. Browser clients load
+`/wasm_runtime.js`, which loads the Go/WASM runtime and registers one
+constructor per supported effect in `AmbienceSim.effects`. Consumer pages
 that vendor the scripts, such as `my-homepage`, must refresh the vendored
 bundle whenever the shared sim/client changes so they remain full
 subscribers to every live effect. The `/dev` page reads the same registry
@@ -201,7 +214,8 @@ All broadcast endpoints set permissive CORS for cross-origin consumers.
 - `GET  /` — demo page
 - `GET  /dev`, `/dev/<effect>` — dev page with effect switcher, presets,
   randomized per-session configs, and per-effect knobs
-- `GET  /sim.js`, `/controls.js`, `/client.js` — consumer scripts
+- `GET  /sim.js`, `/wasm_runtime.js`, `/wasm_exec.js`, `/ambience.wasm`,
+  `/controls.js`, `/client.js` — consumer scripts/runtime
 - `GET  /snapshot` — current atmosphere state (JSON)
 - `GET  /events` — atmosphere command stream (SSE)
 - `POST /config?effect=&...` — mutate the shared atmosphere config

@@ -66,10 +66,10 @@ func serveExactStaticFile(static staticAssets, routePath, name string) http.Hand
 	}
 }
 
-// listEffectFiles returns the sorted list of per-effect JS files under
-// web/effects/, looking at overrideDir first (so dev hot-reloads pick up
-// new files without a rebuild) and falling back to the embedded FS.
-// Names are basenames (e.g. "rain.js"), not paths.
+// listEffectFiles returns legacy per-effect JS files if a development override
+// tree still has them. The production browser runtime registers effects from
+// /wasm_runtime.js instead; this compatibility path keeps old override dirs
+// from breaking while the JS effects are removed from the embedded bundle.
 func (s staticAssets) listEffectFiles() ([]string, error) {
 	seen := map[string]struct{}{}
 	collect := func(name string) {
@@ -107,16 +107,10 @@ func (s staticAssets) listEffectFiles() ([]string, error) {
 	return out, nil
 }
 
-// serveSimBundle answers GET /sim.js by concatenating sim.js (the namespace
-// + shared helpers + ProceduralScene base) with every web/effects/*.js
-// file in alphabetical order. Each per-effect file is its own IIFE that
-// registers onto window.AmbienceSim, so order doesn't matter for behavior
-// — alphabetical just keeps the output deterministic.
-//
-// This is the load-bearing piece of the registry-split: dropping a new
-// file in web/effects/ adds it to the bundle automatically. No shared
-// file (sim.js, an HTML script-tag list, a JS barrel) gets edited, so
-// two parallel agent PRs can never conflict on registration.
+// serveSimBundle answers GET /sim.js with the AmbienceSim namespace and shared
+// browser helpers. If a development override tree still contains legacy
+// web/effects/*.js files, they are appended for compatibility; production
+// effects are registered by /wasm_runtime.js from the Go/WASM runtime.
 func serveSimBundle(static staticAssets) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		core, err := static.readFile("sim.js")

@@ -202,7 +202,7 @@ func (b *BurningTrees) GridCopy() [][]Pixel {
 	treeStep := float64(b.W) / float64(len(b.states)+1)
 	for i, state := range b.states {
 		cx := int(math.Round(float64(i+1) * treeStep))
-		h := int(math.Round(float64(b.H) * (cfg.TreeMinH + (cfg.TreeMaxH-cfg.TreeMinH)*0.55)))
+		h := int(math.Round(cfg.TreeMinH + (cfg.TreeMaxH-cfg.TreeMinH)*0.55))
 		if h < 3 {
 			h = 3
 		}

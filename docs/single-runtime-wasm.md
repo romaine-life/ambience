@@ -5,14 +5,17 @@ server, browser, terminal, and generated images. The first browser-side bridge
 uses the Go `sim` package compiled to WebAssembly, with JavaScript kept as the
 UI, SSE, and canvas presentation layer.
 
-The initial slice is intentionally narrow:
+The browser runtime now uses this path:
 
 - `cmd/ambience-wasm` exports a small `window.ambienceWasm` API.
 - `cmd/ambience/web/wasm_runtime.js` loads `wasm_exec.js` and `ambience.wasm`.
-- `AmbienceSim.wasm.Rain` wraps the Go `sim.Rain` runtime and renders its
-  `GridCopy()` output through the existing pixel-grid canvas renderer.
-- The live client still uses the existing JavaScript effects until the bridge
-  is reviewed and migrated effect by effect.
+- `AmbienceSim.wasm.ready()` registers Go-backed constructors for every
+  supported effect in `AmbienceSim.effects`.
+- `/`, `/dev`, and `client.js` wait for the Go/WASM runtime before opening
+  their SSE streams, so snapshots instantiate Go sim runtimes in the browser.
+- The old browser-side effect implementations have been removed from the
+  embedded bundle; `/sim.js` is shared browser plumbing, and effect pixels come
+  from Go `GridCopy()` through WASM.
 
 Build the browser artifact locally with:
 
@@ -41,16 +44,14 @@ To experiment in a browser page:
 <script src="/sim.js"></script>
 <script src="/wasm_runtime.js"></script>
 <script>
-await AmbienceSim.wasm.load();
-const Rain = AmbienceSim.wasm.registerRain('rain-wasm');
+await AmbienceSim.wasm.ready();
+const Rain = AmbienceSim.effects.rain;
 const rain = new Rain(160, 80, {});
 </script>
 ```
 
 Next steps:
 
-- add a small dev harness that can switch between `rain` and `rain-wasm`
 - measure frame copy cost and WASM payload size
-- expand the bridge beyond rain only after the ergonomics are acceptable
-- migrate browser effects by deleting JS effect logic once the Go runtime path
-  is equivalent enough for the live client
+- consider replacing per-frame JS byte copies with a shared memory view if
+  frame copy cost becomes visible
