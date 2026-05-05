@@ -409,13 +409,26 @@ func streamAtmosphere(w http.ResponseWriter, req *http.Request, a *atmosphere) {
 	if !ok {
 		return
 	}
-	ch := a.addListener()
+	snap, snapshotID, replay, replayable, ch := a.beginStream(req.Header.Get("Last-Event-ID"))
 	defer a.removeListener(ch)
 	heartbeat := time.NewTicker(sseHeartbeat)
 	defer heartbeat.Stop()
 
-	if err := writeSnapshotFrame(w, flusher, a); err != nil {
-		return
+	if replayable {
+		for _, cmd := range replay {
+			if err := writeCommand(w, flusher, cmd); err != nil {
+				return
+			}
+		}
+		if len(replay) == 0 {
+			if err := writeSSEComment(w, flusher, "replay-current"); err != nil {
+				return
+			}
+		}
+	} else {
+		if err := writeSnapshotDataFrame(w, flusher, snap, snapshotID); err != nil {
+			return
+		}
 	}
 
 	ctx := req.Context()

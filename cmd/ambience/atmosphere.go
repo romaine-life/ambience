@@ -30,10 +30,11 @@ import (
 // scenes (AMBIENCE_SCENE_TICKS=60) we want the drift to finish before the
 // next rotation, so we scale down.
 const (
-	maxTransitionTicks       = 600 // 60 s at 10 Hz
-	transitionBroadcastEvery = 10  // every 1 s during drift
-	metricBroadcastEvery     = 50  // every 5 s as a low-rate heartbeat
-	clockBroadcastEvery      = 10  // every 1 s; sparse authority-clock samples
+	maxTransitionTicks        = 600 // 60 s at 10 Hz
+	transitionBroadcastEvery  = 10  // every 1 s during drift
+	metricBroadcastEvery      = 50  // every 5 s as a low-rate heartbeat
+	clockBroadcastEvery       = 10  // every 1 s; sparse authority-clock samples
+	authorityReplayBufferSize = 512
 )
 
 // Command is a single message sent from server to clients.
@@ -113,6 +114,7 @@ type atmosphere struct {
 	rotation          rotationPolicy
 	rotationStartTick int
 	commandSeq        int64
+	replay            []Command
 	listeners         map[chan Command]struct{}
 	lastSeen          time.Time
 	cancel            context.CancelFunc
@@ -508,12 +510,74 @@ func (a *atmosphere) removeListener(ch chan Command) {
 	close(ch)
 }
 
+func (a *atmosphere) beginStream(lastID string) (snapshotData, string, []Command, bool, chan Command) {
+	a.mu.Lock()
+	ch := make(chan Command, 32)
+	a.listeners[ch] = struct{}{}
+	a.lastSeen = time.Now()
+	snapshotID := strconv.FormatInt(a.commandSeq, 10)
+	replay, replayable := a.replayAfterLocked(lastID)
+	a.mu.Unlock()
+
+	if replayable {
+		return snapshotData{}, snapshotID, replay, true, ch
+	}
+	return a.snapshot(), snapshotID, nil, false, ch
+}
+
+func (a *atmosphere) replayAfterLocked(lastID string) ([]Command, bool) {
+	if lastID == "" {
+		return nil, false
+	}
+	lastSeq, err := strconv.ParseInt(lastID, 10, 64)
+	if err != nil {
+		return nil, false
+	}
+	if lastSeq == a.commandSeq {
+		return nil, true
+	}
+	if len(a.replay) == 0 {
+		return nil, false
+	}
+
+	firstSeq, err := strconv.ParseInt(a.replay[0].ID, 10, 64)
+	if err != nil {
+		return nil, false
+	}
+	if lastSeq < firstSeq-1 || lastSeq > a.commandSeq {
+		return nil, false
+	}
+
+	var replay []Command
+	for _, cmd := range a.replay {
+		cmdSeq, err := strconv.ParseInt(cmd.ID, 10, 64)
+		if err != nil {
+			return nil, false
+		}
+		if cmdSeq > lastSeq {
+			replay = append(replay, cmd)
+		}
+	}
+	return replay, true
+}
+
+func (a *atmosphere) appendReplayLocked(cmd Command) {
+	if cmd.ID == "" {
+		return
+	}
+	a.replay = append(a.replay, cmd)
+	if len(a.replay) > authorityReplayBufferSize {
+		a.replay = append([]Command(nil), a.replay[len(a.replay)-authorityReplayBufferSize:]...)
+	}
+}
+
 func (a *atmosphere) broadcast(cmd Command) {
 	a.mu.Lock()
 	if cmd.ID == "" {
 		a.commandSeq++
 		cmd.ID = strconv.FormatInt(a.commandSeq, 10)
 	}
+	a.appendReplayLocked(cmd)
 	defer a.mu.Unlock()
 	for ch := range a.listeners {
 		select {
