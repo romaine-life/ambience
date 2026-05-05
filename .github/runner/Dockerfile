@@ -7,8 +7,33 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     PLAYWRIGHT_PACKAGE_PATH=/opt/ambience-agent/node_modules/playwright/index.mjs
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+RUN printf '%s\n' \
+        'Acquire::Retries "5";' \
+        'Acquire::http::Timeout "30";' \
+        'Acquire::https::Timeout "30";' \
+        'APT::Get::Assume-Yes "true";' \
+        'APT::Install-Recommends "false";' \
+        'APT::Install-Suggests "false";' \
+        >/etc/apt/apt.conf.d/80ambience-retries \
+    && printf '%s\n' \
+        '#!/bin/sh' \
+        'set -eu' \
+        'attempt=1' \
+        'while [ "$attempt" -le 5 ]; do' \
+        '  if apt-get "$@"; then' \
+        '    exit 0' \
+        '  fi' \
+        '  if [ "$attempt" -eq 5 ]; then' \
+        '    exit 1' \
+        '  fi' \
+        '  sleep $((attempt * 10))' \
+        '  attempt=$((attempt + 1))' \
+        'done' \
+        >/usr/local/bin/apt-retry \
+    && chmod +x /usr/local/bin/apt-retry
+
+RUN apt-retry update \
+    && apt-retry install \
         ca-certificates \
         curl \
         git \
@@ -22,8 +47,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends nodejs \
+    && apt-retry update \
+    && apt-retry install nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 RUN echo "runner ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/runner \
