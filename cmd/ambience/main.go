@@ -4,10 +4,12 @@
 //
 // Routes:
 //
-//	GET  /                      — canonical demo page (browser runs a JS sim)
+//	GET  /                      — canonical demo page (browser runs Go/WASM sim)
 //	GET  /_styleguide           — visual catalog of UI primitives (glimmung contract)
 //	GET  /ambience.js           — shared renderer / SSE helpers
-//	GET  /sim.js                — JS port of sim/rain.go (runs in browser)
+//	GET  /sim.js                — AmbienceSim browser helpers
+//	GET  /wasm_runtime.js       — Go/WASM sim loader
+//	GET  /ambience.wasm         — Go sim package compiled for browser runtime
 //	GET  /controls.js           — shared schema-driven control panel helper
 //	GET  /snapshot              — shared atmosphere init payload (JSON)
 //	GET  /events                — shared atmosphere SSE command stream
@@ -236,14 +238,16 @@ func registerStaticRoutes(mux *http.ServeMux, static staticAssets, lookup effect
 	handler := serveDevPageWithEffectLookup(static, lookup)
 	mux.HandleFunc("/dev", handler)
 	mux.HandleFunc("/dev/", handler)
-	// /sim.js is sim.js (namespace + helpers + ProceduralScene base)
-	// concatenated with every web/effects/*.js file. New effects drop a
-	// file in web/effects/ and get picked up on the next request — no
-	// shared file gets edited. See serveSimBundle.
+	// /sim.js is the browser namespace, shared helpers, transition wrapper,
+	// and subscription helper. Effect constructors are registered by
+	// /wasm_runtime.js from the Go/WASM runtime.
 	mux.HandleFunc("/sim.js", serveSimBundle(static))
 	mux.HandleFunc("/controls.js", serveStaticFile(static, "controls.js"))
 	mux.HandleFunc("/client.js", serveStaticFile(static, "client.js"))
 	mux.HandleFunc("/ambience.js", serveStaticFile(static, "ambience.js"))
+	mux.HandleFunc("/wasm_runtime.js", serveStaticFile(static, "wasm_runtime.js"))
+	mux.HandleFunc("/wasm_exec.js", serveStaticFile(static, "wasm_exec.js"))
+	mux.HandleFunc("/ambience.wasm", cors(serveStaticFile(static, "ambience.wasm")))
 	// Glimmung's UI testing pilot requires every frontend project to
 	// expose /_styleguide on its live env so reviewers + the screenshot
 	// pass have a stable catalog to scan. The leading underscore marks
@@ -297,9 +301,8 @@ func serveReadyz(ready func() bool) http.HandlerFunc {
 	}
 }
 
-// cors wraps a handler to send permissive CORS headers. Safe because the
-// wrapped endpoints are read-only broadcast streams — no state mutation
-// based on request origin, no cookies/auth consulted.
+// cors wraps handlers that are intentionally consumed cross-origin by embedded
+// clients, such as broadcast streams, schemas, entropy intake, and WASM assets.
 func cors(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")

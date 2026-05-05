@@ -1,52 +1,34 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestEffectFilesStayPixelGridRendered(t *testing.T) {
-	forbidden := []string{
-		"createLinearGradient",
-		"createRadialGradient",
-		"beginPath(",
-		"lineTo(",
-		"arc(",
-		"stroke(",
-		"ctx.fill(",
-	}
-	files, err := os.ReadDir(filepath.Join("web", "effects"))
+func TestBrowserEffectsComeFromWASMRuntime(t *testing.T) {
+	runtime, err := os.ReadFile(filepath.Join("web", "wasm_runtime.js"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, file := range files {
-		if file.IsDir() || filepath.Ext(file.Name()) != ".js" {
-			continue
-		}
-		path := filepath.Join("web", "effects", file.Name())
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		body := string(data)
-		if !strings.Contains(body, "this.grid = new Uint8ClampedArray") {
-			t.Fatalf("%s must allocate an owned pixel grid", path)
-		}
-		if strings.Contains(body, "_usesProceduralGrid") {
-			t.Fatalf("%s must not rely on renderer-side procedural fallback flags", path)
-		}
-		if !strings.Contains(body, ".grid.fill(0)") && !strings.Contains(body, "paintProceduralGrid(this)") {
-			t.Fatalf("%s step must update its owned pixel grid", path)
-		}
-		if !strings.Contains(body, "renderPixelGridEffect(this, ctx, canvasW, canvasH, opts)") {
-			t.Fatalf("%s render must delegate to shared pixel-grid renderer", path)
-		}
-		for _, token := range forbidden {
-			if strings.Contains(body, token) {
-				t.Fatalf("%s uses non-pixel canvas API %q", path, token)
-			}
-		}
+	body := string(runtime)
+	if !strings.Contains(body, "window.ambienceWasm.supportedEffects()") {
+		t.Fatal("wasm_runtime.js must register effects from the Go/WASM runtime")
+	}
+	if !strings.Contains(body, "renderPixelGridEffect(this, ctx, canvasW, canvasH, opts)") {
+		t.Fatal("wasm_runtime.js render must delegate to shared pixel-grid renderer")
+	}
+
+	files, err := os.ReadDir(filepath.Join("web", "effects"))
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) > 0 {
+		t.Fatalf("legacy browser effect files should not be bundled; found %d files in web/effects", len(files))
 	}
 }

@@ -7,7 +7,8 @@
 //   <script src="https://ambience.romaine.life/client.js"></script>
 //
 // and get a rain (or future effect) overlay plus live entropy contribution
-// to the shared atmosphere. No per-consumer JS required.
+// to the shared atmosphere. client.js loads the Go/WASM runtime itself; no
+// per-consumer JS required.
 //
 // Configuration, via attributes on the <canvas>:
 //   data-ambience-url="https://ambience.romaine.life"   — server override
@@ -20,7 +21,8 @@
 //
 // Effect agnostic: the server's snapshot broadcasts the effect type; this
 // file looks it up in AmbienceSim.effects[type]. Adding a new effect means
-// registering a new entry in sim.js — no change needed here.
+// registering a Go-backed constructor through wasm_runtime.js — no change
+// needed here.
 
 (function () {
 	'use strict';
@@ -84,6 +86,17 @@
 	}
 
 	window.AmbienceClientClock = window.AmbienceClientClock || { createPlaybackClock };
+
+	function loadScript(src) {
+		return new Promise((resolve, reject) => {
+			const el = document.createElement('script');
+			el.src = src;
+			el.async = true;
+			el.onload = resolve;
+			el.onerror = () => reject(new Error('failed to load ' + src));
+			document.head.appendChild(el);
+		});
+	}
 
 	const canvas = document.querySelector('canvas[data-ambience]');
 	if (!canvas) {
@@ -270,35 +283,6 @@
 		}
 	}
 
-	// Patch the subscribe snapshot handler so we can detect effect-type
-	// changes (for when more effects ship). The shared subscribe() swaps
-	// config on the existing sim; a type switch crossfades the outgoing
-	// effect into the incoming one via AmbienceSim.EffectTransition.
-	const es = new EventSource(SERVER.replace(/\/+$/, '') + '/events');
-	es.addEventListener('message', (e) => {
-		let cmd;
-		try { cmd = JSON.parse(e.data); } catch (_) { return; }
-		clock.noteAuthorityTick(cmd.tick);
-		const data = typeof cmd.data === 'string' ? JSON.parse(cmd.data) : cmd.data;
-		switch (cmd.kind) {
-			case 'snapshot':
-				if (!ready) {
-					applyCommandNow(cmd, data);
-				} else {
-					queueCommand(cmd, data);
-				}
-				break;
-			case 'metric':
-			case 'scene':
-			case 'clock':
-				break;
-			case 'config':
-			case 'trigger':
-				queueCommand(cmd, data);
-				break;
-		}
-	});
-
 	window.AmbienceClient = {
 		getDebugState: () => Object.assign(
 			{ effectType, ready, initialFadeStarted },
@@ -306,28 +290,67 @@
 		),
 	};
 
-	// Combined 10 Hz tick (matches server atmosphere rate). Step + render
-	// in one setInterval — rAF pauses in background tabs and we don't need
-	// 60 Hz for a 10 Hz sim.
-	setInterval(() => {
-		if (ready) stepTowardAuthorityClock();
-		// Unwrap a finished crossfade so we drop the outgoing sim and stop
-		// paying its render cost.
-		if (!sim) return;
-		if (sim.isTransition && sim.done()) sim = sim.incoming;
-		sim.render(ctx, canvas.width, canvas.height, { transparent: TRANSPARENT });
-		if (initialFadePending) {
-			initialFadePending = false;
-			revealInitialScene();
+	async function start() {
+		if (!AmbienceSim.wasm) {
+			await loadScript(SERVER.replace(/\/+$/, '') + '/wasm_runtime.js');
 		}
-	}, 100);
+		if (!AmbienceSim.wasm || !AmbienceSim.wasm.ready) {
+			throw new Error('ambience-client: Go WASM runtime missing');
+		}
+		await AmbienceSim.wasm.ready({
+			wasmExecURL: SERVER.replace(/\/+$/, '') + '/wasm_exec.js',
+			wasmURL: SERVER.replace(/\/+$/, '') + '/ambience.wasm',
+		});
 
-	// ── Entropy ──────────────────────────────────────────────────
-	// Every keystroke contributes a few bits derived from the key identity
-	// and its wall-clock timing. Batched and POSTed at a throttle so typing
-	// doesn't flood the server. The server folds bits into the shared
-	// atmosphere's RNG — see POST /entropy.
-	if (ENTROPY_ENABLED) {
+		// Patch the subscribe snapshot handler so we can detect effect-type
+		// changes. The shared subscribe() swaps config on the existing sim; a
+		// type switch crossfades the outgoing effect into the incoming one.
+		const es = new EventSource(SERVER.replace(/\/+$/, '') + '/events');
+		es.addEventListener('message', (e) => {
+			let cmd;
+			try { cmd = JSON.parse(e.data); } catch (_) { return; }
+			clock.noteAuthorityTick(cmd.tick);
+			const data = typeof cmd.data === 'string' ? JSON.parse(cmd.data) : cmd.data;
+			switch (cmd.kind) {
+				case 'snapshot':
+					if (!ready) {
+						applyCommandNow(cmd, data);
+					} else {
+						queueCommand(cmd, data);
+					}
+					break;
+				case 'metric':
+				case 'scene':
+				case 'clock':
+					break;
+				case 'config':
+				case 'trigger':
+					queueCommand(cmd, data);
+					break;
+			}
+		});
+
+		// Combined 10 Hz tick (matches server atmosphere rate). Step + render
+		// in one setInterval — rAF pauses in background tabs and we don't need
+		// 60 Hz for a 10 Hz sim.
+		setInterval(() => {
+			if (ready) stepTowardAuthorityClock();
+			// Unwrap a finished crossfade so we drop the outgoing sim and stop
+			// paying its render cost.
+			if (!sim) return;
+			if (sim.isTransition && sim.done()) {
+				if (sim.outgoing && typeof sim.outgoing.destroy === 'function') sim.outgoing.destroy();
+				sim = sim.incoming;
+			}
+			sim.render(ctx, canvas.width, canvas.height, { transparent: TRANSPARENT });
+			if (initialFadePending) {
+				initialFadePending = false;
+				revealInitialScene();
+			}
+		}, 100);
+	}
+
+	function startEntropy() {
 		const buf = [];
 		const FLUSH_INTERVAL_MS = 2000;
 		const MAX_BUFFERED = 256;
@@ -354,4 +377,12 @@
 			} catch (_) { /* swallow */ }
 		}, FLUSH_INTERVAL_MS);
 	}
+
+	start()
+		.then(() => {
+			if (ENTROPY_ENABLED) startEntropy();
+		})
+		.catch((err) => {
+			console.error(err);
+		});
 })();

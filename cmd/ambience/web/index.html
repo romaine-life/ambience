@@ -478,6 +478,7 @@
 </div>
 
 <script src="/sim.js"></script>
+<script src="/wasm_runtime.js"></script>
 <script src="/controls.js"></script>
 <script>
 (() => {
@@ -935,82 +936,88 @@
     log('snapshot applied - tick ' + snap.tick, 'scene');
   }
 
-  const es = new EventSource('/events');
-  es.onmessage = (ev) => {
-    let cmd;
-    try {
-      cmd = JSON.parse(ev.data);
-    } catch (_) {
-      return;
-    }
-    serverTick = cmd.tick || serverTick;
-    lastBeatAt = Date.now();
-
-    switch (cmd.kind) {
-      case 'snapshot':
-        applySnapshot(cmd.data);
-        ready = true;
-        break;
-      case 'config':
-        if (!effect) break;
-        try {
-          effect.setConfig(cmd.data);
-        } catch (_) {}
-        latestConfig = cmd.data || null;
-        if (latestConfig && controls.getSchema()) controls.setValues(latestConfig);
-        break;
-      case 'trigger':
-        if (effect && effect.triggerEvent) effect.triggerEvent(cmd.event);
-        log(cmd.event + (cmd.desc ? ' - ' + cmd.desc : ''), 'trigger');
-        break;
-      case 'scene':
-        try {
-          const scene = cmd.data;
-          el.sceneName.textContent = scene.name || '-';
-          el.nextName.textContent = scene.nextName || '-';
-          sceneDurationTicks = scene.durationTicks || 0;
-          sceneStartTick = scene.startedAtTick || 0;
-          log('scene -> ' + scene.name + ' - up next ' + scene.nextName, 'scene');
-          el.panel.classList.remove('flash');
-          void el.panel.offsetWidth;
-          el.panel.classList.add('flash');
-        } catch (err) {
-          console.error(err);
-        }
-        break;
-      case 'metric':
-        try {
-          const metric = cmd.data;
-          if (typeof metric.entropyBytes === 'number') el.entropyCount.textContent = fmtBytes(metric.entropyBytes);
-          if (typeof metric.sceneRemaining === 'number') el.sceneRemaining.textContent = fmtDuration(metric.sceneRemaining);
-          if (metric.currentName) el.sceneName.textContent = metric.currentName;
-          if (metric.nextName) el.nextName.textContent = metric.nextName;
-        } catch (_) {}
-        break;
-    }
-  };
-  es.onerror = () => {
-    log('sse disconnected - retrying', 'system');
-  };
-
-  setInterval(() => {
-    if (!ready || !effect) return;
-    effect.step();
-    // Unwrap a finished crossfade so we drop the outgoing sim once the
-    // incoming one is fully visible.
-    if (effect.isTransition && effect.done()) effect = effect.incoming;
-  }, 100);
-
-  (function draw() {
-    if (ready && effect) {
-      effect.render(ctx, canvas.width, canvas.height);
-      if (initialFadePending) {
-        initialFadePending = false;
-        revealInitialScene();
+  async function startRuntime() {
+    await AmbienceSim.wasm.ready();
+    const es = new EventSource('/events');
+    es.onmessage = (ev) => {
+      let cmd;
+      try {
+        cmd = JSON.parse(ev.data);
+      } catch (_) {
+        return;
       }
-    }
-    requestAnimationFrame(draw);
-  })();
+      serverTick = cmd.tick || serverTick;
+      lastBeatAt = Date.now();
+
+      switch (cmd.kind) {
+        case 'snapshot':
+          applySnapshot(cmd.data);
+          ready = true;
+          break;
+        case 'config':
+          if (!effect) break;
+          try {
+            effect.setConfig(cmd.data);
+          } catch (_) {}
+          latestConfig = cmd.data || null;
+          if (latestConfig && controls.getSchema()) controls.setValues(latestConfig);
+          break;
+        case 'trigger':
+          if (effect && effect.triggerEvent) effect.triggerEvent(cmd.event);
+          log(cmd.event + (cmd.desc ? ' - ' + cmd.desc : ''), 'trigger');
+          break;
+        case 'scene':
+          try {
+            const scene = cmd.data;
+            el.sceneName.textContent = scene.name || '-';
+            el.nextName.textContent = scene.nextName || '-';
+            sceneDurationTicks = scene.durationTicks || 0;
+            sceneStartTick = scene.startedAtTick || 0;
+            log('scene -> ' + scene.name + ' - up next ' + scene.nextName, 'scene');
+            el.panel.classList.remove('flash');
+            void el.panel.offsetWidth;
+            el.panel.classList.add('flash');
+          } catch (err) {
+            console.error(err);
+          }
+          break;
+        case 'metric':
+          try {
+            const metric = cmd.data;
+            if (typeof metric.entropyBytes === 'number') el.entropyCount.textContent = fmtBytes(metric.entropyBytes);
+            if (typeof metric.sceneRemaining === 'number') el.sceneRemaining.textContent = fmtDuration(metric.sceneRemaining);
+            if (metric.currentName) el.sceneName.textContent = metric.currentName;
+            if (metric.nextName) el.nextName.textContent = metric.nextName;
+          } catch (_) {}
+          break;
+      }
+    };
+    es.onerror = () => {
+      log('sse disconnected - retrying', 'system');
+    };
+
+    setInterval(() => {
+      if (!ready || !effect) return;
+      effect.step();
+      // Unwrap a finished crossfade so we drop the outgoing sim once the
+      // incoming one is fully visible.
+      if (effect.isTransition && effect.done()) {
+        if (effect.outgoing && typeof effect.outgoing.destroy === 'function') effect.outgoing.destroy();
+        effect = effect.incoming;
+      }
+    }, 100);
+
+    (function draw() {
+      if (ready && effect) {
+        effect.render(ctx, canvas.width, canvas.height);
+        if (initialFadePending) {
+          initialFadePending = false;
+          revealInitialScene();
+        }
+      }
+      requestAnimationFrame(draw);
+    })();
+  }
 
   let entropyBuf = [];
   const ENTROPY_FLUSH_MS = 2000;
@@ -1046,6 +1053,10 @@
   }, ENTROPY_FLUSH_MS);
 
   log('connecting...', 'system');
+  startRuntime().catch((err) => {
+    console.error(err);
+    log('wasm runtime failed', 'system');
+  });
 })();
 </script>
 </body>

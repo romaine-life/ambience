@@ -138,6 +138,7 @@
 	<div class="body" id="body"></div>
 </div>
 <script src="/sim.js"></script>
+<script src="/wasm_runtime.js"></script>
 <script>
 	// Dev panel runs a local effect sim and drives a per-session effect
 	// atmosphere on the server via POST /dev/config and /dev/trigger.
@@ -169,7 +170,7 @@
 	let knobs = [];
 	let currentSchema = null;
 	let effect = effectFromLocation();
-	let sim = newEffectInstance(effect);
+	let sim = null;
 	// currentSimType tracks the type of the actual `sim` instance running.
 	// Soft-switching to a different effect updates `effect` (and the URL)
 	// before the new SSE delivers its first snapshot — so the snapshot
@@ -570,18 +571,23 @@
 		}
 	});
 
-	// Local tick + render loops
-	setInterval(() => {
-		if (!ready) return;
-		sim.step();
-		// Unwrap a finished crossfade so we drop the outgoing sim and stop
-		// paying its render cost.
-		if (sim.isTransition && sim.done()) sim = sim.incoming;
-	}, 100);
-	(function draw() {
-		sim.render(ctx, canvas.width, canvas.height);
-		requestAnimationFrame(draw);
-	})();
+	function startLoops() {
+		// Local tick + render loops
+		setInterval(() => {
+			if (!ready || !sim) return;
+			sim.step();
+			// Unwrap a finished crossfade so we drop the outgoing sim and stop
+			// paying its render cost.
+			if (sim.isTransition && sim.done()) {
+				if (sim.outgoing && typeof sim.outgoing.destroy === 'function') sim.outgoing.destroy();
+				sim = sim.incoming;
+			}
+		}, 100);
+		(function draw() {
+			if (sim) sim.render(ctx, canvas.width, canvas.height);
+			requestAnimationFrame(draw);
+		})();
+	}
 
 	function handleDevCommand(cmd) {
 		switch (cmd.kind) {
@@ -595,7 +601,7 @@
 						// doesn't freeze mid-blend.
 						const incoming = newEffectInstance(snapType);
 						try { incoming.restoreSnapshot(snap); } catch (err) { console.error('bad snapshot', err); }
-						sim = AmbienceSim.EffectTransition
+						sim = sim && AmbienceSim.EffectTransition
 							? new AmbienceSim.EffectTransition(sim, incoming)
 							: incoming;
 						currentSimType = snapType;
@@ -604,6 +610,7 @@
 						syncEffectSwitcher();
 						appendLog({ tick: cmd.tick, type: 'effect-switch', desc: snapType });
 					} else {
+						if (!sim) sim = newEffectInstance(snapType);
 						sim.restoreSnapshot(snap);
 					}
 					ready = true;
@@ -612,6 +619,7 @@
 				} catch (err) { console.error('bad snapshot', err); }
 				break;
 			case 'config':
+				if (!sim) break;
 				try {
 					const cfg = typeof cmd.data === 'string' ? JSON.parse(cmd.data) : cmd.data;
 					sim.setConfig(cfg);
@@ -619,7 +627,7 @@
 				} catch (err) { console.error('bad config', err); }
 				break;
 			case 'trigger':
-				if (sim.triggerEvent) sim.triggerEvent(cmd.event);
+				if (sim && sim.triggerEvent) sim.triggerEvent(cmd.event);
 				appendLog({ tick: cmd.tick, type: cmd.event, desc: cmd.desc });
 				break;
 		}
@@ -636,7 +644,7 @@
 		return stream;
 	}
 
-	let es = openDevStream(effect);
+	let es = null;
 
 	function loadSchema(effectName) {
 		fetch('/effects/' + encodeURIComponent(effectName) + '/schema')
@@ -645,10 +653,20 @@
 			.catch(err => console.error('schema', err));
 	}
 
+	async function startDevRuntime() {
+		await AmbienceSim.wasm.ready();
+		syncEffectSwitcher();
+		loadSchema(effect);
+		startLoops();
+		es = openDevStream(effect);
+	}
+
 	// Boot: fetch schema, render panel; SSE will deliver the initial snapshot
 	// which sets the sliders.
-	syncEffectSwitcher();
-	loadSchema(effect);
+	startDevRuntime().catch((err) => {
+		console.error(err);
+		title.textContent = 'ambience dev - wasm runtime failed';
+	});
 </script>
 </body>
 </html>

@@ -60,7 +60,9 @@ cmd/ambience (Go)     HTTP server. Runs the shared atmosphere goroutine
   │                      replica sim + status panel overlay (current scene,
   │                      remaining, up next, entropy counter with togglable
   │                      capture, rolling event log). Canonical consumer view.
-  ├─► /sim.js            JS port of sim/rain.go, `AmbienceSim` global
+  ├─► /sim.js            `AmbienceSim` namespace/helpers
+  ├─► /wasm_runtime.js   Go/WASM sim loader; registers Go sim constructors
+  ├─► /ambience.wasm     Go `sim` package compiled for browser runtime
   ├─► /controls.js       Shared schema-driven control panel helper
   ├─► /client.js         Shared auto-init browser client (see "Consumer
   │                      integration" below)
@@ -141,10 +143,10 @@ The intended contract is:
 4. Every effect owns a low-resolution pixel grid and updates that grid with
    effect-specific pixel math. Browser canvas, terminal sixel, and social PNG
    preview are output adapters for the grid.
-5. Browser effect files must not draw ambience visuals with canvas-native
-   gradients, paths, arcs, strokes, or other scene-rendering APIs. The shared
-   renderer may use `fillRect` to scale grid cells to the canvas; effect files
-   should write pixels into their grids.
+5. Browser code must not draw ambience visuals with canvas-native gradients,
+   paths, arcs, strokes, or other scene-rendering APIs. The shared renderer may
+   use `fillRect` to scale grid cells to the canvas; effects should write
+   pixels into their Go grids.
 6. Entropy should be felt later, not as immediate frame noise. A good use is
    biasing future generated configurations/scenes while clients continue to
    converge from the event stream and their playback buffer.
@@ -248,12 +250,13 @@ Production ignores the var (falls back to 1–4 h random).
 
 ## Effect registry
 
-`sim.js` exports `AmbienceSim.effects = { rain, fireflies, waterfall, dust }`.
-The shared
-`client.js` reads `snapshotData.Type` and looks up the constructor there
-— adding a new effect means registering one entry in `effects`, no
-client-side change, no per-consumer change. The 5-slot effect template
-(spawn / lever / event / event-mod / end) is in the ambience repo
+`wasm_runtime.js` loads `ambience.wasm` and registers Go-backed
+constructors in `AmbienceSim.effects` for every supported effect. The shared
+`client.js` reads `snapshotData.Type` and looks up the constructor there.
+Adding a new active effect means adding the Go `sim` runtime and exposing it
+through `cmd/ambience-wasm`; no per-consumer wiring should be needed. The
+5-slot effect template (spawn / lever / event / event-mod / end) is in the
+ambience repo
 issues: [#1](https://github.com/nelsong6/ambience/issues/1).
 
 ## Guiding principle
@@ -311,9 +314,9 @@ canvas: `url`, `grid-w`, `grid-h`, `transparent`, `entropy`.
 Consumers:
 
 - **`/`** — live broadcast monitor. Full-screen canvas running the shared
-  replica sim (via inline EventSource + sim.js, not `client.js` — the page
-  consumes all five command kinds including `scene`/`metric` which
-  `client.js` doesn't know about). Status-panel overlay shows current scene
+  replica sim through Go/WASM (via inline EventSource + `wasm_runtime.js`,
+  not `client.js` — the page consumes all five command kinds including
+  `scene`/`metric` which `client.js` doesn't know about). Status-panel overlay shows current scene
   name, remaining time, up-next, tick, entropy counter with togglable
   capture, and a rolling event log. Dev-ish tools here are a
   fallback — `/dev` remains the real knob-tuning surface.
