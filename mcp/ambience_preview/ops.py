@@ -74,6 +74,28 @@ def image_parts(image: str) -> tuple[str, str]:
     return repository, tag
 
 
+def acr_repository_tag(*, registry_name: str, image_repository: str, image_tag: str) -> str:
+    try:
+        return run_command(
+            [
+                "az",
+                "acr",
+                "repository",
+                "show-tags",
+                "--name",
+                registry_name,
+                "--repository",
+                image_repository,
+                "--query",
+                f"[?@=='{image_tag}'] | [0]",
+                "--output",
+                "tsv",
+            ]
+        )
+    except CommandError:
+        return ""
+
+
 def preview_namespace(pr_number: int) -> str:
     return f"ambience-pr-{pr_number}"
 
@@ -99,34 +121,30 @@ def build_preview_image(
     registry_server = os.environ.get("REGISTRY_SERVER", f"{registry_name}.azurecr.io")
     image = f"{registry_server}/{image_repository}:{image_tag}"
 
-    run_command(
-        [
-            "az",
-            "acr",
-            "build",
-            "--registry",
-            registry_name,
-            "--image",
-            f"{image_repository}:{image_tag}",
-            str(repo_root()),
-        ]
+    existing_tag = acr_repository_tag(
+        registry_name=registry_name,
+        image_repository=image_repository,
+        image_tag=image_tag,
     )
 
-    verified_tag = run_command(
-        [
-            "az",
-            "acr",
-            "repository",
-            "show-tags",
-            "--name",
-            registry_name,
-            "--repository",
-            image_repository,
-            "--query",
-            f"[?@=='{image_tag}'] | [0]",
-            "--output",
-            "tsv",
-        ]
+    if existing_tag != image_tag:
+        run_command(
+            [
+                "az",
+                "acr",
+                "build",
+                "--registry",
+                registry_name,
+                "--image",
+                f"{image_repository}:{image_tag}",
+                str(repo_root()),
+            ]
+        )
+
+    verified_tag = acr_repository_tag(
+        registry_name=registry_name,
+        image_repository=image_repository,
+        image_tag=image_tag,
     )
 
     if verified_tag != image_tag:
@@ -138,6 +156,7 @@ def build_preview_image(
         "image_repository": image_repository,
         "registry_name": registry_name,
         "registry_server": registry_server,
+        "skipped_build": existing_tag == image_tag,
     }
 
 
@@ -338,18 +357,25 @@ def rebuild_validation_image(
     registry_server = os.environ.get("REGISTRY_SERVER", f"{registry_name}.azurecr.io")
     image = f"{registry_server}/{image_repository}:{image_tag}"
 
-    run_command(
-        [
-            "az",
-            "acr",
-            "build",
-            "--registry",
-            registry_name,
-            "--image",
-            f"{image_repository}:{image_tag}",
-            f"https://github.com/{repo_slug}.git#{branch}",
-        ]
+    existing_tag = acr_repository_tag(
+        registry_name=registry_name,
+        image_repository=image_repository,
+        image_tag=image_tag,
     )
+
+    if existing_tag != image_tag:
+        run_command(
+            [
+                "az",
+                "acr",
+                "build",
+                "--registry",
+                registry_name,
+                "--image",
+                f"{image_repository}:{image_tag}",
+                f"https://github.com/{repo_slug}.git#{branch}",
+            ]
+        )
 
     for kind, workload in (
         ("deployment", f"{service_name}-edge"),
@@ -383,6 +409,7 @@ def rebuild_validation_image(
         "branch": branch,
         "image": image,
         "image_tag": image_tag,
+        "skipped_build": existing_tag == image_tag,
     }
 
 

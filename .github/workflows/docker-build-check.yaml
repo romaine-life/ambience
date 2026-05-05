@@ -86,41 +86,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          tmp="$(mktemp -d)"
-          manifest="${tmp}/manifest.txt"
-          : >"${manifest}"
-
-          for path in ${{ matrix.fingerprint-paths }}; do
-            if [[ "${path}" == "." ]]; then
-              git ls-files -z \
-                | sort -z \
-                | xargs -0 sha256sum >>"${manifest}"
-            elif [[ -d "${path}" ]]; then
-              git ls-files -z -- "${path}" \
-                | sort -z \
-                | xargs -0 sha256sum >>"${manifest}"
-            elif [[ -f "${path}" ]]; then
-              sha256sum "${path}" >>"${manifest}"
-            else
-              echo "::error::Fingerprint input '${path}' does not exist"
-              exit 1
-            fi
-          done
-
-          {
-            printf 'image=%s\n' '${{ matrix.name }}'
-            printf 'dockerfile=%s\n' '${{ matrix.file }}'
-            printf 'context=%s\n' '${{ matrix.context }}'
-            printf 'buildx=docker/build-push-action@v6\n'
-          } >>"${manifest}"
-
-          fingerprint="$(sha256sum "${manifest}" | cut -d' ' -f1)"
-          tag="${{ matrix.name }}-${fingerprint}"
-          echo "fingerprint=${fingerprint}" >>"${GITHUB_OUTPUT}"
-          echo "proof_tag=${tag}" >>"${GITHUB_OUTPUT}"
-          echo "proof_ref=romainecr.azurecr.io/${{ matrix.proof-repo }}:${tag}" >>"${GITHUB_OUTPUT}"
-          echo "Fingerprint ${{ matrix.name }} ${fingerprint}"
+          scripts/image-fingerprint.sh \
+            --image '${{ matrix.name }}' \
+            --dockerfile '${{ matrix.file }}' \
+            --context '${{ matrix.context }}' \
+            --paths '${{ matrix.fingerprint-paths }}' \
+            --proof-repository '${{ matrix.proof-repo }}'
 
       - name: Check ACR build proof
         id: proof
