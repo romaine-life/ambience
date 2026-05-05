@@ -16,10 +16,20 @@ fi
 
 image="${registry_server}/${image_repository}:${tag}"
 
-az acr build \
-  --registry "$registry_name" \
-  --image "${image_repository}:${tag}" \
-  "$repo_root"
+existing_tag="$(az acr repository show-tags \
+  --name "$registry_name" \
+  --repository "$image_repository" \
+  --query "[?@=='${tag}'] | [0]" \
+  --output tsv || true)"
+
+if [[ "$existing_tag" == "$tag" ]]; then
+  echo "Image tag '${tag}' already exists in ${registry_server}/${image_repository}; skipping build." >&2
+else
+  az acr build \
+    --registry "$registry_name" \
+    --image "${image_repository}:${tag}" \
+    "$repo_root"
+fi
 
 verified_tag="$(az acr repository show-tags \
   --name "$registry_name" \

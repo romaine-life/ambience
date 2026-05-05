@@ -75,12 +75,67 @@ jobs:
           echo "TAG=${tag}" >> "$GITHUB_ENV"
           echo "Built ref $(git rev-parse HEAD) as romainecr.azurecr.io/ambience-agent-runner:${tag}" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Compute image fingerprint
+        id: fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          fingerprint="$(scripts/image-fingerprint.sh \
+            --image native-runner \
+            --dockerfile .github/runner/Dockerfile \
+            --context . \
+            --paths '.github/runner/Dockerfile scripts/glimmung-native' \
+            | tee /tmp/ambience-native-runner-fingerprint.txt \
+            | awk -F= '$1 == "fingerprint" { print $2 }')"
+          echo "ALIAS_TAG=native-runner-${fingerprint}" >> "$GITHUB_ENV"
+
+      - name: Check existing image aliases
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          if az acr repository show-tags \
+              --name romainecr \
+              --repository ambience-agent-runner \
+              --query "[?@=='${TAG}'] | [0]" \
+              --output tsv | grep -qx "${TAG}"; then
+            echo "target_exists=true" >>"${GITHUB_OUTPUT}"
+          else
+            echo "target_exists=false" >>"${GITHUB_OUTPUT}"
+          fi
+
+          if az acr repository show-tags \
+              --name romainecr \
+              --repository ambience-agent-runner \
+              --query "[?@=='${ALIAS_TAG}'] | [0]" \
+              --output tsv | grep -qx "${ALIAS_TAG}"; then
+            echo "alias_exists=true" >>"${GITHUB_OUTPUT}"
+            echo "Found reusable image romainecr.azurecr.io/ambience-agent-runner:${ALIAS_TAG}"
+          else
+            echo "alias_exists=false" >>"${GITHUB_OUTPUT}"
+            echo "No reusable image found for native-runner fingerprint ${{ steps.fingerprint.outputs.fingerprint }}"
+          fi
+
+      - name: Retag existing fingerprint image
+        if: steps.image.outputs.target_exists != 'true' && steps.image.outputs.alias_exists == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          az acr import \
+            --name romainecr \
+            --source "ambience-agent-runner:${ALIAS_TAG}" \
+            --image "ambience-agent-runner:${TAG}" \
+            --force
+
       - name: Build and push image
+        if: steps.image.outputs.target_exists != 'true' && steps.image.outputs.alias_exists != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: .github/runner/Dockerfile
           push: true
-          tags: romainecr.azurecr.io/ambience-agent-runner:${{ env.TAG }}
+          tags: |
+            romainecr.azurecr.io/ambience-agent-runner:${{ env.TAG }}
+            romainecr.azurecr.io/ambience-agent-runner:${{ env.ALIAS_TAG }}
           cache-from: type=registry,ref=romainecr.azurecr.io/ambience-build-cache:native-runner
           cache-to: type=registry,ref=romainecr.azurecr.io/ambience-build-cache:native-runner,mode=max

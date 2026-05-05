@@ -77,13 +77,68 @@ jobs:
           echo "TAG=${TAG}" >> $GITHUB_ENV
           echo "Built ref $(git rev-parse HEAD) as romainecr.azurecr.io/ambience:${TAG}" >> $GITHUB_STEP_SUMMARY
 
+      - name: Compute image fingerprint
+        id: fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          fingerprint="$(scripts/image-fingerprint.sh \
+            --image app \
+            --dockerfile Dockerfile \
+            --context . \
+            --paths 'Dockerfile go.mod go.sum scripts/build-web-wasm.sh rngutil sim cmd/ambience cmd/ambience-wasm' \
+            | tee /tmp/ambience-image-fingerprint.txt \
+            | awk -F= '$1 == "fingerprint" { print $2 }')"
+          echo "ALIAS_TAG=app-${fingerprint}" >> "$GITHUB_ENV"
+
+      - name: Check existing image aliases
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          if az acr repository show-tags \
+              --name romainecr \
+              --repository ambience \
+              --query "[?@=='${TAG}'] | [0]" \
+              --output tsv | grep -qx "${TAG}"; then
+            echo "target_exists=true" >>"${GITHUB_OUTPUT}"
+          else
+            echo "target_exists=false" >>"${GITHUB_OUTPUT}"
+          fi
+
+          if az acr repository show-tags \
+              --name romainecr \
+              --repository ambience \
+              --query "[?@=='${ALIAS_TAG}'] | [0]" \
+              --output tsv | grep -qx "${ALIAS_TAG}"; then
+            echo "alias_exists=true" >>"${GITHUB_OUTPUT}"
+            echo "Found reusable image romainecr.azurecr.io/ambience:${ALIAS_TAG}"
+          else
+            echo "alias_exists=false" >>"${GITHUB_OUTPUT}"
+            echo "No reusable image found for app fingerprint ${{ steps.fingerprint.outputs.fingerprint }}"
+          fi
+
+      - name: Retag existing fingerprint image
+        if: steps.image.outputs.target_exists != 'true' && steps.image.outputs.alias_exists == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          az acr import \
+            --name romainecr \
+            --source "ambience:${ALIAS_TAG}" \
+            --image "ambience:${TAG}" \
+            --force
+
       - name: Build and push image
+        if: steps.image.outputs.target_exists != 'true' && steps.image.outputs.alias_exists != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           push: true
-          tags: romainecr.azurecr.io/ambience:${{ env.TAG }}
+          tags: |
+            romainecr.azurecr.io/ambience:${{ env.TAG }}
+            romainecr.azurecr.io/ambience:${{ env.ALIAS_TAG }}
           cache-from: type=registry,ref=romainecr.azurecr.io/ambience-build-cache:app
           cache-to: type=registry,ref=romainecr.azurecr.io/ambience-build-cache:app,mode=max
 
