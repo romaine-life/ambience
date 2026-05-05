@@ -156,8 +156,8 @@ stay aligned through initial connect, buffered playback, scene/metric
 metadata, queued config/trigger commands, effect rotation, a resume-style
 catch-up, a fresh snapshot convergence path, and unsupported effect
 registry handling. It is still a browser-client harness; HTTP
-Last-Event-ID replay and terminal-client synchronization are covered by
-separate tests/issues.
+Last-Event-ID replay is covered by server-side direct-authority and edge
+mirror tests, while terminal-client synchronization is covered separately.
 
 ## Effects model
 
@@ -227,7 +227,10 @@ All broadcast endpoints set permissive CORS for cross-origin consumers.
 - `GET  /sim.js`, `/wasm_runtime.js`, `/wasm_exec.js`, `/ambience.wasm`,
   `/controls.js`, `/client.js` — consumer scripts/runtime
 - `GET  /snapshot` — current atmosphere state (JSON)
-- `GET  /events` — atmosphere command stream (SSE)
+- `GET  /events` — atmosphere command stream (SSE). Browser `EventSource`
+  reconnects use `Last-Event-ID`; the authority and edge mirror replay
+  missed commands while their bounded replay buffers still cover the ID,
+  otherwise they send a fresh snapshot frame.
 - `POST /config?effect=&...` — mutate the shared atmosphere config
 - `POST /trigger/:event` — fire a discrete event on the shared atmosphere
 - `POST /entropy` — raw bytes folded into the RNG (max 4KB/req)

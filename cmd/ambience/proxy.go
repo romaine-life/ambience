@@ -279,6 +279,11 @@ func (m *authorityMirror) stream(w http.ResponseWriter, req *http.Request) {
 				return
 			}
 		}
+		if len(replay) == 0 {
+			if err := writeSSEComment(w, flusher, "replay-current"); err != nil {
+				return
+			}
+		}
 	} else {
 		if err := writeSnapshotDataFrame(w, flusher, snap, snapshotID); err != nil {
 			return
