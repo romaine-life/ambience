@@ -148,6 +148,14 @@
 	let ready = false;
 	let initialFadePending = false;
 	let initialFadeStarted = false;
+	let lastError = null;
+	const sceneState = {
+		currentName: null,
+		nextName: null,
+		sceneRemaining: null,
+		durationTicks: null,
+		startedAtTick: null,
+	};
 	const pendingCommands = [];
 	const clock = createPlaybackClock({
 		tickMs: TICK_MS,
@@ -213,6 +221,37 @@
 		return Number.isFinite(s.tick) ? s.tick : 0;
 	}
 
+	function getSimDebug(s) {
+		if (!s) return null;
+		if (s.isTransition && s.incoming) return getSimDebug(s.incoming);
+		if (typeof s.getDebugState === 'function') return s.getDebugState();
+		return null;
+	}
+
+	function updateSceneFromSnapshot(data) {
+		if (!data) return;
+		if (data.currentScene) {
+			sceneState.currentName = data.currentScene.name || sceneState.currentName;
+			sceneState.durationTicks = Number.isFinite(data.currentScene.durationTicks)
+				? data.currentScene.durationTicks
+				: sceneState.durationTicks;
+			sceneState.startedAtTick = Number.isFinite(data.currentScene.startedAtTick)
+				? data.currentScene.startedAtTick
+				: sceneState.startedAtTick;
+		}
+		if (data.nextScene) sceneState.nextName = data.nextScene.name || sceneState.nextName;
+		if (Number.isFinite(data.sceneRemaining)) sceneState.sceneRemaining = data.sceneRemaining;
+	}
+
+	function applySceneData(data) {
+		if (!data) return;
+		sceneState.currentName = data.name || data.currentName || sceneState.currentName;
+		sceneState.nextName = data.nextName || sceneState.nextName;
+		sceneState.durationTicks = Number.isFinite(data.durationTicks) ? data.durationTicks : sceneState.durationTicks;
+		sceneState.startedAtTick = Number.isFinite(data.startedAtTick) ? data.startedAtTick : sceneState.startedAtTick;
+		if (Number.isFinite(data.sceneRemaining)) sceneState.sceneRemaining = data.sceneRemaining;
+	}
+
 	function stepTowardAuthorityClock() {
 		const current = getSimTick(sim);
 		const steps = clock.stepsFor(current);
@@ -252,9 +291,11 @@
 				const newType = (data && data.type) || 'rain';
 				const ctor = AmbienceSim.effects[newType];
 				if (!ctor) {
+					lastError = `unknown effect type: ${newType}`;
 					console.warn('ambience-client: unknown effect type', newType);
 					break;
 				}
+				lastError = null;
 				if (!sim) {
 					sim = new ctor(GRID_W, GRID_H, {});
 					try { sim.restoreSnapshot(data); } catch (err) { console.error('bad snapshot', err); }
@@ -270,6 +311,7 @@
 				} else {
 					try { sim.restoreSnapshot(data); } catch (err) { console.error('bad snapshot', err); }
 				}
+				updateSceneFromSnapshot(data);
 				ready = true;
 				if (Number.isFinite(data && data.tick)) {
 					for (let i = pendingCommands.length - 1; i >= 0; i--) {
@@ -286,12 +328,23 @@
 			case 'trigger':
 				if (sim && sim.triggerEvent) sim.triggerEvent(cmd.event);
 				break;
+			case 'scene':
+			case 'metric':
+				applySceneData(data);
+				break;
 		}
 	}
 
 	window.AmbienceClient = {
 		getDebugState: () => Object.assign(
-			{ effectType, ready, initialFadeStarted },
+			{
+				effectType,
+				ready,
+				initialFadeStarted,
+				scene: Object.assign({}, sceneState),
+				sim: getSimDebug(sim),
+				lastError,
+			},
 			clock.debugState(getSimTick(sim), pendingCommands.length),
 		),
 	};
@@ -323,6 +376,8 @@
 					break;
 				case 'metric':
 				case 'scene':
+					applyCommandNow(cmd, data);
+					break;
 				case 'clock':
 					break;
 				case 'config':

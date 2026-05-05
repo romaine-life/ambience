@@ -152,8 +152,12 @@ compare `ambience.romaine.life` with subscribers such as
 The deterministic client-side sync harness lives at
 `scripts/test-client-sync.mjs`. It runs two isolated browser-client
 instances against the same scripted authority stream and checks that they
-stay aligned through buffered playback, queued config/trigger commands, a
-resume-style catch-up, and a fresh snapshot convergence path.
+stay aligned through initial connect, buffered playback, scene/metric
+metadata, queued config/trigger commands, effect rotation, a resume-style
+catch-up, a fresh snapshot convergence path, and unsupported effect
+registry handling. It is still a browser-client harness; HTTP
+Last-Event-ID replay and terminal-client synchronization are covered by
+separate tests/issues.
 
 ## Effects model
 
