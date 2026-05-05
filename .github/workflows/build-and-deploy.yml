@@ -105,7 +105,7 @@ jobs:
               if stripped and not line.startswith(" ") and line.endswith(":"):
                   in_image = stripped == "image:"
               if in_image and line.startswith("  tag:"):
-                  new_line = f"  tag: {tag}"
+                  new_line = f"  tag: \"{tag}\""
                   changed = changed or line != new_line
                   out.append(new_line)
               else:

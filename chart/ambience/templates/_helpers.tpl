@@ -25,7 +25,7 @@ component: authority
 
 {{- define "ambience.edgeImage" -}}
 {{- $repo := default .Values.image.repository .Values.edge.image.repository -}}
-{{- $tag := default .Values.image.tag .Values.edge.image.tag -}}
+{{- $tag := default .Values.image.tag .Values.edge.image.tag | toString -}}
 {{- printf "%s:%s" $repo $tag -}}
 {{- end -}}
 
@@ -35,7 +35,7 @@ component: authority
 
 {{- define "ambience.authorityImage" -}}
 {{- $repo := default .Values.image.repository .Values.authority.image.repository -}}
-{{- $tag := default .Values.image.tag .Values.authority.image.tag -}}
+{{- $tag := default .Values.image.tag .Values.authority.image.tag | toString -}}
 {{- printf "%s:%s" $repo $tag -}}
 {{- end -}}
 
