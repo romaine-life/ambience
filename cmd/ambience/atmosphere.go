@@ -20,11 +20,10 @@ import (
 	"github.com/nelsong6/ambience/sim"
 )
 
-// Transition window for config drift at scene boundaries. We don't snap the
-// sim.Config on rotation — it looks jarring. Instead, the sim runs with a
-// LERP between the previous scene's config and the new one over this many
-// ticks, broadcasting the interpolated config every transitionBroadcastEvery
-// ticks so clients stay roughly in sync.
+// Transition window for config drift at scene boundaries. Effects that expose
+// scene interpolation can drift between the previous scene config and the new
+// one over this many ticks, broadcasting the interpolated config every
+// transitionBroadcastEvery ticks so clients stay roughly in sync.
 //
 // Capped by the scene's own DurationTicks / 2 — in test mode with short
 // scenes (AMBIENCE_SCENE_TICKS=60) we want the drift to finish before the
@@ -89,7 +88,7 @@ type atmosphere struct {
 	// Sim + explicit scene RNG. Entropy POSTs flow into both so future event
 	// rolls and future generated scenes survive restarts coherently.
 	effect       effectRuntime
-	cfg          sim.Config
+	cfg          json.RawMessage
 	seed         int64
 	sceneRNG     *rngutil.RNG
 	current      Scene
@@ -99,8 +98,8 @@ type atmosphere struct {
 	// instantly. Instead we LERP from transitionFrom to transitionTo over
 	// transitionDur ticks starting at transitionStart. transitionDur == 0
 	// means "no transition in progress."
-	transitionFrom  sim.Config
-	transitionTo    sim.Config
+	transitionFrom  json.RawMessage
+	transitionTo    json.RawMessage
 	transitionStart int
 	transitionDur   int
 	// Cross-effect rotation state. The shared atmosphere periodically
@@ -130,23 +129,14 @@ func newAtmosphereWithEffect(effectType string) *atmosphere {
 
 func newAtmosphereWithEffectAndSeed(effectType string, seed int64) *atmosphere {
 	sceneRNG := rngutil.New(seed ^ 0x6d0f27bd0b5a3c11)
-	var first, nxt Scene
-	var cfgData json.RawMessage
-	var cfg sim.Config
-	if effectType == "rain" {
-		first = generateEffectScene(effectType, sceneRNG, 0, 0)
-		// Pre-generate the next scene too — the "single-slot lookahead" model.
-		// StartedAtTick is set when it's promoted to current.
-		nxt = generateEffectScene(effectType, sceneRNG, 0, 0)
-		cfg = first.Config
-		cfgData, _ = json.Marshal(first.Config)
-	} else {
-		first = generateEffectScene(effectType, sceneRNG, 0, defaultRotationCadenceTicks)
-		nxt = generateEffectScene(effectType, sceneRNG, 0, defaultRotationCadenceTicks)
-	}
+	first := generateEffectScene(effectType, sceneRNG, 0, 0)
+	// Pre-generate the next scene too — the "single-slot lookahead" model.
+	// StartedAtTick is set when it's promoted to current.
+	nxt := generateEffectScene(effectType, sceneRNG, 0, first.DurationTicks)
+	cfgData := cloneRaw(first.Config)
 	return &atmosphere{
 		effect:    mustNewEffectRuntime(effectType, gridW, gridH, seed, cfgData),
-		cfg:       cfg,
+		cfg:       cfgData,
 		seed:      seed,
 		sceneRNG:  sceneRNG,
 		current:   first,
@@ -223,24 +213,26 @@ func (a *atmosphere) applyTransition(cur int) {
 	}
 	elapsed := cur - a.transitionStart
 	if elapsed >= a.transitionDur {
-		final := a.transitionTo
+		final := cloneRaw(a.transitionTo)
 		a.transitionDur = 0
 		a.transitionStart = 0
-		a.cfg = final
+		a.cfg = cloneRaw(final)
 		a.mu.Unlock()
-		data, _ := json.Marshal(final)
-		_ = a.effect.ApplyConfig(data)
-		a.broadcast(Command{Kind: "config", Tick: cur, Data: data})
+		_ = a.effect.ApplyConfig(final)
+		a.broadcast(Command{Kind: "config", Tick: cur, Data: final})
 		return
 	}
-	from := a.transitionFrom
-	to := a.transitionTo
+	from := cloneRaw(a.transitionFrom)
+	to := cloneRaw(a.transitionTo)
 	dur := a.transitionDur
 	a.mu.Unlock()
 
 	progress := easeInOutCubic(float64(elapsed) / float64(dur))
-	lerped := lerpConfig(from, to, progress)
-	data, _ := json.Marshal(lerped)
+	data, err := interpolateSceneConfig(a.effect, from, to, progress)
+	if err != nil {
+		log.Printf("scene: interpolate %s config: %v", a.effect.Type(), err)
+		return
+	}
 	_ = a.effect.ApplyConfig(data)
 	if elapsed%transitionBroadcastEvery == 0 {
 		a.broadcast(Command{Kind: "config", Tick: cur, Data: data})
@@ -260,31 +252,36 @@ func (a *atmosphere) rotateScene(tick int) {
 	a.current = promoted
 	a.next = generateEffectScene(effectType, a.sceneRNG, 0, promoted.DurationTicks)
 	currentCopy := a.current
-	nextName := a.next.Name
-	dur := 0
-	if effectType == "rain" {
-		fromCfg := a.cfg
-		// Transition cap: keep drift bounded by the new scene's duration so we
-		// never drift across a scene boundary. Half the scene, max 60 s.
-		dur = maxTransitionTicks
-		if half := promoted.DurationTicks / 2; half < dur {
-			dur = half
-		}
-		a.transitionFrom = fromCfg
-		a.transitionTo = promoted.Config
+	nextCopy := a.next
+	configData := cloneRaw(promoted.Config)
+	dur := sceneTransitionTicks(a.effect, promoted.DurationTicks)
+	if dur > 0 && len(configData) > 0 {
+		a.transitionFrom = cloneRaw(a.cfg)
+		a.transitionTo = cloneRaw(configData)
 		a.transitionStart = tick
 		a.transitionDur = dur
 	} else {
+		a.cfg = cloneRaw(configData)
 		a.transitionDur = 0
 		a.transitionStart = 0
 	}
 	a.mu.Unlock()
 
+	if dur == 0 && len(configData) > 0 {
+		if err := a.effect.ApplyConfig(configData); err != nil {
+			log.Printf("scene: apply %s config: %v", effectType, err)
+		} else {
+			a.broadcast(Command{Kind: "config", Tick: tick, Data: configData})
+		}
+	}
+
 	sceneData, _ := json.Marshal(map[string]interface{}{
 		"name":            currentCopy.Name,
+		"config":          currentCopy.Config,
 		"durationTicks":   currentCopy.DurationTicks,
 		"startedAtTick":   currentCopy.StartedAtTick,
-		"nextName":        nextName,
+		"nextName":        nextCopy.Name,
+		"nextConfig":      nextCopy.Config,
 		"transitionTicks": dur,
 	})
 	a.broadcast(Command{Kind: "scene", Tick: tick, Data: sceneData})
@@ -324,7 +321,9 @@ func (a *atmosphere) maybeRotateEffect(cur int) bool {
 	a.mu.Unlock()
 
 	pool := policy.resolvedAllowedEffects()
+	a.mu.Lock()
 	pick := pickNextEffect(a.sceneRNG, pool, currentType)
+	a.mu.Unlock()
 	if pick == "" || pick == currentType {
 		// Nothing to rotate to — slide the timer forward so we don't
 		// recheck on every tick.
@@ -339,13 +338,18 @@ func (a *atmosphere) maybeRotateEffect(cur int) bool {
 // rotateToEffect builds a fresh runtime for effectType, swaps it in, and
 // broadcasts a snapshot whose `type` differs from the previous one so SSE
 // consumers (live monitor + every embedded canvas) crossfade per the
-// PR #110 client-side mechanism. The within-effect Rain scene drift is
-// reset for rain targets and elided entirely for non-rain targets — the
-// drift LERPs sim.Config (rain config) so applying it to e.g. campfire
-// would silently reject. Returns true on success.
+// PR #110 client-side mechanism. Returns true on success.
 func (a *atmosphere) rotateToEffect(cur int, effectType string) bool {
 	seed := time.Now().UnixNano()
-	rt, err := newEffectRuntime(effectType, gridW, gridH, seed, nil)
+	a.mu.Lock()
+	slot := a.rotation.CadenceTicks
+	if slot <= 0 {
+		slot = defaultRotationCadenceTicks
+	}
+	newScene := generateEffectScene(effectType, a.sceneRNG, 0, slot)
+	newNext := generateEffectScene(effectType, a.sceneRNG, 0, newScene.DurationTicks)
+	a.mu.Unlock()
+	rt, err := newEffectRuntime(effectType, gridW, gridH, seed, newScene.Config)
 	if err != nil {
 		log.Printf("rotation: build %s: %v; staying on current", effectType, err)
 		a.mu.Lock()
@@ -356,21 +360,8 @@ func (a *atmosphere) rotateToEffect(cur int, effectType string) bool {
 
 	a.mu.Lock()
 	previousType := a.effect.Type()
-	var newScene, newNext Scene
-	if effectType == "rain" {
-		newScene = generateEffectScene(effectType, a.sceneRNG, 0, 0)
-		newNext = generateEffectScene(effectType, a.sceneRNG, 0, 0)
-		a.cfg = newScene.Config
-	} else {
-		slot := a.rotation.CadenceTicks
-		if slot <= 0 {
-			slot = defaultRotationCadenceTicks
-		}
-		newScene = generateEffectScene(effectType, a.sceneRNG, 0, slot)
-		newNext = generateEffectScene(effectType, a.sceneRNG, 0, slot)
-		a.cfg = sim.Config{}
-	}
 	a.effect = rt
+	a.cfg = cloneRaw(newScene.Config)
 	a.current = newScene
 	a.next = newNext
 	a.transitionDur = 0
@@ -415,6 +406,31 @@ func (a *atmosphere) broadcastMetric(tick int) {
 		"nextName":       nextName,
 	})
 	a.broadcast(Command{Kind: "metric", Tick: tick, Data: data})
+}
+
+type sceneTransitioner interface {
+	SceneTransitionTicks(durationTicks int) int
+	InterpolateConfig(from, to json.RawMessage, progress float64) (json.RawMessage, error)
+}
+
+func sceneTransitionTicks(effect effectRuntime, durationTicks int) int {
+	t, ok := effect.(sceneTransitioner)
+	if !ok {
+		return 0
+	}
+	dur := t.SceneTransitionTicks(durationTicks)
+	if dur < 0 {
+		return 0
+	}
+	return dur
+}
+
+func interpolateSceneConfig(effect effectRuntime, from, to json.RawMessage, progress float64) (json.RawMessage, error) {
+	t, ok := effect.(sceneTransitioner)
+	if !ok {
+		return cloneRaw(to), nil
+	}
+	return t.InterpolateConfig(from, to, progress)
 }
 
 // lerpConfig linearly interpolates every continuous field of sim.Config,
@@ -655,21 +671,13 @@ func (a *atmosphere) setConfigRaw(data json.RawMessage) error {
 	if err := a.effect.ApplyConfig(data); err != nil {
 		return err
 	}
-	effectType := a.effect.Type()
-	var cfg sim.Config
-	hasRainConfig := effectType == "rain" && json.Unmarshal(data, &cfg) == nil
-	if hasRainConfig {
-		cfg = sim.NormalizeConfig(cfg)
-	}
 	a.mu.Lock()
 	// A manual live edit should take over immediately instead of getting
 	// overwritten by the previous scene transition on the next tick.
 	a.transitionDur = 0
 	a.transitionStart = 0
-	if hasRainConfig {
-		a.cfg = cfg
-		a.current.Config = cfg
-	}
+	a.cfg = cloneRaw(data)
+	a.current.Config = cloneRaw(data)
 	a.mu.Unlock()
 	a.broadcast(Command{
 		Kind: "config",

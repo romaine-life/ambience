@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -116,6 +117,7 @@ func TestNonRainAtmosphereStartsWithGeneratedSceneLabels(t *testing.T) {
 func TestNonRainSceneRotationKeepsEffectSceneLabels(t *testing.T) {
 	a := newAtmosphereWithEffectAndSeed("aurora", 123)
 	before := a.snapshot()
+	promotedConfig := cloneRaw(before.NextScene.Config)
 	a.rotateScene(before.CurrentScene.DurationTicks)
 	after := a.snapshot()
 
@@ -128,8 +130,33 @@ func TestNonRainSceneRotationKeepsEffectSceneLabels(t *testing.T) {
 	if after.NextScene.Name == "aurora" {
 		t.Fatalf("next scene name = raw effect %q; want generated scene label", after.NextScene.Name)
 	}
-	if after.NextScene.Config != (sim.Config{}) {
-		t.Fatalf("non-rain next scene unexpectedly has rain config: %+v", after.NextScene.Config)
+	if len(after.CurrentScene.Config) == 0 || len(after.NextScene.Config) == 0 {
+		t.Fatalf("non-rain scenes missing configs: current=%s next=%s", after.CurrentScene.Config, after.NextScene.Config)
+	}
+	if !configsEqualJSON(after.Config, promotedConfig) {
+		t.Fatalf("runtime config did not advance to promoted scene config\ngot: %s\nwant: %s", after.Config, promotedConfig)
+	}
+}
+
+func TestRainSceneRotationKeepsDriftCapability(t *testing.T) {
+	a := newAtmosphereWithEffectAndSeed("rain", 123)
+	before := a.snapshot()
+	a.rotateScene(before.CurrentScene.DurationTicks)
+
+	a.mu.Lock()
+	dur := a.transitionDur
+	from := cloneRaw(a.transitionFrom)
+	to := cloneRaw(a.transitionTo)
+	a.mu.Unlock()
+
+	if dur <= 0 {
+		t.Fatalf("rain transition duration = %d; want positive drift window", dur)
+	}
+	if len(from) == 0 || len(to) == 0 {
+		t.Fatalf("rain transition missing configs: from=%s to=%s", from, to)
+	}
+	if !configsEqualJSON(to, before.NextScene.Config) {
+		t.Fatalf("rain transition target = %s, want promoted scene config %s", to, before.NextScene.Config)
 	}
 }
 
@@ -159,6 +186,28 @@ func TestMaybeRotateEffectBroadcastsSnapshot(t *testing.T) {
 		case <-deadline:
 			t.Fatal("no snapshot broadcast after rotation")
 		}
+	}
+}
+
+func TestCrossEffectRotationInitializesRuntimeWithSceneConfig(t *testing.T) {
+	a := newAtmosphere(sim.Config{})
+	a.setRotationPolicy(rotationPolicy{
+		Enabled:      true,
+		CadenceTicks: 10,
+		Allowed:      []string{"rain", "campfire"},
+	})
+	if rotated := a.maybeRotateEffect(10); !rotated {
+		t.Fatal("rotation did not fire")
+	}
+	snap := a.snapshot()
+	if snap.Type != "campfire" {
+		t.Fatalf("type after rotation = %q, want campfire", snap.Type)
+	}
+	if len(snap.CurrentScene.Config) == 0 {
+		t.Fatal("current scene missing config")
+	}
+	if !configsEqualJSON(snap.Config, snap.CurrentScene.Config) {
+		t.Fatalf("runtime config does not match current scene config\ngot: %s\nwant: %s", snap.Config, snap.CurrentScene.Config)
 	}
 }
 
@@ -286,6 +335,60 @@ func TestRestoreReplacesLegacyRawNonRainSceneNames(t *testing.T) {
 	}
 	if snap.NextScene.DurationTicks != snap.CurrentScene.DurationTicks {
 		t.Fatalf("restored next duration = %d, want current duration %d", snap.NextScene.DurationTicks, snap.CurrentScene.DurationTicks)
+	}
+}
+
+func TestPersistedScenesRestoreWithConfigs(t *testing.T) {
+	a := newAtmosphereWithEffectAndSeed("aurora", 123)
+	before := a.snapshot()
+	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
+	if err := store.Save(context.Background(), a.persistedState()); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	restored := restoreSharedAtmosphere(context.Background(), store)
+	after := restored.snapshot()
+	if !configsEqualJSON(after.CurrentScene.Config, before.CurrentScene.Config) {
+		t.Fatalf("current scene config after restore = %s, want %s", after.CurrentScene.Config, before.CurrentScene.Config)
+	}
+	if !configsEqualJSON(after.NextScene.Config, before.NextScene.Config) {
+		t.Fatalf("next scene config after restore = %s, want %s", after.NextScene.Config, before.NextScene.Config)
+	}
+}
+
+func TestLegacySceneRestoreFillsMissingConfigs(t *testing.T) {
+	a := newAtmosphereWithEffectAndSeed("aurora", 123)
+	state := a.persistedState()
+	state.CurrentScene.Config = nil
+	state.NextScene.Config = nil
+
+	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
+	if err := store.Save(context.Background(), state); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	restored := restoreSharedAtmosphere(context.Background(), store)
+	snap := restored.snapshot()
+	if len(snap.CurrentScene.Config) == 0 {
+		t.Fatal("restored current scene missing migrated config")
+	}
+	if len(snap.NextScene.Config) == 0 {
+		t.Fatal("restored next scene missing migrated config")
+	}
+}
+
+func TestAtmosphereSceneCodeHasNoRainBranch(t *testing.T) {
+	files := []string{"atmosphere.go", "scene.go", "persistence.go"}
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		for _, forbidden := range []string{`effectType == "rain"`, `effectType != "rain"`, `hasRainConfig`} {
+			if strings.Contains(string(data), forbidden) {
+				t.Fatalf("%s still contains rain-specific scene branch %q", file, forbidden)
+			}
+		}
 	}
 }
 

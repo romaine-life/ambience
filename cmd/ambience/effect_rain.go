@@ -12,6 +12,7 @@ func init() {
 		Type:       "rain",
 		Schema:     sim.RainSchema,
 		NewRuntime: newRainRuntime,
+		NewScene:   generateRainScene,
 	})
 }
 
@@ -129,3 +130,30 @@ func (r *rainRuntime) ApplyConfig(data json.RawMessage) error {
 }
 
 func (r *rainRuntime) AddEntropy(delta int64) { r.sim.PerturbRNG(delta) }
+
+func (r *rainRuntime) SceneTransitionTicks(durationTicks int) int {
+	dur := maxTransitionTicks
+	if half := durationTicks / 2; half < dur {
+		dur = half
+	}
+	return dur
+}
+
+func (r *rainRuntime) InterpolateConfig(fromData, toData json.RawMessage, progress float64) (json.RawMessage, error) {
+	var from, to sim.Config
+	if len(fromData) > 0 {
+		if err := json.Unmarshal(fromData, &from); err != nil {
+			return nil, fmt.Errorf("decode rain transition from config: %w", err)
+		}
+	}
+	if len(toData) > 0 {
+		if err := json.Unmarshal(toData, &to); err != nil {
+			return nil, fmt.Errorf("decode rain transition to config: %w", err)
+		}
+	}
+	data, err := json.Marshal(lerpConfig(sim.NormalizeConfig(from), sim.NormalizeConfig(to), progress))
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}

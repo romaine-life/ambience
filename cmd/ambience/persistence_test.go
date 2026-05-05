@@ -76,6 +76,12 @@ func TestSharedAtmospherePersistenceRoundTrip(t *testing.T) {
 	if got.NextScene.Name != want.NextScene.Name {
 		t.Fatalf("next scene = %q, want %q", got.NextScene.Name, want.NextScene.Name)
 	}
+	if !configsEqualJSON(got.CurrentScene.Config, want.CurrentScene.Config) {
+		t.Fatalf("current scene config = %s, want %s", got.CurrentScene.Config, want.CurrentScene.Config)
+	}
+	if !configsEqualJSON(got.NextScene.Config, want.NextScene.Config) {
+		t.Fatalf("next scene config = %s, want %s", got.NextScene.Config, want.NextScene.Config)
+	}
 
 	var gotState sim.RainSnapshot
 	if err := json.Unmarshal(got.State, &gotState); err != nil {

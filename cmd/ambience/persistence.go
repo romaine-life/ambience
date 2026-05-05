@@ -26,10 +26,10 @@ type fileStore struct {
 }
 
 type persistedTransition struct {
-	From  sim.Config `json:"from"`
-	To    sim.Config `json:"to"`
-	Start int        `json:"start"`
-	Dur   int        `json:"dur"`
+	From  json.RawMessage `json:"from,omitempty"`
+	To    json.RawMessage `json:"to,omitempty"`
+	Start int             `json:"start"`
+	Dur   int             `json:"dur"`
 }
 
 type persistedAtmosphere struct {
@@ -38,7 +38,7 @@ type persistedAtmosphere struct {
 	Type          string               `json:"type"`
 	Seed          int64                `json:"seed"`
 	SceneRNGState uint64               `json:"sceneRngState"`
-	Config        sim.Config           `json:"config"`
+	Config        json.RawMessage      `json:"config,omitempty"`
 	Effect        persistedEffectState `json:"effect"`
 	CommandSeq    int64                `json:"commandSeq"`
 	CurrentScene  Scene                `json:"currentScene"`
@@ -173,7 +173,7 @@ func restoreSharedAtmosphereWithPolicy(ctx context.Context, store persistenceSto
 
 	a := &atmosphere{
 		effect:     rt,
-		cfg:        state.Config,
+		cfg:        cloneRaw(state.Config),
 		seed:       state.Seed,
 		sceneRNG:   rngutil.NewFromState(sceneRNGState),
 		commandSeq: state.CommandSeq,
@@ -182,14 +182,18 @@ func restoreSharedAtmosphereWithPolicy(ctx context.Context, store persistenceSto
 		listeners:  make(map[chan Command]struct{}),
 		lastSeen:   time.Now(),
 	}
+	if len(a.cfg) == 0 {
+		a.cfg = cloneRaw(state.Effect.Config)
+	}
 	a.normalizeRestoredSceneLabels(state.Type)
+	a.normalizeRestoredSceneConfigs(state.Type)
 	if err := a.effect.RestorePersisted(state.Effect); err != nil {
 		log.Printf("restore %s state: %v; starting fresh", state.Type, err)
 		return fresh
 	}
 	a.entropyBytes = state.EntropyBytes
-	a.transitionFrom = state.Transition.From
-	a.transitionTo = state.Transition.To
+	a.transitionFrom = cloneRaw(state.Transition.From)
+	a.transitionTo = cloneRaw(state.Transition.To)
 	a.transitionStart = state.Transition.Start
 	a.transitionDur = state.Transition.Dur
 	if state.RotationStartTick != nil {
@@ -198,7 +202,7 @@ func restoreSharedAtmosphereWithPolicy(ctx context.Context, store persistenceSto
 		a.rotationStartTick = a.effect.CurrentTick()
 	}
 	if a.transitionDur > 0 {
-		a.cfg = state.Transition.From
+		a.cfg = cloneRaw(state.Transition.From)
 	}
 
 	log.Printf("restored shared atmosphere from %s at tick %d", state.SavedAt.Format(time.RFC3339), a.effect.CurrentTick())
@@ -206,9 +210,6 @@ func restoreSharedAtmosphereWithPolicy(ctx context.Context, store persistenceSto
 }
 
 func (a *atmosphere) normalizeRestoredSceneLabels(effectType string) {
-	if effectType == "rain" {
-		return
-	}
 	currentDur := a.current.DurationTicks
 	if currentDur <= 0 {
 		currentDur = defaultRotationCadenceTicks
@@ -230,6 +231,17 @@ func (a *atmosphere) normalizeRestoredSceneLabels(effectType string) {
 	}
 }
 
+func (a *atmosphere) normalizeRestoredSceneConfigs(effectType string) {
+	if len(a.current.Config) == 0 {
+		if len(a.cfg) > 0 {
+			a.current.Config = cloneRaw(a.cfg)
+		}
+	}
+	if len(a.next.Config) == 0 {
+		a.next = generateEffectScene(effectType, a.sceneRNG, a.next.StartedAtTick, a.next.DurationTicks)
+	}
+}
+
 func (a *atmosphere) persistedState() persistedAtmosphere {
 	a.mu.Lock()
 	seed := a.seed
@@ -239,8 +251,8 @@ func (a *atmosphere) persistedState() persistedAtmosphere {
 	entropyBytes := a.entropyBytes
 	commandSeq := a.commandSeq
 	transition := persistedTransition{
-		From:  a.transitionFrom,
-		To:    a.transitionTo,
+		From:  cloneRaw(a.transitionFrom),
+		To:    cloneRaw(a.transitionTo),
 		Start: a.transitionStart,
 		Dur:   a.transitionDur,
 	}
@@ -253,21 +265,13 @@ func (a *atmosphere) persistedState() persistedAtmosphere {
 		log.Printf("snapshot %s persisted state: %v", a.effect.Type(), err)
 		effectState = persistedEffectState{}
 	}
-	effectConfig := a.cfg
-	if len(effectState.Config) > 0 {
-		if err := json.Unmarshal(effectState.Config, &effectConfig); err != nil {
-			log.Printf("decode %s persisted config: %v", a.effect.Type(), err)
-			effectConfig = a.cfg
-		}
-	}
-
 	return persistedAtmosphere{
 		Version:           1,
 		SavedAt:           time.Now().UTC(),
 		Type:              a.effect.Type(),
 		Seed:              seed,
 		SceneRNGState:     sceneRNGState,
-		Config:            effectConfig,
+		Config:            cloneRaw(a.cfg),
 		Effect:            effectState,
 		CommandSeq:        commandSeq,
 		CurrentScene:      current,
