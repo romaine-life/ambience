@@ -350,4 +350,4 @@ assertAligned(a, b, 'unsupported effect handling');
 assert.equal(a.state().effectType, 'rotated', 'unsupported effect does not replace active effect');
 assert.match(a.state().lastError, /unknown effect type: missing-effect/);
 
-console.log('cross-consumer client sync harness ok');
+console.log('browser-client sync harness ok');

@@ -26,6 +26,19 @@ so drops fall behind text and the terminal wallpaper shows through.
   tcell's differential rendering actually works — reduced terminal
   output ~6× and eliminated the 5 Hz flicker it was causing
 
+**Synchronization scope:**
+- Terminal is currently excluded from the browser lock-step sync
+  guarantee. It is rain-only, applies `snapshot`/`config`/`trigger`
+  commands immediately, ignores `clock` commands, and free-runs its local
+  ticker instead of using the browser client's delayed authority-clock
+  model.
+- Keep docs and acceptance criteria browser-specific until terminal gets
+  authority-clock buffering, stale-queue handling, reconnect/catch-up
+  tests, and debug telemetry comparable to browser
+  `window.AmbienceClient.getDebugState()`.
+- Tracked separately in
+  [ambience#197](https://github.com/nelsong6/ambience/issues/197).
+
 **Not working / open:**
 - See issues #11–#15 — in brief:
   - #11 — WT renders sixel raster opaquely after some seconds
@@ -80,8 +93,8 @@ When the time comes, options are:
 
 - `tools/conpty-capture/` — Python capture, still useful
 - `cmd/sixel-demo/` — simplest sixel-output binary, keep around
-- `terminal/client.go` — the Client is correct conceptually, only the
-  scaling in `applyScaledConfig` is WIP
+- `terminal/client.go` — the Client is useful as a best-effort rain
+  subscriber, but authority-clock buffering is still future work
 - `fzt-terminal@a7b5e2a` on `ambience-hook` branch — the screen.Clear()
   fix is independently valuable for any sixel-into-tcell work
 - Analysis scripts in `/d/workspace/analyze_*.py` — parse cast files

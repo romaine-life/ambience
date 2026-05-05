@@ -1,6 +1,8 @@
-// Package terminal is an ambience client for terminal-resident consumers
-// (e.g., fzt-automate). It subscribes to an ambience server's SSE command
-// stream, runs a local Rain sim replica, and emits sixel output via Render.
+// Package terminal is a best-effort ambience client for terminal-resident
+// consumers (e.g., fzt-automate). It subscribes to an ambience server's SSE
+// command stream, runs a local rain-only sim replica, and emits sixel output
+// via Render. Unlike the browser client, it does not yet use authority-clock
+// buffered playback.
 //
 // Usage:
 //
