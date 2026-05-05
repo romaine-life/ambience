@@ -125,7 +125,7 @@ jobs:
           set -euo pipefail
           az acr import \
             --name romainecr \
-            --source "ambience:${ALIAS_TAG}" \
+            --source "romainecr.azurecr.io/ambience:${ALIAS_TAG}" \
             --image "ambience:${TAG}" \
             --force
 
