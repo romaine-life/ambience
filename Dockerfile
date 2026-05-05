@@ -8,7 +8,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ambience ./cmd/ambience
+RUN ./scripts/build-web-wasm.sh \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ambience ./cmd/ambience
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/ambience /ambience

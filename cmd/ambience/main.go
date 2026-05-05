@@ -244,6 +244,9 @@ func registerStaticRoutes(mux *http.ServeMux, static staticAssets, lookup effect
 	mux.HandleFunc("/controls.js", serveStaticFile(static, "controls.js"))
 	mux.HandleFunc("/client.js", serveStaticFile(static, "client.js"))
 	mux.HandleFunc("/ambience.js", serveStaticFile(static, "ambience.js"))
+	mux.HandleFunc("/wasm_runtime.js", serveStaticFile(static, "wasm_runtime.js"))
+	mux.HandleFunc("/wasm_exec.js", serveStaticFile(static, "wasm_exec.js"))
+	mux.HandleFunc("/ambience.wasm", serveStaticFile(static, "ambience.wasm"))
 	// Glimmung's UI testing pilot requires every frontend project to
 	// expose /_styleguide on its live env so reviewers + the screenshot
 	// pass have a stable catalog to scan. The leading underscore marks
