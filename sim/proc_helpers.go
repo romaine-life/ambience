@@ -20,6 +20,7 @@ type ProceduralState struct {
 // procedural-prototype effect.
 type ProceduralSnapshot struct {
 	ProceduralState
+	RNGState uint64 `json:"rngState,omitempty"`
 }
 
 // ProceduralPersistedState is the on-disk shape returned by

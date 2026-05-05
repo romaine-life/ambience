@@ -247,13 +247,19 @@ func (b *Beach) EffectiveConfig() BeachConfig {
 func (b *Beach) Snapshot() BeachSnapshot {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return BeachSnapshot{ProceduralState: b.snapshotStateLocked()}
+	return BeachSnapshot{
+		ProceduralState: b.snapshotStateLocked(),
+		RNGState:        b.rng.State(),
+	}
 }
 
 func (b *Beach) RestoreSnapshot(snap BeachSnapshot) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.restoreStateLocked(snap.ProceduralState)
+	if snap.RNGState != 0 {
+		b.rng.SetState(snap.RNGState)
+	}
 }
 
 func (b *Beach) SnapshotPersistedState() BeachPersistedState {

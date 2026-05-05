@@ -249,13 +249,19 @@ func (l *Lighthouse) EffectiveConfig() LighthouseConfig {
 func (l *Lighthouse) Snapshot() LighthouseSnapshot {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return LighthouseSnapshot{ProceduralState: l.snapshotStateLocked()}
+	return LighthouseSnapshot{
+		ProceduralState: l.snapshotStateLocked(),
+		RNGState:        l.rng.State(),
+	}
 }
 
 func (l *Lighthouse) RestoreSnapshot(snap LighthouseSnapshot) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.restoreStateLocked(snap.ProceduralState)
+	if snap.RNGState != 0 {
+		l.rng.SetState(snap.RNGState)
+	}
 }
 
 func (l *Lighthouse) SnapshotPersistedState() LighthousePersistedState {

@@ -236,13 +236,19 @@ func (a *AutumnLeaves) EffectiveConfig() AutumnLeavesConfig {
 func (a *AutumnLeaves) Snapshot() AutumnLeavesSnapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return AutumnLeavesSnapshot{ProceduralState: a.snapshotStateLocked()}
+	return AutumnLeavesSnapshot{
+		ProceduralState: a.snapshotStateLocked(),
+		RNGState:        a.rng.State(),
+	}
 }
 
 func (a *AutumnLeaves) RestoreSnapshot(snap AutumnLeavesSnapshot) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.restoreStateLocked(snap.ProceduralState)
+	if snap.RNGState != 0 {
+		a.rng.SetState(snap.RNGState)
+	}
 }
 
 func (a *AutumnLeaves) SnapshotPersistedState() AutumnLeavesPersistedState {

@@ -296,13 +296,19 @@ func (m *MysteriousMan) EffectiveConfig() MysteriousManConfig {
 func (m *MysteriousMan) Snapshot() MysteriousManSnapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return MysteriousManSnapshot{ProceduralState: m.snapshotStateLocked()}
+	return MysteriousManSnapshot{
+		ProceduralState: m.snapshotStateLocked(),
+		RNGState:        m.rng.State(),
+	}
 }
 
 func (m *MysteriousMan) RestoreSnapshot(snap MysteriousManSnapshot) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.restoreStateLocked(snap.ProceduralState)
+	if snap.RNGState != 0 {
+		m.rng.SetState(snap.RNGState)
+	}
 }
 
 func (m *MysteriousMan) SnapshotPersistedState() MysteriousManPersistedState {

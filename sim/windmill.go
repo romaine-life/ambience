@@ -228,13 +228,19 @@ func (w *Windmill) EffectiveConfig() WindmillConfig {
 func (w *Windmill) Snapshot() WindmillSnapshot {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return WindmillSnapshot{ProceduralState: w.snapshotStateLocked()}
+	return WindmillSnapshot{
+		ProceduralState: w.snapshotStateLocked(),
+		RNGState:        w.rng.State(),
+	}
 }
 
 func (w *Windmill) RestoreSnapshot(snap WindmillSnapshot) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.restoreStateLocked(snap.ProceduralState)
+	if snap.RNGState != 0 {
+		w.rng.SetState(snap.RNGState)
+	}
 }
 
 func (w *Windmill) SnapshotPersistedState() WindmillPersistedState {

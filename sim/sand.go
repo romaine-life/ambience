@@ -32,23 +32,23 @@ type SandConfig struct {
 	EndingLinger  int     `json:"ending_linger"`
 	EndingResidue float64 `json:"ending_residue"`
 	// PIPE / CONTAINER GEOMETRY
-	PipeX           float64 `json:"pipe_x"`
-	PipeY           float64 `json:"pipe_y"`
-	PipeWidth       float64 `json:"pipe_width"`
-	StreamSpread    float64 `json:"stream_spread"`
-	ContainerY      float64 `json:"container_y"`
-	ContainerSpan   float64 `json:"container_span"`
-	ContainerDepth  float64 `json:"container_depth"`
-	WallThick       float64 `json:"wall_thick"`
+	PipeX          float64 `json:"pipe_x"`
+	PipeY          float64 `json:"pipe_y"`
+	PipeWidth      float64 `json:"pipe_width"`
+	StreamSpread   float64 `json:"stream_spread"`
+	ContainerY     float64 `json:"container_y"`
+	ContainerSpan  float64 `json:"container_span"`
+	ContainerDepth float64 `json:"container_depth"`
+	WallThick      float64 `json:"wall_thick"`
 	// FLOW
-	EmitRate    float64 `json:"emit_rate"`
-	Gravity     float64 `json:"gravity"`
-	Drag        float64 `json:"drag"`
-	Spread      float64 `json:"spread"`
-	Splatter    float64 `json:"splatter_p"`
-	MaxGrains   int     `json:"grain_max"`
-	Repose      float64 `json:"repose"`
-	SettlePerTick int   `json:"settle"`
+	EmitRate      float64 `json:"emit_rate"`
+	Gravity       float64 `json:"gravity"`
+	Drag          float64 `json:"drag"`
+	Spread        float64 `json:"spread"`
+	Splatter      float64 `json:"splatter_p"`
+	MaxGrains     int     `json:"grain_max"`
+	Repose        float64 `json:"repose"`
+	SettlePerTick int     `json:"settle"`
 	// COLOR
 	Hue          float64 `json:"hue"`
 	HueSpread    float64 `json:"hue_sp"`
@@ -273,16 +273,16 @@ func SandSchema() EffectSchema {
 }
 
 type SandState struct {
-	Tick         int       `json:"tick"`
-	SurgeTicks   int       `json:"surgeTicks"`
-	CalmTicks    int       `json:"calmTicks"`
-	IntroTicks   int       `json:"introTicks"`
-	IntroTotal   int       `json:"introTotal"`
-	EndingTicks  int       `json:"endingTicks"`
-	EndingTotal  int       `json:"endingTotal"`
-	EndingFade   int       `json:"endingFade"`
-	Pile         []float64 `json:"pile"`
-	PileLeft     int       `json:"pileLeft"`
+	Tick        int       `json:"tick"`
+	SurgeTicks  int       `json:"surgeTicks"`
+	CalmTicks   int       `json:"calmTicks"`
+	IntroTicks  int       `json:"introTicks"`
+	IntroTotal  int       `json:"introTotal"`
+	EndingTicks int       `json:"endingTicks"`
+	EndingTotal int       `json:"endingTotal"`
+	EndingFade  int       `json:"endingFade"`
+	Pile        []float64 `json:"pile"`
+	PileLeft    int       `json:"pileLeft"`
 }
 
 type SandGrain struct {
@@ -298,7 +298,8 @@ type SandGrain struct {
 
 type SandSnapshot struct {
 	SandState
-	Grains []SandGrain `json:"grains"`
+	RNGState uint64      `json:"rngState,omitempty"`
+	Grains   []SandGrain `json:"grains"`
 }
 
 type SandPersistedState struct {
@@ -403,6 +404,7 @@ func (s *Sand) Snapshot() SandSnapshot {
 	defer s.mu.Unlock()
 	return SandSnapshot{
 		SandState: s.snapshotStateLocked(),
+		RNGState:  s.rng.State(),
 		Grains:    s.copyGrainsLocked(),
 	}
 }
@@ -417,7 +419,11 @@ func (s *Sand) RestoreSnapshot(snap SandSnapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.restoreStateLocked(snap.SandState)
+	if snap.RNGState != 0 {
+		s.rng.SetState(snap.RNGState)
+	}
 	s.restoreGrainsLocked(snap.Grains)
+	s.paintFrameLocked()
 }
 
 func (s *Sand) SnapshotPersistedState() SandPersistedState {
@@ -524,6 +530,10 @@ func (s *Sand) Step() {
 	s.settlePileLocked()
 	s.applyEndingDrainLocked()
 
+	s.paintFrameLocked()
+}
+
+func (s *Sand) paintFrameLocked() {
 	s.clearGridLocked()
 	s.paintContainerLocked()
 	s.paintPileLocked()

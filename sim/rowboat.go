@@ -255,13 +255,19 @@ func (r *Rowboat) EffectiveConfig() RowboatConfig {
 func (r *Rowboat) Snapshot() RowboatSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return RowboatSnapshot{ProceduralState: r.snapshotStateLocked()}
+	return RowboatSnapshot{
+		ProceduralState: r.snapshotStateLocked(),
+		RNGState:        r.rng.State(),
+	}
 }
 
 func (r *Rowboat) RestoreSnapshot(snap RowboatSnapshot) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.restoreStateLocked(snap.ProceduralState)
+	if snap.RNGState != 0 {
+		r.rng.SetState(snap.RNGState)
+	}
 }
 
 func (r *Rowboat) SnapshotPersistedState() RowboatPersistedState {

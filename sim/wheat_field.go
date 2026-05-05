@@ -232,13 +232,19 @@ func (s *WheatField) EffectiveConfig() WheatFieldConfig {
 func (s *WheatField) Snapshot() WheatFieldSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return WheatFieldSnapshot{ProceduralState: s.snapshotStateLocked()}
+	return WheatFieldSnapshot{
+		ProceduralState: s.snapshotStateLocked(),
+		RNGState:        s.rng.State(),
+	}
 }
 
 func (s *WheatField) RestoreSnapshot(snap WheatFieldSnapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.restoreStateLocked(snap.ProceduralState)
+	if snap.RNGState != 0 {
+		s.rng.SetState(snap.RNGState)
+	}
 }
 
 func (s *WheatField) SnapshotPersistedState() WheatFieldPersistedState {

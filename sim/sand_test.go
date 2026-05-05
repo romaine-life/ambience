@@ -18,10 +18,10 @@ func TestNewSandAppliesDefaults(t *testing.T) {
 
 func TestSandStepGrowsPile(t *testing.T) {
 	s := NewSand(96, 56, 1, SandConfig{
-		EmitRate:     2.4,
-		SurgeChance:  0,
-		CalmChance:   0,
-		MaxGrains:    160,
+		EmitRate:    2.4,
+		SurgeChance: 0,
+		CalmChance:  0,
+		MaxGrains:   160,
 	})
 	for i := 0; i < 200; i++ {
 		s.Step()
