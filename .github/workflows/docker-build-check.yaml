@@ -29,13 +29,13 @@ jobs:
             file: Dockerfile
             context: .
             cache-ref: romainecr.azurecr.io/ambience-build-cache:app
-            proof-repo: ambience-build-proof
+            image-repo: ambience
             fingerprint-paths: Dockerfile go.mod go.sum scripts/build-web-wasm.sh rngutil sim cmd/ambience cmd/ambience-wasm
           - name: native-runner
             file: .github/runner/Dockerfile
             context: .
             cache-ref: romainecr.azurecr.io/ambience-build-cache:native-runner
-            proof-repo: ambience-build-proof
+            image-repo: ambience-agent-runner
             # Native-runner only bakes its Dockerfile and runtime scripts.
             # Tooling changes should touch the Dockerfile; script changes are
             # the only repo content copied into the image.
@@ -90,11 +90,10 @@ jobs:
             --image '${{ matrix.name }}' \
             --dockerfile '${{ matrix.file }}' \
             --context '${{ matrix.context }}' \
-            --paths '${{ matrix.fingerprint-paths }}' \
-            --proof-repository '${{ matrix.proof-repo }}'
+            --paths '${{ matrix.fingerprint-paths }}'
 
-      - name: Check ACR build proof
-        id: proof
+      - name: Check ACR candidate image
+        id: candidate
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         shell: bash
         run: |
@@ -102,48 +101,30 @@ jobs:
           tag="${{ steps.fingerprint.outputs.proof_tag }}"
           if az acr repository show-tags \
               --name romainecr \
-              --repository "${{ matrix.proof-repo }}" \
+              --repository "${{ matrix.image-repo }}" \
               --query "[?@=='${tag}'] | [0]" \
               --output tsv | grep -qx "${tag}"; then
             echo "hit=true" >>"${GITHUB_OUTPUT}"
-            echo "Found prior successful build proof: ${{ steps.fingerprint.outputs.proof_ref }}"
+            echo "Found reusable candidate image: romainecr.azurecr.io/${{ matrix.image-repo }}:${tag}"
           else
             echo "hit=false" >>"${GITHUB_OUTPUT}"
-            echo "No build proof found for ${{ matrix.name }} fingerprint ${{ steps.fingerprint.outputs.fingerprint }}"
+            echo "No candidate image found for ${{ matrix.name }} fingerprint ${{ steps.fingerprint.outputs.fingerprint }}"
           fi
 
-      - name: Build image without pushing
-        if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && steps.proof.outputs.hit != 'true'
+      - name: Build and push candidate image
+        if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && steps.candidate.outputs.hit != 'true'
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
-          push: false
-          load: false
+          push: true
+          tags: romainecr.azurecr.io/${{ matrix.image-repo }}:${{ steps.fingerprint.outputs.proof_tag }}
           cache-from: |
             type=registry,ref=${{ matrix.cache-ref }}
             type=gha,scope=${{ matrix.name }}
           cache-to: |
             type=registry,ref=${{ matrix.cache-ref }},mode=max
             type=gha,mode=max,scope=${{ matrix.name }}
-
-      - name: Publish ACR build proof
-        if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && steps.proof.outputs.hit != 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          tmp="$(mktemp -d)"
-          {
-            printf 'FROM scratch\n'
-            printf 'LABEL org.opencontainers.image.title="ambience docker build proof"\n'
-            printf 'LABEL life.romaine.ambience.image="%s"\n' '${{ matrix.name }}'
-            printf 'LABEL life.romaine.ambience.fingerprint="%s"\n' '${{ steps.fingerprint.outputs.fingerprint }}'
-          } >"${tmp}/Dockerfile"
-          docker buildx build \
-            --file "${tmp}/Dockerfile" \
-            --tag "${{ steps.fingerprint.outputs.proof_ref }}" \
-            --push \
-            "${tmp}"
 
       - name: Build image without pushing
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
