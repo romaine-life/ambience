@@ -155,6 +155,9 @@ func TestAuthorityMirrorAppliesMetricAndConfigCommands(t *testing.T) {
 	if gotCfg.Wind != 3 {
 		t.Fatalf("wind = %v, want 3", gotCfg.Wind)
 	}
+	if !configsEqualJSON(got.CurrentScene.Config, cfgData) {
+		t.Fatalf("current scene config = %s, want %s", got.CurrentScene.Config, cfgData)
+	}
 	if got.EntropyBytes != 9 {
 		t.Fatalf("entropy = %d, want 9", got.EntropyBytes)
 	}
@@ -163,6 +166,47 @@ func TestAuthorityMirrorAppliesMetricAndConfigCommands(t *testing.T) {
 	}
 	if got.CurrentScene.Name != "after" || got.NextScene.Name != "next-up" {
 		t.Fatalf("scene names = %q/%q", got.CurrentScene.Name, got.NextScene.Name)
+	}
+}
+
+func TestAuthorityMirrorAppliesSceneConfigs(t *testing.T) {
+	m := &authorityMirror{
+		ctx:       context.Background(),
+		client:    &http.Client{},
+		listeners: make(map[chan Command]struct{}),
+	}
+	m.setSnapshot(snapshotData{
+		Type:         "aurora",
+		Tick:         10,
+		CurrentScene: Scene{Name: "before", Config: mustJSON(t, map[string]any{"hue": 1})},
+		NextScene:    Scene{Name: "later", Config: mustJSON(t, map[string]any{"hue": 2})},
+	}, "10")
+
+	currentConfig := mustJSON(t, map[string]any{"hue": 3})
+	nextConfig := mustJSON(t, map[string]any{"hue": 4})
+	sceneData := mustJSON(t, map[string]any{
+		"name":            "after",
+		"config":          currentConfig,
+		"durationTicks":   88,
+		"startedAtTick":   12,
+		"nextName":        "next-up",
+		"nextConfig":      nextConfig,
+		"transitionTicks": 0,
+	})
+	m.applyCommand(Command{ID: "11", Kind: "scene", Tick: 12, Data: sceneData})
+
+	got, _, ok := m.snapshot()
+	if !ok {
+		t.Fatal("mirror did not retain snapshot")
+	}
+	if got.CurrentScene.Name != "after" || got.NextScene.Name != "next-up" {
+		t.Fatalf("scene names = %q/%q", got.CurrentScene.Name, got.NextScene.Name)
+	}
+	if !configsEqualJSON(got.CurrentScene.Config, currentConfig) {
+		t.Fatalf("current scene config = %s, want %s", got.CurrentScene.Config, currentConfig)
+	}
+	if !configsEqualJSON(got.NextScene.Config, nextConfig) {
+		t.Fatalf("next scene config = %s, want %s", got.NextScene.Config, nextConfig)
 	}
 }
 

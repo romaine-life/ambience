@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/nelsong6/ambience/rngutil"
 	"github.com/nelsong6/ambience/sim"
 )
 
@@ -49,6 +50,7 @@ type effectDefinition struct {
 	Type       string
 	Schema     func() sim.EffectSchema
 	NewRuntime func(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error)
+	NewScene   func(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
 }
 
 // effectRegistry is populated at package init time by each effect_*.go file's

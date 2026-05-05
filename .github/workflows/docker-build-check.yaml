@@ -29,10 +29,20 @@ jobs:
             file: Dockerfile
             context: .
             cache-ref: romainecr.azurecr.io/ambience-build-cache:app
+            proof-repo: ambience-build-proof
+            # The app Dockerfile copies the repository context after dependency
+            # restore. Hash all tracked files so this stays conservative while
+            # the Dockerfile still uses COPY . .
+            fingerprint-paths: .
           - name: native-runner
             file: .github/runner/Dockerfile
             context: .
             cache-ref: romainecr.azurecr.io/ambience-build-cache:native-runner
+            proof-repo: ambience-build-proof
+            # Native-runner only bakes its Dockerfile and runtime scripts.
+            # Tooling changes should touch the Dockerfile; script changes are
+            # the only repo content copied into the image.
+            fingerprint-paths: .github/runner/Dockerfile scripts/glimmung-native
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -74,8 +84,68 @@ jobs:
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         run: az acr login --name romainecr
 
-      - name: Build image without pushing
+      - name: Compute image fingerprint
+        id: fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tmp="$(mktemp -d)"
+          manifest="${tmp}/manifest.txt"
+          : >"${manifest}"
+
+          for path in ${{ matrix.fingerprint-paths }}; do
+            if [[ "${path}" == "." ]]; then
+              git ls-files -z \
+                | sort -z \
+                | xargs -0 sha256sum >>"${manifest}"
+            elif [[ -d "${path}" ]]; then
+              git ls-files -z -- "${path}" \
+                | sort -z \
+                | xargs -0 sha256sum >>"${manifest}"
+            elif [[ -f "${path}" ]]; then
+              sha256sum "${path}" >>"${manifest}"
+            else
+              echo "::error::Fingerprint input '${path}' does not exist"
+              exit 1
+            fi
+          done
+
+          {
+            printf 'image=%s\n' '${{ matrix.name }}'
+            printf 'dockerfile=%s\n' '${{ matrix.file }}'
+            printf 'context=%s\n' '${{ matrix.context }}'
+            printf 'buildx=docker/build-push-action@v6\n'
+          } >>"${manifest}"
+
+          fingerprint="$(sha256sum "${manifest}" | cut -d' ' -f1)"
+          tag="${{ matrix.name }}-${fingerprint}"
+          echo "fingerprint=${fingerprint}" >>"${GITHUB_OUTPUT}"
+          echo "proof_tag=${tag}" >>"${GITHUB_OUTPUT}"
+          echo "proof_ref=romainecr.azurecr.io/${{ matrix.proof-repo }}:${tag}" >>"${GITHUB_OUTPUT}"
+          echo "Fingerprint ${{ matrix.name }} ${fingerprint}"
+
+      - name: Check ACR build proof
+        id: proof
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.fingerprint.outputs.proof_tag }}"
+          if az acr repository show-tags \
+              --name romainecr \
+              --repository "${{ matrix.proof-repo }}" \
+              --query "[?@=='${tag}'] | [0]" \
+              --output tsv | grep -qx "${tag}"; then
+            echo "hit=true" >>"${GITHUB_OUTPUT}"
+            echo "Found prior successful build proof: ${{ steps.fingerprint.outputs.proof_ref }}"
+          else
+            echo "hit=false" >>"${GITHUB_OUTPUT}"
+            echo "No build proof found for ${{ matrix.name }} fingerprint ${{ steps.fingerprint.outputs.fingerprint }}"
+          fi
+
+      - name: Build image without pushing
+        if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && steps.proof.outputs.hit != 'true'
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -88,6 +158,24 @@ jobs:
           cache-to: |
             type=registry,ref=${{ matrix.cache-ref }},mode=max
             type=gha,mode=max,scope=${{ matrix.name }}
+
+      - name: Publish ACR build proof
+        if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && steps.proof.outputs.hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          {
+            printf 'FROM scratch\n'
+            printf 'LABEL org.opencontainers.image.title="ambience docker build proof"\n'
+            printf 'LABEL life.romaine.ambience.image="%s"\n' '${{ matrix.name }}'
+            printf 'LABEL life.romaine.ambience.fingerprint="%s"\n' '${{ steps.fingerprint.outputs.fingerprint }}'
+          } >"${tmp}/Dockerfile"
+          docker buildx build \
+            --file "${tmp}/Dockerfile" \
+            --tag "${{ steps.fingerprint.outputs.proof_ref }}" \
+            --push \
+            "${tmp}"
 
       - name: Build image without pushing
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository

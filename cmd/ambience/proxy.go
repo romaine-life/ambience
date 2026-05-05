@@ -520,18 +520,27 @@ func (m *authorityMirror) applyCommand(cmd Command) {
 	switch cmd.Kind {
 	case "config":
 		m.snap.Config = cloneRaw(cmd.Data)
+		m.snap.CurrentScene.Config = cloneRaw(cmd.Data)
 	case "scene":
 		var data struct {
-			Name          string `json:"name"`
-			DurationTicks int    `json:"durationTicks"`
-			StartedAtTick int    `json:"startedAtTick"`
-			NextName      string `json:"nextName"`
+			Name          string          `json:"name"`
+			Config        json.RawMessage `json:"config"`
+			DurationTicks int             `json:"durationTicks"`
+			StartedAtTick int             `json:"startedAtTick"`
+			NextName      string          `json:"nextName"`
+			NextConfig    json.RawMessage `json:"nextConfig"`
 		}
 		if err := json.Unmarshal(cmd.Data, &data); err == nil {
 			m.snap.CurrentScene.Name = data.Name
+			if len(data.Config) > 0 {
+				m.snap.CurrentScene.Config = cloneRaw(data.Config)
+			}
 			m.snap.CurrentScene.DurationTicks = data.DurationTicks
 			m.snap.CurrentScene.StartedAtTick = data.StartedAtTick
 			m.snap.NextScene.Name = data.NextName
+			if len(data.NextConfig) > 0 {
+				m.snap.NextScene.Config = cloneRaw(data.NextConfig)
+			}
 			m.snap.SceneRemaining = data.DurationTicks
 		}
 	case "metric":

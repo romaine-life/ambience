@@ -1,11 +1,12 @@
-// Scene is a time-bounded Rain configuration. The atmosphere keeps a single-
-// slot lookahead (current + next) and transitions when current's DurationTicks
-// elapses. Each scene is freshly generated from the atmosphere's RNG, so
-// entropy contributed via AddEntropy naturally biases future scene generation —
-// no separate wiring needed.
+// Scene is a time-bounded effect configuration. The atmosphere keeps a
+// single-slot lookahead (current + next) and transitions when current's
+// DurationTicks elapses. Each scene is freshly generated from the atmosphere's
+// RNG, so entropy contributed via AddEntropy naturally biases future scene
+// generation.
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -15,10 +16,10 @@ import (
 )
 
 type Scene struct {
-	Name          string     `json:"name"`
-	Config        sim.Config `json:"config"`
-	DurationTicks int        `json:"durationTicks"`
-	StartedAtTick int        `json:"startedAtTick"`
+	Name          string          `json:"name"`
+	Config        json.RawMessage `json:"config,omitempty"`
+	DurationTicks int             `json:"durationTicks"`
+	StartedAtTick int             `json:"startedAtTick"`
 }
 
 // Remaining returns ticks left before transition. Clamps at zero.
@@ -31,23 +32,42 @@ func (s Scene) Remaining(currentTick int) int {
 }
 
 func generateEffectScene(effectType string, rng *rngutil.RNG, startedAt int, durationTicks int) Scene {
-	if effectType == "rain" {
-		return generateScene(rng, startedAt)
+	if def, ok := lookupEffectDefinition(effectType); ok && def.NewScene != nil {
+		return def.NewScene(rng, startedAt, durationTicks)
 	}
+	return generateSchemaScene(effectType, rng, startedAt, durationTicks)
+}
+
+func generateSchemaScene(effectType string, rng *rngutil.RNG, startedAt int, durationTicks int) Scene {
 	if durationTicks <= 0 {
 		durationTicks = sceneDurationTicks(rng)
 	}
+	configData := randomEffectSceneConfig(effectType, rng)
 	return Scene{
 		Name:          nameForEffectScene(effectType, rng),
+		Config:        configData,
 		DurationTicks: durationTicks,
 		StartedAtTick: startedAt,
 	}
 }
 
-// generateScene produces a Scene using rng. Duration is randomized across
+func randomEffectSceneConfig(effectType string, rng *rngutil.RNG) json.RawMessage {
+	schema, ok := schemaForEffect(effectType)
+	if !ok {
+		return nil
+	}
+	data, err := randomizedDevConfig(schema, rng.Int63())
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+// generateRainScene produces a Scene using rng. Duration is randomized across
 // 1–4 hours (36k–144k ticks at 10 Hz). The config ranges are kept within
 // sim-safe bounds so any generated scene is guaranteed to look reasonable.
-func generateScene(rng *rngutil.RNG, startedAt int) Scene {
+func generateRainScene(rng *rngutil.RNG, startedAt int, durationTicks int) Scene {
+	_ = durationTicks
 	hue := rng.Float64() * 360
 	hueSpread := 10 + rng.Float64()*50     // 10–60°
 	sat := 0.4 + rng.Float64()*0.5         // 0.4–0.9
@@ -94,10 +114,10 @@ func generateScene(rng *rngutil.RNG, startedAt int) Scene {
 		SplashChance:   splashP,
 		// Event modifiers fall through to withDefaults().
 	}
-
+	configData, _ := json.Marshal(cfg)
 	return Scene{
-		Name:          nameFor(cfg),
-		Config:        cfg,
+		Name:          nameForRainConfig(cfg),
+		Config:        configData,
 		DurationTicks: sceneDurationTicks(rng),
 		StartedAtTick: startedAt,
 	}
@@ -117,7 +137,7 @@ func sceneDurationTicks(rng *rngutil.RNG) int {
 // nameFor derives a short human-readable descriptor from a generated config.
 // Format: `<hue>-<pace>-<density>` e.g. `warm-fast-drizzle`,
 // `cool-calm-downpour`. Used in logs and the / status panel.
-func nameFor(cfg sim.Config) string {
+func nameForRainConfig(cfg sim.Config) string {
 	var hueName string
 	switch {
 	case cfg.Hue < 45 || cfg.Hue >= 340:
