@@ -8,7 +8,43 @@ const repoRoot = path.resolve(import.meta.dirname, '..');
 const clientPath = path.join(repoRoot, 'cmd', 'ambience', 'web', 'client.js');
 const clientSource = fs.readFileSync(clientPath, 'utf8');
 
-function makeConsumer(name) {
+function makeEffectClass(kind) {
+	return class ScriptedEffect {
+		constructor(w, h) {
+			this.kind = kind;
+			this.w = w;
+			this.h = h;
+			this.tick = 0;
+			this.configVersion = 0;
+			this.triggers = [];
+			this.grid = new Uint8ClampedArray(w * h * 3);
+		}
+		restoreSnapshot(snap) {
+			this.tick = snap.tick || 0;
+			this.configVersion = snap.config?.version || 0;
+			this.triggers = Array.isArray(snap.state?.triggers) ? snap.state.triggers.slice() : [];
+		}
+		setConfig(cfg) {
+			this.configVersion = cfg?.version || 0;
+		}
+		triggerEvent(event) {
+			this.triggers.push(`${event}@${this.tick}`);
+		}
+		step() {
+			this.tick++;
+		}
+		render() {}
+		getDebugState() {
+			return {
+				kind: this.kind,
+				configVersion: this.configVersion,
+				triggers: this.triggers.slice(),
+			};
+		}
+	};
+}
+
+function makeConsumer(name, effects) {
 	let now = 0;
 	const intervals = [];
 	const streams = [];
@@ -32,33 +68,6 @@ function makeConsumer(name) {
 		},
 		insertAdjacentElement() {},
 	};
-
-	class ScriptedEffect {
-		constructor(w, h) {
-			this.kind = 'scripted';
-			this.w = w;
-			this.h = h;
-			this.tick = 0;
-			this.configVersion = 0;
-			this.triggers = [];
-			this.grid = new Uint8ClampedArray(w * h * 3);
-		}
-		restoreSnapshot(snap) {
-			this.tick = snap.tick || 0;
-			this.configVersion = snap.config?.version || 0;
-			this.triggers = Array.isArray(snap.state?.triggers) ? snap.state.triggers.slice() : [];
-		}
-		setConfig(cfg) {
-			this.configVersion = cfg?.version || 0;
-		}
-		triggerEvent(event) {
-			this.triggers.push(`${event}@${this.tick}`);
-		}
-		step() {
-			this.tick++;
-		}
-		render() {}
-	}
 
 	class FakeEventSource {
 		constructor(url) {
@@ -116,7 +125,34 @@ function makeConsumer(name) {
 		},
 		window: {
 			AmbienceSim: {
-				effects: { scripted: ScriptedEffect },
+				effects,
+				EffectTransition: class EffectTransition {
+					constructor(outgoing, incoming) {
+						this.isTransition = true;
+						this.outgoing = outgoing;
+						this.incoming = incoming;
+						this.elapsed = 0;
+						this.duration = 3;
+					}
+					step() {
+						this.outgoing.step();
+						this.incoming.step();
+						this.elapsed++;
+					}
+					done() {
+						return this.elapsed >= this.duration;
+					}
+					render() {}
+					setConfig(cfg) {
+						this.incoming.setConfig(cfg);
+					}
+					triggerEvent(event) {
+						this.incoming.triggerEvent(event);
+					}
+					restoreSnapshot(snap) {
+						this.incoming.restoreSnapshot(snap);
+					}
+				},
 				wasm: { ready: async () => {} },
 			},
 			addEventListener() {},
@@ -157,6 +193,14 @@ function send(stream, kind, tick, data, extra) {
 	stream.emit(kind, tick, data, extra);
 }
 
+function plain(value) {
+	return JSON.parse(JSON.stringify(value));
+}
+
+function assertDeepField(left, right, field, label) {
+	assert.deepEqual(plain(left[field]), plain(right[field]), `${label}: ${field}`);
+}
+
 function assertAligned(a, b, label) {
 	const left = a.state();
 	const right = b.state();
@@ -165,10 +209,21 @@ function assertAligned(a, b, label) {
 	assert.equal(left.playbackTick, right.playbackTick, `${label}: playback tick`);
 	assert.equal(left.authorityTick, right.authorityTick, `${label}: authority tick`);
 	assert.equal(left.queuedCommands, right.queuedCommands, `${label}: queued commands`);
+	assertDeepField(left, right, 'scene', label);
+	assertDeepField(left, right, 'sim', label);
+	assert.equal(left.lastError, right.lastError, `${label}: last error`);
 }
 
-const a = makeConsumer('consumer-a');
-const b = makeConsumer('consumer-b');
+const effects = {
+	scripted: makeEffectClass('scripted'),
+	rotated: makeEffectClass('rotated'),
+};
+for (const required of ['scripted', 'rotated']) {
+	assert.equal(typeof effects[required], 'function', `test registry missing ${required}`);
+}
+
+const a = makeConsumer('consumer-a', effects);
+const b = makeConsumer('consumer-b', effects);
 await new Promise((resolve) => setImmediate(resolve));
 
 for (const consumer of [a, b]) {
@@ -180,8 +235,22 @@ for (const consumer of [a, b]) {
 		seed: 42,
 		gridW: 4,
 		gridH: 3,
+		currentScene: { name: 'scene-a', durationTicks: 80, startedAtTick: 0 },
+		nextScene: { name: 'scene-b', durationTicks: 90, startedAtTick: 80 },
+		sceneRemaining: 80,
 	});
 	send(consumer.stream, 'clock', 20, { tick: 20, tickRateMs: 100, suggestedDelayTicks: 5 });
+	send(consumer.stream, 'scene', 8, {
+		name: 'scene-c',
+		nextName: 'scene-d',
+		durationTicks: 70,
+		startedAtTick: 8,
+	});
+	send(consumer.stream, 'metric', 9, {
+		currentName: 'scene-c',
+		nextName: 'scene-d',
+		sceneRemaining: 61,
+	});
 	send(consumer.stream, 'config', 10, { version: 2 });
 	send(consumer.stream, 'trigger', 12, {}, { event: 'gust' });
 }
@@ -193,6 +262,15 @@ for (let i = 0; i < 20; i++) {
 assertAligned(a, b, 'steady buffered playback');
 assert.ok(Math.abs(a.state().driftTicks) <= 1, 'clients converge to the delayed authority tick');
 assert.equal(a.state().queuedCommands, 0, 'queued authority commands were applied');
+assert.equal(a.state().sim.configVersion, 2, 'config command applied at playback tick');
+assert.deepEqual(plain(a.state().sim.triggers), ['gust@11'], 'trigger command applied before stepping into command tick');
+assert.deepEqual(plain(a.state().scene), {
+	currentName: 'scene-c',
+	nextName: 'scene-d',
+	sceneRemaining: 61,
+	durationTicks: 70,
+	startedAtTick: 8,
+}, 'scene and metric commands update observable scene metadata');
 
 // Simulate hidden-tab or scheduling delay. Both clients receive the same later
 // authority sample and converge to the same delayed playback tick.
@@ -208,22 +286,68 @@ for (let i = 0; i < 20; i++) {
 assertAligned(a, b, 'resume catch-up');
 assert.ok(a.state().simTick > 15, 'clients catch up after a delayed authority sample');
 
+// Effect rotation arrives as an authority snapshot with a new type. Both
+// clients should instantiate the same incoming effect and converge after the
+// transition wrapper finishes.
+for (const consumer of [a, b]) {
+	send(consumer.stream, 'snapshot', 70, {
+		type: 'rotated',
+		tick: 70,
+		config: { version: 7 },
+		state: { triggers: ['rotate@70'] },
+		seed: 77,
+		gridW: 4,
+		gridH: 3,
+		currentScene: { name: 'rotated-scene', durationTicks: 100, startedAtTick: 70 },
+		nextScene: { name: 'rotated-next', durationTicks: 100, startedAtTick: 170 },
+		sceneRemaining: 100,
+	});
+}
+for (let i = 0; i < 5; i++) {
+	a.advance();
+	b.advance();
+}
+assertAligned(a, b, 'effect rotation');
+assert.equal(a.state().effectType, 'rotated', 'effect rotation changes type');
+assert.equal(a.state().sim.kind, 'rotated', 'debug state follows incoming rotated effect');
+assert.equal(a.state().sim.configVersion, 7, 'rotated snapshot config restored');
+assert.deepEqual(plain(a.state().sim.triggers), ['rotate@70'], 'rotated snapshot state restored');
+
 // A reconnect-style fresh snapshot should bring both clients to the same
 // visible phase immediately, without waiting for the next effect rotation.
 for (const consumer of [a, b]) {
 	send(consumer.stream, 'snapshot', 90, {
-		type: 'scripted',
+		type: 'rotated',
 		tick: 90,
 		config: { version: 3 },
 		state: { triggers: ['resume@90'] },
 		seed: 42,
 		gridW: 4,
 		gridH: 3,
+		currentScene: { name: 'resume-scene', durationTicks: 40, startedAtTick: 90 },
+		nextScene: { name: 'resume-next', durationTicks: 40, startedAtTick: 130 },
+		sceneRemaining: 40,
 	});
 }
 a.advance();
 b.advance();
 assertAligned(a, b, 'fresh snapshot convergence');
 assert.equal(a.state().simTick, 90, 'fresh snapshot restores the visible phase');
+assert.equal(a.state().sim.configVersion, 3, 'fresh snapshot replaces prior config state');
+assert.deepEqual(plain(a.state().sim.triggers), ['resume@90'], 'fresh snapshot replaces prior trigger history');
+
+// Unsupported live effect types should be visible as registry failures instead
+// of silently switching consumers into different worlds.
+for (const consumer of [a, b]) {
+	send(consumer.stream, 'snapshot', 100, {
+		type: 'missing-effect',
+		tick: 100,
+		config: {},
+		state: {},
+	});
+}
+assertAligned(a, b, 'unsupported effect handling');
+assert.equal(a.state().effectType, 'rotated', 'unsupported effect does not replace active effect');
+assert.match(a.state().lastError, /unknown effect type: missing-effect/);
 
 console.log('cross-consumer client sync harness ok');
