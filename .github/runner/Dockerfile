@@ -30,7 +30,11 @@ RUN printf '%s\n' \
         '  attempt=$((attempt + 1))' \
         'done' \
         >/usr/local/bin/apt-retry \
-    && chmod +x /usr/local/bin/apt-retry
+    && chmod +x /usr/local/bin/apt-retry \
+    && find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -print0 \
+        | xargs -0 sed -i \
+            -e 's|http://archive.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' \
+            -e 's|http://security.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g'
 
 RUN apt-retry update \
     && apt-retry install \
