@@ -62,7 +62,7 @@
 			const drift = target - current;
 			if (drift <= 0) return 0;
 			if (drift > hardCatchupDrift) return maxCatchupSteps;
-			if (drift > softCatchupDrift) return Math.min(maxCatchupSteps, 2);
+			if (drift > 1) return Math.min(maxCatchupSteps, 2);
 			return 1;
 		}
 
@@ -271,6 +271,12 @@
 					try { sim.restoreSnapshot(data); } catch (err) { console.error('bad snapshot', err); }
 				}
 				ready = true;
+				if (Number.isFinite(data && data.tick)) {
+					for (let i = pendingCommands.length - 1; i >= 0; i--) {
+						const queuedTick = Number.isFinite(pendingCommands[i].cmd.tick) ? pendingCommands[i].cmd.tick : data.tick;
+						if (queuedTick <= data.tick) pendingCommands.splice(i, 1);
+					}
+				}
 				break;
 			}
 			case 'config':
@@ -313,11 +319,7 @@
 			const data = typeof cmd.data === 'string' ? JSON.parse(cmd.data) : cmd.data;
 			switch (cmd.kind) {
 				case 'snapshot':
-					if (!ready) {
-						applyCommandNow(cmd, data);
-					} else {
-						queueCommand(cmd, data);
-					}
+					applyCommandNow(cmd, data);
 					break;
 				case 'metric':
 				case 'scene':

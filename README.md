@@ -149,6 +149,12 @@ tick, local sim tick, drift, queue depth, and active effect type; use it to
 compare `ambience.romaine.life` with subscribers such as
 `homepage.romaine.life` without adding transport volume.
 
+The deterministic client-side sync harness lives at
+`scripts/test-client-sync.mjs`. It runs two isolated browser-client
+instances against the same scripted authority stream and checks that they
+stay aligned through buffered playback, queued config/trigger commands, a
+resume-style catch-up, and a fresh snapshot convergence path.
+
 ## Effects model
 
 Every effect fills a 5-slot template — see
