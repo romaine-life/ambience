@@ -30,10 +30,7 @@ jobs:
             context: .
             cache-ref: romainecr.azurecr.io/ambience-build-cache:app
             proof-repo: ambience-build-proof
-            # The app Dockerfile copies the repository context after dependency
-            # restore. Hash all tracked files so this stays conservative while
-            # the Dockerfile still uses COPY . .
-            fingerprint-paths: .
+            fingerprint-paths: Dockerfile go.mod go.sum scripts/build-web-wasm.sh rngutil sim cmd/ambience cmd/ambience-wasm
           - name: native-runner
             file: .github/runner/Dockerfile
             context: .
