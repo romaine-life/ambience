@@ -255,13 +255,19 @@ func (v *Volcano) EffectiveConfig() VolcanoConfig {
 func (v *Volcano) Snapshot() VolcanoSnapshot {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	return VolcanoSnapshot{ProceduralState: v.snapshotStateLocked()}
+	return VolcanoSnapshot{
+		ProceduralState: v.snapshotStateLocked(),
+		RNGState:        v.rng.State(),
+	}
 }
 
 func (v *Volcano) RestoreSnapshot(snap VolcanoSnapshot) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.restoreStateLocked(snap.ProceduralState)
+	if snap.RNGState != 0 {
+		v.rng.SetState(snap.RNGState)
+	}
 }
 
 func (v *Volcano) SnapshotPersistedState() VolcanoPersistedState {

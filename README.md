@@ -208,6 +208,12 @@ clone their exact engine.
   state in snapshots and deterministic replay paths that independent
   clients can render the same phase of the same scene like synchronized
   clocks.
+- Before an effect becomes live/promotable, `go test ./sim ./cmd/ambience`
+  must pass the replay audit. Client-facing snapshots need the current
+  tick, config, visible particle/timer state, and RNG cursor (`rngState`);
+  restore must repaint an immediately comparable frame, accept schema
+  triggers deterministically, and keep post-restore frames and snapshot
+  state equal after future random draws.
 
 ## Entropy
 

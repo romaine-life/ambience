@@ -246,13 +246,19 @@ func (u *Underwater) EffectiveConfig() UnderwaterConfig {
 func (u *Underwater) Snapshot() UnderwaterSnapshot {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	return UnderwaterSnapshot{ProceduralState: u.snapshotStateLocked()}
+	return UnderwaterSnapshot{
+		ProceduralState: u.snapshotStateLocked(),
+		RNGState:        u.rng.State(),
+	}
 }
 
 func (u *Underwater) RestoreSnapshot(snap UnderwaterSnapshot) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	u.restoreStateLocked(snap.ProceduralState)
+	if snap.RNGState != 0 {
+		u.rng.SetState(snap.RNGState)
+	}
 }
 
 func (u *Underwater) SnapshotPersistedState() UnderwaterPersistedState {

@@ -241,7 +241,8 @@ type DustMote struct {
 
 type DustSnapshot struct {
 	DustState
-	Motes []DustMote `json:"motes"`
+	RNGState uint64     `json:"rngState,omitempty"`
+	Motes    []DustMote `json:"motes"`
 }
 
 type DustPersistedState struct {
@@ -343,6 +344,7 @@ func (d *Dust) Snapshot() DustSnapshot {
 	defer d.mu.Unlock()
 	return DustSnapshot{
 		DustState: d.snapshotStateLocked(),
+		RNGState:  d.rng.State(),
 		Motes:     d.copyMotesLocked(),
 	}
 }
@@ -357,6 +359,9 @@ func (d *Dust) RestoreSnapshot(s DustSnapshot) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.restoreStateLocked(s.DustState)
+	if s.RNGState != 0 {
+		d.rng.SetState(s.RNGState)
+	}
 	d.restoreMotesLocked(s.Motes)
 	d.rebuildGridLocked()
 }

@@ -247,13 +247,19 @@ func (a *Aurora) EffectiveConfig() AuroraConfig {
 func (a *Aurora) Snapshot() AuroraSnapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return AuroraSnapshot{ProceduralState: a.snapshotStateLocked()}
+	return AuroraSnapshot{
+		ProceduralState: a.snapshotStateLocked(),
+		RNGState:        a.rng.State(),
+	}
 }
 
 func (a *Aurora) RestoreSnapshot(snap AuroraSnapshot) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.restoreStateLocked(snap.ProceduralState)
+	if snap.RNGState != 0 {
+		a.rng.SetState(snap.RNGState)
+	}
 }
 
 func (a *Aurora) SnapshotPersistedState() AuroraPersistedState {

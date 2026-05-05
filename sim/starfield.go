@@ -214,13 +214,19 @@ func (s *Starfield) EffectiveConfig() StarfieldConfig {
 func (s *Starfield) Snapshot() StarfieldSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return StarfieldSnapshot{ProceduralState: s.snapshotStateLocked()}
+	return StarfieldSnapshot{
+		ProceduralState: s.snapshotStateLocked(),
+		RNGState:        s.rng.State(),
+	}
 }
 
 func (s *Starfield) RestoreSnapshot(snap StarfieldSnapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.restoreStateLocked(snap.ProceduralState)
+	if snap.RNGState != 0 {
+		s.rng.SetState(snap.RNGState)
+	}
 }
 
 func (s *Starfield) SnapshotPersistedState() StarfieldPersistedState {

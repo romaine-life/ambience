@@ -228,13 +228,19 @@ func (c *Campfire) EffectiveConfig() CampfireConfig {
 func (c *Campfire) Snapshot() CampfireSnapshot {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return CampfireSnapshot{ProceduralState: c.snapshotStateLocked()}
+	return CampfireSnapshot{
+		ProceduralState: c.snapshotStateLocked(),
+		RNGState:        c.rng.State(),
+	}
 }
 
 func (c *Campfire) RestoreSnapshot(snap CampfireSnapshot) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.restoreStateLocked(snap.ProceduralState)
+	if snap.RNGState != 0 {
+		c.rng.SetState(snap.RNGState)
+	}
 }
 
 func (c *Campfire) SnapshotPersistedState() CampfirePersistedState {

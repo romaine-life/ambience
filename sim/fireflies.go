@@ -172,13 +172,14 @@ type Firefly struct {
 
 type FirefliesSnapshot struct {
 	FirefliesState
+	RNGState  uint64    `json:"rngState,omitempty"`
 	Fireflies []Firefly `json:"fireflies"`
 }
 
 type FirefliesPersistedState struct {
 	FirefliesState
-	RNGState  uint64     `json:"rngState"`
-	Fireflies []Firefly  `json:"fireflies"`
+	RNGState  uint64    `json:"rngState"`
+	Fireflies []Firefly `json:"fireflies"`
 }
 
 // Fireflies is a drifting-light simulation used for the Fireflies effect.
@@ -272,6 +273,7 @@ func (f *Fireflies) Snapshot() FirefliesSnapshot {
 	defer f.mu.Unlock()
 	return FirefliesSnapshot{
 		FirefliesState: f.snapshotStateLocked(),
+		RNGState:       f.rng.State(),
 		Fireflies:      f.copyFirefliesLocked(),
 	}
 }
@@ -286,7 +288,11 @@ func (f *Fireflies) RestoreSnapshot(s FirefliesSnapshot) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.restoreStateLocked(s.FirefliesState)
+	if s.RNGState != 0 {
+		f.rng.SetState(s.RNGState)
+	}
 	f.restoreFirefliesLocked(s.Fireflies)
+	f.paintFrameLocked()
 }
 
 func (f *Fireflies) SnapshotPersistedState() FirefliesPersistedState {
@@ -403,11 +409,7 @@ func (f *Fireflies) Step() {
 		f.appendLog("calm", fmt.Sprintf("started (dur=%d)", f.calmTicks))
 	}
 
-	for y := range f.Grid {
-		for x := range f.Grid[y] {
-			f.Grid[y][x] = Pixel{}
-		}
-	}
+	f.clearGridLocked()
 
 	spawnEvery := f.cfg.SpawnEvery
 	if f.calmTicks > 0 {
@@ -423,7 +425,22 @@ func (f *Fireflies) Step() {
 	for i := range f.fireflies {
 		ff := &f.fireflies[i]
 		f.stepFirefly(ff)
-		f.paintFirefly(*ff)
+	}
+	f.paintFrameLocked()
+}
+
+func (f *Fireflies) clearGridLocked() {
+	for y := range f.Grid {
+		for x := range f.Grid[y] {
+			f.Grid[y][x] = Pixel{}
+		}
+	}
+}
+
+func (f *Fireflies) paintFrameLocked() {
+	f.clearGridLocked()
+	for _, ff := range f.fireflies {
+		f.paintFirefly(ff)
 	}
 }
 

@@ -230,13 +230,19 @@ func (s *Snow) EffectiveConfig() SnowConfig {
 func (s *Snow) Snapshot() SnowSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return SnowSnapshot{ProceduralState: s.snapshotStateLocked()}
+	return SnowSnapshot{
+		ProceduralState: s.snapshotStateLocked(),
+		RNGState:        s.rng.State(),
+	}
 }
 
 func (s *Snow) RestoreSnapshot(snap SnowSnapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.restoreStateLocked(snap.ProceduralState)
+	if snap.RNGState != 0 {
+		s.rng.SetState(snap.RNGState)
+	}
 }
 
 func (s *Snow) SnapshotPersistedState() SnowPersistedState {

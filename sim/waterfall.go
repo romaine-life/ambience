@@ -270,8 +270,9 @@ type WaterfallRipple struct {
 
 type WaterfallSnapshot struct {
 	WaterfallState
-	Mists   []WaterfallMist   `json:"mists"`
-	Ripples []WaterfallRipple `json:"ripples"`
+	RNGState uint64            `json:"rngState,omitempty"`
+	Mists    []WaterfallMist   `json:"mists"`
+	Ripples  []WaterfallRipple `json:"ripples"`
 }
 
 type WaterfallPersistedState struct {
@@ -371,6 +372,7 @@ func (w *Waterfall) Snapshot() WaterfallSnapshot {
 	defer w.mu.Unlock()
 	return WaterfallSnapshot{
 		WaterfallState: w.snapshotStateLocked(),
+		RNGState:       w.rng.State(),
 		Mists:          w.copyMistsLocked(),
 		Ripples:        w.copyRipplesLocked(),
 	}
@@ -386,8 +388,12 @@ func (w *Waterfall) RestoreSnapshot(s WaterfallSnapshot) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.restoreStateLocked(s.WaterfallState)
+	if s.RNGState != 0 {
+		w.rng.SetState(s.RNGState)
+	}
 	w.restoreMistsLocked(s.Mists)
 	w.restoreRipplesLocked(s.Ripples)
+	w.paintFrameLocked()
 }
 
 func (w *Waterfall) SnapshotPersistedState() WaterfallPersistedState {
@@ -512,6 +518,10 @@ func (w *Waterfall) Step() {
 	w.stepRipplesLocked()
 	w.stepRippleSpawnerLocked()
 	w.stepMistSpawnerLocked()
+	w.paintFrameLocked()
+}
+
+func (w *Waterfall) paintFrameLocked() {
 	w.clearGridLocked()
 	w.paintPoolLocked()
 	w.paintSheetLocked()

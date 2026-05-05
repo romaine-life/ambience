@@ -491,6 +491,7 @@ type Splash struct {
 // into the current simulation without waiting for new particles to spawn.
 type RainSnapshot struct {
 	State
+	RNGState uint64   `json:"rngState,omitempty"`
 	Drops    []Drop   `json:"drops"`
 	Splashes []Splash `json:"splashes"`
 }
@@ -523,6 +524,7 @@ func (r *Rain) Snapshot() RainSnapshot {
 	defer r.mu.Unlock()
 	return RainSnapshot{
 		State:    r.snapshotStateLocked(),
+		RNGState: r.rng.State(),
 		Drops:    r.copyDropsLocked(),
 		Splashes: r.copySplashesLocked(),
 	}
@@ -585,6 +587,9 @@ func (r *Rain) RestoreSnapshot(s RainSnapshot) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.restoreStateLocked(s.State)
+	if s.RNGState != 0 {
+		r.rng.SetState(s.RNGState)
+	}
 	r.restoreParticlesLocked(s.Drops, s.Splashes)
 }
 

@@ -329,6 +329,7 @@ type WaterPipeRunoff struct {
 
 type WaterPipeSnapshot struct {
 	WaterPipeState
+	RNGState uint64             `json:"rngState,omitempty"`
 	Droplets []WaterPipeDroplet `json:"droplets"`
 	Ripples  []WaterPipeRipple  `json:"ripples"`
 	Runoff   []WaterPipeRunoff  `json:"runoff"`
@@ -423,6 +424,7 @@ func (p *WaterPipe) Snapshot() WaterPipeSnapshot {
 	defer p.mu.Unlock()
 	return WaterPipeSnapshot{
 		WaterPipeState: p.snapshotStateLocked(),
+		RNGState:       p.rng.State(),
 		Droplets:       p.copyDropletsLocked(),
 		Ripples:        p.copyRipplesLocked(),
 		Runoff:         p.copyRunoffLocked(),
@@ -439,9 +441,13 @@ func (p *WaterPipe) RestoreSnapshot(s WaterPipeSnapshot) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.restoreStateLocked(s.WaterPipeState)
+	if s.RNGState != 0 {
+		p.rng.SetState(s.RNGState)
+	}
 	p.restoreDropletsLocked(s.Droplets)
 	p.restoreRipplesLocked(s.Ripples)
 	p.restoreRunoffLocked(s.Runoff)
+	p.paintFrameLocked()
 }
 
 func (p *WaterPipe) SnapshotPersistedState() WaterPipePersistedState {
@@ -558,6 +564,10 @@ func (p *WaterPipe) Step() {
 	p.spawnRunoffLocked()
 	p.spawnSplatterLocked()
 
+	p.paintFrameLocked()
+}
+
+func (p *WaterPipe) paintFrameLocked() {
 	p.clearGridLocked()
 	p.paintBasinLocked()
 	p.paintPoolLocked()

@@ -257,13 +257,19 @@ func (t *Train) EffectiveConfig() TrainConfig {
 func (t *Train) Snapshot() TrainSnapshot {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return TrainSnapshot{ProceduralState: t.snapshotStateLocked()}
+	return TrainSnapshot{
+		ProceduralState: t.snapshotStateLocked(),
+		RNGState:        t.rng.State(),
+	}
 }
 
 func (t *Train) RestoreSnapshot(snap TrainSnapshot) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.restoreStateLocked(snap.ProceduralState)
+	if snap.RNGState != 0 {
+		t.rng.SetState(snap.RNGState)
+	}
 }
 
 func (t *Train) SnapshotPersistedState() TrainPersistedState {

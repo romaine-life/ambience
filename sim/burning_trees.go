@@ -404,7 +404,7 @@ func (b *BurningTrees) appendLog(kind, desc string) {
 func (b *BurningTrees) Snapshot() BurningTreesSnapshot {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return BurningTreesSnapshot{BurningTreesState: b.snapshotStateLocked(false)}
+	return BurningTreesSnapshot{BurningTreesState: b.snapshotStateLocked(true)}
 }
 
 func (b *BurningTrees) RestoreSnapshot(s BurningTreesSnapshot) {
@@ -483,6 +483,9 @@ func (b *BurningTrees) restoreStateLocked(s BurningTreesState) {
 	b.flareTicks = s.FlareTicks
 	b.flareGain = s.FlareGain
 	b.lullTicks = s.LullTicks
+	if s.RNGState != 0 {
+		b.rng.SetState(s.RNGState)
+	}
 }
 
 func (b *BurningTrees) resetTreesLocked() {
