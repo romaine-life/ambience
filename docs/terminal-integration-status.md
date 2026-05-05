@@ -1,4 +1,4 @@
-# Terminal integration — status as of 2026-04-19
+# Terminal integration — status as of 2026-05-05
 
 Tabled in favor of web-first development. This doc captures the state
 so the next person (likely future-you or me) can pick it up cleanly.
@@ -27,17 +27,19 @@ so drops fall behind text and the terminal wallpaper shows through.
   output ~6× and eliminated the 5 Hz flicker it was causing
 
 **Synchronization scope:**
-- Terminal is currently excluded from the browser lock-step sync
-  guarantee. It is rain-only, applies `snapshot`/`config`/`trigger`
-  commands immediately, ignores `clock` commands, and free-runs its local
-  ticker instead of using the browser client's delayed authority-clock
-  model.
-- Keep docs and acceptance criteria browser-specific until terminal gets
-  authority-clock buffering, stale-queue handling, reconnect/catch-up
-  tests, and debug telemetry comparable to browser
-  `window.AmbienceClient.getDebugState()`.
-- Tracked separately in
-  [ambience#197](https://github.com/nelsong6/ambience/issues/197).
+- Terminal now participates in authority-clock synchronization for
+  rain-only mode. It applies snapshots immediately, consumes `clock`
+  samples, queues future `config`/`trigger` commands by authority tick,
+  and applies them only when delayed playback reaches that tick.
+- Fresh snapshots discard queued commands at or before the snapshot tick,
+  matching the browser stale-queue convergence path.
+- `Client.DebugState()` exposes rain-only telemetry comparable to browser
+  `window.AmbienceClient.getDebugState()`: authority/playback/sim ticks,
+  drift, delay, queue depth, queued tick horizon, buffered-ahead ticks,
+  readiness, and authority-sample state.
+- The scope is still deliberately rain-only. All-effect terminal support
+  needs a separate runtime/registry design so terminal can instantiate the
+  same effect set as server/browser clients.
 
 **Not working / open:**
 - See issues #11–#15 — in brief:
@@ -93,8 +95,8 @@ When the time comes, options are:
 
 - `tools/conpty-capture/` — Python capture, still useful
 - `cmd/sixel-demo/` — simplest sixel-output binary, keep around
-- `terminal/client.go` — the Client is useful as a best-effort rain
-  subscriber, but authority-clock buffering is still future work
+- `terminal/client.go` — rain-only authority-clock SSE subscriber and
+  sixel renderer; all-effect terminal support is still future work
 - `fzt-terminal@a7b5e2a` on `ambience-hook` branch — the screen.Clear()
   fix is independently valuable for any sixel-into-tcell work
 - Analysis scripts in `/d/workspace/analyze_*.py` — parse cast files
