@@ -160,6 +160,8 @@ certificate:
 
 route:
   enabled: true
+  externalDns:
+    enabled: true
   requestTimeout: 0s
   backendRequestTimeout: 0s
   # Override which XListenerSet the HTTPRoute attaches to. Defaults

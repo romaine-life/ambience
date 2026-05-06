@@ -60,6 +60,7 @@ workflow_payload="$(
           kind: "k8s_job",
           outputs: [
             "validation_url",
+            "validation_slot_index",
             "namespace",
             "image_tag",
             "claude_namespace",
@@ -91,6 +92,7 @@ workflow_payload="$(
           kind: "k8s_job",
           inputs: {
             validation_url: "${{ phases.env-prep.outputs.validation_url }}",
+            validation_slot_index: "${{ phases.env-prep.outputs.validation_slot_index }}",
             namespace: "${{ phases.env-prep.outputs.namespace }}",
             image_tag: "${{ phases.env-prep.outputs.image_tag }}",
             claude_namespace: "${{ phases.env-prep.outputs.claude_namespace }}",
@@ -145,17 +147,26 @@ if [ "${GLIMMUNG_REGISTER_DRY_RUN:-}" = "1" ]; then
   exit 0
 fi
 
-if ! curl -fsS "${GLIMMUNG_BASE}/v1/projects" \
-    | jq -e --arg project "$GLIMMUNG_PROJECT" '.[] | select(.name == $project)' >/dev/null; then
-  project_payload="$(
-    jq -nc \
-      --arg name "$GLIMMUNG_PROJECT" \
-      --arg repo "nelsong6/ambience" \
-      '{name: $name, github_repo: $repo, metadata: {runner: "native-k8s"}}'
-  )"
-  admin_curl POST /v1/projects "$project_payload" >/dev/null
-  echo "registered project ${GLIMMUNG_PROJECT}"
-fi
+project_payload="$(
+  jq -nc \
+    --arg name "$GLIMMUNG_PROJECT" \
+    --arg repo "nelsong6/ambience" \
+    '{
+      name: $name,
+      github_repo: $repo,
+      metadata: {
+        runner: "native-k8s",
+        native_webapp: true,
+        native_standby_dns: {
+          enabled: true,
+          record_base: "ambience.dev.romaine.life",
+          slot_prefix: "ambience-slot"
+        }
+      }
+    }'
+)"
+admin_curl POST /v1/projects "$project_payload" >/dev/null
+echo "registered project ${GLIMMUNG_PROJECT}"
 
 admin_curl POST /v1/workflows "$workflow_payload"
 echo
