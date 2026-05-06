@@ -1,6 +1,9 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -73,6 +76,70 @@ func TestEffectFromSchemaPath(t *testing.T) {
 		if ok && got != tc.want {
 			t.Fatalf("effectFromSchemaPath(%q) = %q, want %q", tc.path, got, tc.want)
 		}
+	}
+}
+
+func TestEffectFromPagePath(t *testing.T) {
+	cases := []struct {
+		path   string
+		want   string
+		wantOK bool
+	}{
+		{path: "/effects/rain", want: "rain", wantOK: true},
+		{path: "/effects/aurora", want: "aurora", wantOK: true},
+		{path: "/effects/unknown", wantOK: false},
+		{path: "/effects/rain/schema", wantOK: false},
+		{path: "/effects/rain/extra", wantOK: false},
+	}
+	for _, tc := range cases {
+		got, ok := effectFromPagePath(tc.path)
+		if ok != tc.wantOK {
+			t.Fatalf("effectFromPagePath(%q) ok=%v, want %v", tc.path, ok, tc.wantOK)
+		}
+		if ok && got != tc.want {
+			t.Fatalf("effectFromPagePath(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestServeEffectsRouteServesEffectPageWithEmbeds(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/effects/snow", nil)
+	req.Host = "ambience.dev.romaine.life"
+	rec := httptest.NewRecorder()
+
+	serveEffectsRoute(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`<meta property="og:title" content="ambience effect - snow">`,
+		`<meta property="og:url" content="https://ambience.dev.romaine.life/effects/snow">`,
+		`<meta property="og:image" content="https://ambience.dev.romaine.life/og-image.png?effect=snow&amp;page=effect">`,
+		`<meta name="twitter:card" content="summary_large_image">`,
+		`url=/dev/snow`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("effect page missing %q in:\n%s", want, body)
+		}
+	}
+}
+
+func TestServeEffectsRouteKeepsSchemaJSON(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/effects/snow/schema", nil)
+	rec := httptest.NewRecorder()
+
+	serveEffectsRoute(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json", got)
+	}
+	if !strings.Contains(rec.Body.String(), `"name":"snow"`) {
+		t.Fatalf("schema response missing snow name: %s", rec.Body.String())
 	}
 }
 

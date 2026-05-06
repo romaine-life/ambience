@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -88,6 +89,33 @@ func TestServeDevPageWithEffectLookupUsesCustomLookup(t *testing.T) {
 	}
 	if body := rec.Body.String(); body != "dev-page" {
 		t.Fatalf("body = %q, want %q", body, "dev-page")
+	}
+}
+
+func TestServeDevPageInjectsSocialEmbeds(t *testing.T) {
+	static := newStaticAssets(fstest.MapFS{
+		"dev.html": &fstest.MapFile{Data: []byte("<html><head><!-- __AMBIENCE_SOCIAL_META__ --></head><body></body></html>")},
+	}, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/dev/beach", nil)
+	req.Host = "ambience.dev.romaine.life"
+	rec := httptest.NewRecorder()
+
+	serveDevPage(static).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`<meta property="og:title" content="ambience dev - beach">`,
+		`<meta property="og:url" content="https://ambience.dev.romaine.life/dev/beach">`,
+		`<meta property="og:image" content="https://ambience.dev.romaine.life/og-image.png?effect=beach&amp;page=dev">`,
+		`<meta name="twitter:card" content="summary_large_image">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("dev page missing %q in:\n%s", want, body)
+		}
 	}
 }
 
