@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/nelsong6/ambience/rngutil"
 	"github.com/nelsong6/ambience/sim"
 )
 
@@ -27,6 +28,11 @@ func serveOGImage(frame frameProvider) http.HandlerFunc {
 			return
 		}
 		grid := frame()
+		if effect := strings.TrimSpace(req.URL.Query().Get("effect")); effect != "" {
+			if preview, ok := effectPreviewFrame(effect); ok {
+				grid = preview
+			}
+		}
 		img := renderPixelGridImage(grid, ogImageWidth, ogImageHeight)
 		var buf bytes.Buffer
 		if err := png.Encode(&buf, img); err != nil {
@@ -38,6 +44,25 @@ func serveOGImage(frame frameProvider) http.HandlerFunc {
 		w.Header().Set("Content-Length", fmt.Sprint(buf.Len()))
 		_, _ = w.Write(buf.Bytes())
 	}
+}
+
+func effectPreviewFrame(effect string) ([][]sim.Pixel, bool) {
+	if _, ok := schemaForEffect(effect); !ok {
+		return nil, false
+	}
+	rng := rngutil.New(0x0a6b1e5eed)
+	scene := generateEffectScene(effect, rng, 0, 1200)
+	rt, err := newEffectRuntime(effect, gridW, gridH, 0x0a6b1e5eed, scene.Config)
+	if err != nil {
+		return nil, false
+	}
+	if effect == "train" {
+		rt.Trigger("pass")
+	}
+	for i := 0; i < 80; i++ {
+		rt.Step()
+	}
+	return rt.Frame(), true
 }
 
 func serveIndexPage(static staticAssets, version socialVersionProvider) http.HandlerFunc {

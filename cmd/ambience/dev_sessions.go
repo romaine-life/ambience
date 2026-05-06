@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -76,6 +77,21 @@ func effectFromSchemaPath(path string) (string, bool) {
 	return rest, true
 }
 
+func effectFromPagePath(path string) (string, bool) {
+	if !strings.HasPrefix(path, "/effects/") {
+		return "", false
+	}
+	rest := strings.TrimPrefix(path, "/effects/")
+	rest = strings.Trim(rest, "/")
+	if rest == "" || strings.Contains(rest, "/") {
+		return "", false
+	}
+	if _, ok := schemaForEffect(rest); !ok {
+		return "", false
+	}
+	return rest, true
+}
+
 func devPageEffectFromPath(path string) (string, bool) {
 	effect, ok := devPageEffectCandidateFromPath(path)
 	if !ok {
@@ -85,6 +101,14 @@ func devPageEffectFromPath(path string) (string, bool) {
 		return "", false
 	}
 	return effect, true
+}
+
+func serveEffectsRoute(w http.ResponseWriter, req *http.Request) {
+	if _, ok := effectFromSchemaPath(req.URL.Path); ok {
+		serveEffectSchema(w, req)
+		return
+	}
+	serveEffectPage(w, req)
 }
 
 func serveEffectSchema(w http.ResponseWriter, req *http.Request) {
@@ -100,6 +124,37 @@ func serveEffectSchema(w http.ResponseWriter, req *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(schema)
+}
+
+func serveEffectPage(w http.ResponseWriter, req *http.Request) {
+	effect, ok := effectFromPagePath(req.URL.Path)
+	if !ok {
+		http.NotFound(w, req)
+		return
+	}
+	meta := socialPageMeta{
+		Title:       effectSocialTitle(effect),
+		Description: effectSocialDescription(effect),
+		URL:         absoluteRequestURL(req, "/effects/"+effect, ""),
+		Image:       absoluteRequestURL(req, "/og-image.png", "effect="+url.QueryEscape(effect)+"&page=effect"),
+	}
+	body := renderEffectPage(effect, meta)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(body))
+}
+
+func renderEffectPage(effect string, meta socialPageMeta) string {
+	title := html.EscapeString(meta.Title)
+	description := html.EscapeString(meta.Description)
+	effectPath := "/dev/" + url.PathEscape(effect)
+	return "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n" +
+		"<title>" + title + "</title>\n" +
+		"<meta name=\"description\" content=\"" + description + "\">\n" +
+		renderSocialMeta(meta) + "\n" +
+		"<meta http-equiv=\"refresh\" content=\"0; url=" + html.EscapeString(effectPath) + "\">\n" +
+		"</head>\n<body>\n" +
+		"<p><a href=\"" + html.EscapeString(effectPath) + "\">Open " + html.EscapeString(effect) + " controls</a></p>\n" +
+		"</body>\n</html>\n"
 }
 
 func newDevSession(effectType string) (*devSession, error) {

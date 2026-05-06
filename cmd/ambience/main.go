@@ -39,6 +39,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -261,7 +262,7 @@ func registerStaticRoutes(mux *http.ServeMux, static staticAssets, lookup effect
 }
 
 func registerSchemaRoute(mux *http.ServeMux) {
-	mux.HandleFunc("/effects/", cors(serveEffectSchema))
+	mux.HandleFunc("/effects/", cors(serveEffectsRoute))
 }
 
 func registerAuthorityRoutes(mux *http.ServeMux) {
@@ -350,8 +351,14 @@ func serveDevPageWithEffectLookup(static staticAssets, lookup effectLookup) http
 			http.Error(w, "dev page not found", http.StatusNotFound)
 			return
 		}
+		body := injectSocialMeta(string(data), socialPageMeta{
+			Title:       devSocialTitle(effect),
+			Description: devSocialDescription(effect),
+			URL:         absoluteRequestURL(req, "/dev/"+effect, ""),
+			Image:       absoluteRequestURL(req, "/og-image.png", "effect="+url.QueryEscape(effect)+"&page=dev"),
+		})
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(data)
+		_, _ = w.Write([]byte(body))
 	}
 }
 

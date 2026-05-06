@@ -42,6 +42,35 @@ func TestServeOGImageReturnsPNG(t *testing.T) {
 	}
 }
 
+func TestServeOGImageCanRenderEffectPreview(t *testing.T) {
+	handler := serveOGImage(func() [][]sim.Pixel { return nil })
+	req := httptest.NewRequest(http.MethodGet, "/og-image.png?effect=beach", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	img, err := png.Decode(rec.Body)
+	if err != nil {
+		t.Fatalf("decode png: %v", err)
+	}
+	bounds := img.Bounds()
+	visible := 0
+	background := color.RGBA{10, 10, 10, 255}
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			if color.RGBAModel.Convert(img.At(x, y)) != background {
+				visible++
+			}
+		}
+	}
+	if visible < ogImageWidth*ogImageHeight/2 {
+		t.Fatalf("visible pixels = %d, want effect preview image", visible)
+	}
+}
+
 func TestRenderOGImageWithProceduralFrameIsVisible(t *testing.T) {
 	beach := sim.NewBeach(gridW, gridH, 1, nil)
 	beach.Step()
