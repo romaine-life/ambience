@@ -75,3 +75,22 @@ func serveSharedTrigger(w http.ResponseWriter, req *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func serveSharedNextEffect(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	if !controlAuth.require(w, req) {
+		return
+	}
+	if shared == nil {
+		http.Error(w, "shared atmosphere unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if !shared.rotateToNextEffect() {
+		http.Error(w, "no alternate effect available", http.StatusConflict)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

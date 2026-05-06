@@ -67,6 +67,23 @@ func TestDevPanelsDefaultCollapsed(t *testing.T) {
 	}
 }
 
+func TestLiveControlsExposeNextEffectButton(t *testing.T) {
+	bodyBytes, err := os.ReadFile(filepath.Join("web", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	for _, want := range []string{
+		`id="nextEffectButton"`,
+		`fetch('/next-effect'`,
+		`el.nextEffectButton.addEventListener('click', advanceSharedEffect)`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("live controls next-effect UI missing %q", want)
+		}
+	}
+}
+
 func TestDevEffectSwitchIgnoresStaleStreams(t *testing.T) {
 	bodyBytes, err := os.ReadFile(filepath.Join("web", "dev.html"))
 	if err != nil {

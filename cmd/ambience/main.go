@@ -17,6 +17,7 @@
 //	POST /control-auth          — live-control login
 //	POST /config?effect=&...    — mutate the shared atmosphere config
 //	POST /trigger/:event        — fire a discrete event on the shared atmosphere
+//	POST /next-effect           — advance the shared atmosphere to another effect
 //	GET  /dev                   — dev page with knob controls (defaults to rain)
 //	GET  /dev/<effect>          — effect-specific dev page (e.g. /dev/fireflies)
 //	GET  /dev/snapshot?session=&effect=
@@ -273,6 +274,7 @@ func registerAuthorityRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/control-auth", controlAuth.serve)
 	mux.HandleFunc("/config", serveSharedConfig)
 	mux.HandleFunc("/trigger/", serveSharedTrigger)
+	mux.HandleFunc("/next-effect", serveSharedNextEffect)
 	// Entropy intake — clients POST keystroke-derived bytes here; bytes
 	// get folded into the shared atmosphere's RNG.
 	mux.HandleFunc("/entropy", cors(serveEntropy))

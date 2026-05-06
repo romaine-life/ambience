@@ -189,6 +189,61 @@ func TestMaybeRotateEffectBroadcastsSnapshot(t *testing.T) {
 	}
 }
 
+func TestRotateToNextEffectIgnoresAutomaticRotationGate(t *testing.T) {
+	a := newAtmosphere(sim.Config{})
+	a.setRotationPolicy(rotationPolicy{
+		Enabled:      false,
+		CadenceTicks: 10_000,
+		Allowed:      []string{"rain", "campfire"},
+	})
+
+	if rotated := a.rotateToNextEffect(); !rotated {
+		t.Fatal("next effect did not rotate")
+	}
+	if got := a.snapshot().Type; got != "campfire" {
+		t.Fatalf("type after next effect = %q, want campfire", got)
+	}
+}
+
+func TestRotateToNextEffectSinglePoolNoOp(t *testing.T) {
+	a := newAtmosphere(sim.Config{})
+	a.setRotationPolicy(rotationPolicy{
+		Allowed: []string{"rain"},
+	})
+
+	if rotated := a.rotateToNextEffect(); rotated {
+		t.Fatal("next effect rotated with single-effect pool")
+	}
+	if got := a.snapshot().Type; got != "rain" {
+		t.Fatalf("type after no-op next effect = %q, want rain", got)
+	}
+}
+
+func TestRotateToNextEffectBroadcastsSnapshot(t *testing.T) {
+	a := newAtmosphere(sim.Config{})
+	a.setRotationPolicy(rotationPolicy{
+		Allowed: []string{"rain", "aurora"},
+	})
+	ch := a.addListener()
+	defer a.removeListener(ch)
+
+	if rotated := a.rotateToNextEffect(); !rotated {
+		t.Fatal("next effect did not rotate")
+	}
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case cmd := <-ch:
+			if cmd.Kind == "snapshot" {
+				return
+			}
+		case <-deadline:
+			t.Fatal("no snapshot broadcast after next effect")
+		}
+	}
+}
+
 func TestCrossEffectRotationInitializesRuntimeWithSceneConfig(t *testing.T) {
 	a := newAtmosphere(sim.Config{})
 	a.setRotationPolicy(rotationPolicy{
