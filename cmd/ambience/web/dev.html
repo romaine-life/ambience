@@ -178,6 +178,7 @@
 	// deciding whether to start a crossfade.
 	let currentSimType = effect;
 	let ready = false;
+	let streamSeq = 0;
 
 	function effectFromLocation() {
 		const q = new URLSearchParams(window.location.search);
@@ -590,12 +591,14 @@
 		})();
 	}
 
-	function handleDevCommand(cmd) {
+	function handleDevCommand(cmd, streamID, expectedEffect) {
+		if (streamID !== streamSeq) return;
 		switch (cmd.kind) {
 			case 'snapshot':
 				try {
 					const snap = typeof cmd.data === 'string' ? JSON.parse(cmd.data) : cmd.data;
 					const snapType = (snap && snap.type) || currentSimType;
+					if (snapType !== expectedEffect) return;
 					if (snapType !== currentSimType) {
 						// Crossfade the previous sim into the new one. The
 						// outgoing sim keeps stepping during the fade so it
@@ -620,6 +623,7 @@
 				} catch (err) { console.error('bad snapshot', err); }
 				break;
 			case 'config':
+				if (expectedEffect !== effect) break;
 				if (!sim) break;
 				try {
 					const cfg = typeof cmd.data === 'string' ? JSON.parse(cmd.data) : cmd.data;
@@ -628,6 +632,7 @@
 				} catch (err) { console.error('bad config', err); }
 				break;
 			case 'trigger':
+				if (expectedEffect !== effect) break;
 				if (sim && sim.triggerEvent) sim.triggerEvent(cmd.event);
 				appendLog({ tick: cmd.tick, type: cmd.event, desc: cmd.desc });
 				break;
@@ -635,12 +640,13 @@
 	}
 
 	function openDevStream(effectName) {
+		const streamID = ++streamSeq;
 		const stream = new EventSource('/dev/events?session=' + encodeURIComponent(SESSION_ID) +
 			'&effect=' + encodeURIComponent(effectName));
 		stream.addEventListener('message', (e) => {
 			let cmd;
 			try { cmd = JSON.parse(e.data); } catch (_) { return; }
-			handleDevCommand(cmd);
+			handleDevCommand(cmd, streamID, effectName);
 		});
 		return stream;
 	}
