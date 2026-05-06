@@ -125,6 +125,43 @@ native_log_file() {
   rm -rf "$chunk_dir"
 }
 
+native_log_chunk() {
+  local step_slug="$1"
+  local message="$2"
+  local chunk_dir part
+  if [ -z "$message" ]; then
+    return 0
+  fi
+  chunk_dir="$(mktemp -d)"
+  printf '%s' "$message" | split -b 12000 - "${chunk_dir}/chunk-"
+  for part in "${chunk_dir}"/chunk-*; do
+    [ -f "$part" ] || continue
+    native_log "$step_slug" "$(cat "$part")"
+  done
+  rm -rf "$chunk_dir"
+}
+
+native_log_stream() {
+  local step_slug="$1"
+  local line suppress_evidence=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "$line" = "===EVIDENCE-TAR-START===" ]; then
+      suppress_evidence="1"
+      native_log "$step_slug" "$line" || true
+      continue
+    fi
+    if [ "$line" = "===EVIDENCE-TAR-END===" ]; then
+      suppress_evidence=""
+      native_log "$step_slug" "$line" || true
+      continue
+    fi
+    if [ -n "$suppress_evidence" ]; then
+      continue
+    fi
+    native_log_chunk "$step_slug" "${line}"$'\n' || true
+  done
+}
+
 native_should_skip_step() {
   local step_slug="$1"
   if [ "$NATIVE_RESUME_SEEN" = "skip-job" ]; then
@@ -156,7 +193,7 @@ native_step_run() {
   local step_slug="$1"
   local failure_mode="$2"
   shift 2
-  local log_file rc metadata
+  local log_file rc metadata stream_fifo stream_pid
 
   if native_should_skip_step "$step_slug"; then
     metadata="$(
@@ -171,12 +208,16 @@ native_step_run() {
 
   native_event "step_started" "$step_slug"
   log_file="$(mktemp)"
+  stream_fifo="$(mktemp -u)"
+  mkfifo "$stream_fifo"
+  native_log_stream "$step_slug" <"$stream_fifo" &
+  stream_pid=$!
   set +e
-  "$@" >"$log_file" 2>&1
+  "$@" > >(tee -a "$log_file" "$stream_fifo") 2>&1
   rc=$?
+  wait "$stream_pid" || true
   set -e
-  cat "$log_file"
-  native_log_file "$step_slug" "$log_file"
+  rm -f "$stream_fifo"
   rm -f "$log_file"
 
   if [ "$rc" -eq 0 ]; then
