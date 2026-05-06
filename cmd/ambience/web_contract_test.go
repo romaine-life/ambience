@@ -66,3 +66,21 @@ func TestDevPanelsDefaultCollapsed(t *testing.T) {
 		}
 	}
 }
+
+func TestDevEffectSwitchIgnoresStaleStreams(t *testing.T) {
+	bodyBytes, err := os.ReadFile(filepath.Join("web", "dev.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
+	for _, want := range []string{
+		"let streamSeq = 0",
+		"const streamID = ++streamSeq",
+		"if (streamID !== streamSeq) return",
+		"if (snapType !== expectedEffect) return",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("dev effect switching must guard stale SSE streams; missing %q", want)
+		}
+	}
+}
