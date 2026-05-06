@@ -196,12 +196,17 @@ func TestRotateToNextEffectIgnoresAutomaticRotationGate(t *testing.T) {
 		CadenceTicks: 10_000,
 		Allowed:      []string{"rain", "campfire"},
 	})
+	before := a.snapshot()
 
 	if rotated := a.rotateToNextEffect(); !rotated {
 		t.Fatal("next effect did not rotate")
 	}
-	if got := a.snapshot().Type; got != "campfire" {
+	after := a.snapshot()
+	if got := after.Type; got != "campfire" {
 		t.Fatalf("type after next effect = %q, want campfire", got)
+	}
+	if after.Seed == before.Seed {
+		t.Fatalf("seed after next effect = %d, want fresh runtime seed", after.Seed)
 	}
 }
 

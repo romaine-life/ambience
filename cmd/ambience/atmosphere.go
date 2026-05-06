@@ -384,6 +384,7 @@ func (a *atmosphere) rotateToEffect(cur int, effectType string) bool {
 	a.mu.Lock()
 	previousType := a.effect.Type()
 	a.effect = rt
+	a.seed = seed
 	a.cfg = cloneRaw(newScene.Config)
 	a.current = newScene
 	a.next = newNext
