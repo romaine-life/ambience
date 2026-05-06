@@ -17,25 +17,25 @@ func copyPixelGrid(src [][]Pixel) [][]Pixel {
 func (a *Aurora) GridCopy() [][]Pixel {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return proceduralGridCopy("aurora", a.W, a.H, a.tick, a.cfg)
+	return renderProceduralGrid("aurora", a.W, a.H, a.tick, a.cfg, a.timers, a.values, a.rng.State())
 }
 
 func (a *AutumnLeaves) GridCopy() [][]Pixel {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return proceduralGridCopy("autumn-leaves", a.W, a.H, a.tick, a.cfg)
+	return renderProceduralGrid("autumn-leaves", a.W, a.H, a.tick, a.cfg, a.timers, a.values, a.rng.State())
 }
 
 func (b *Beach) GridCopy() [][]Pixel {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return proceduralGridCopy("beach", b.W, b.H, b.tick, b.cfg)
+	return renderProceduralGrid("beach", b.W, b.H, b.tick, b.cfg, b.timers, b.values, b.rng.State())
 }
 
 func (c *Campfire) GridCopy() [][]Pixel {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return proceduralGridCopy("campfire", c.W, c.H, c.tick, c.cfg)
+	return renderProceduralGrid("campfire", c.W, c.H, c.tick, c.cfg, c.timers, c.values, c.rng.State())
 }
 
 func (d *Dust) GridCopy() [][]Pixel {
@@ -53,19 +53,19 @@ func (f *Fireflies) GridCopy() [][]Pixel {
 func (l *Lighthouse) GridCopy() [][]Pixel {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return proceduralGridCopy("lighthouse", l.W, l.H, l.tick, l.cfg)
+	return renderProceduralGrid("lighthouse", l.W, l.H, l.tick, l.cfg, l.timers, l.values, l.rng.State())
 }
 
 func (m *MysteriousMan) GridCopy() [][]Pixel {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return proceduralGridCopy("mysterious-man", m.W, m.H, m.tick, m.cfg)
+	return renderProceduralGrid("mysterious-man", m.W, m.H, m.tick, m.cfg, m.timers, m.values, m.rng.State())
 }
 
 func (r *Rowboat) GridCopy() [][]Pixel {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return proceduralGridCopy("rowboat", r.W, r.H, r.tick, r.cfg)
+	return renderProceduralGrid("rowboat", r.W, r.H, r.tick, r.cfg, r.timers, r.values, r.rng.State())
 }
 
 func (s *Sand) GridCopy() [][]Pixel {
@@ -77,31 +77,31 @@ func (s *Sand) GridCopy() [][]Pixel {
 func (s *Snow) GridCopy() [][]Pixel {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return proceduralGridCopy("snow", s.W, s.H, s.tick, s.cfg)
+	return renderProceduralGrid("snow", s.W, s.H, s.tick, s.cfg, s.timers, s.values, s.rng.State())
 }
 
 func (s *Starfield) GridCopy() [][]Pixel {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return proceduralGridCopy("starfield", s.W, s.H, s.tick, s.cfg)
+	return renderProceduralGrid("starfield", s.W, s.H, s.tick, s.cfg, s.timers, s.values, s.rng.State())
 }
 
 func (t *Train) GridCopy() [][]Pixel {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return proceduralGridCopy("train", t.W, t.H, t.tick, t.cfg)
+	return renderProceduralGrid("train", t.W, t.H, t.tick, t.cfg, t.timers, t.values, t.rng.State())
 }
 
 func (u *Underwater) GridCopy() [][]Pixel {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	return proceduralGridCopy("underwater", u.W, u.H, u.tick, u.cfg)
+	return renderProceduralGrid("underwater", u.W, u.H, u.tick, u.cfg, u.timers, u.values, u.rng.State())
 }
 
 func (v *Volcano) GridCopy() [][]Pixel {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	return proceduralGridCopy("volcano", v.W, v.H, v.tick, v.cfg)
+	return renderProceduralGrid("volcano", v.W, v.H, v.tick, v.cfg, v.timers, v.values, v.rng.State())
 }
 
 func (p *WaterPipe) GridCopy() [][]Pixel {
@@ -119,13 +119,13 @@ func (w *Waterfall) GridCopy() [][]Pixel {
 func (w *WheatField) GridCopy() [][]Pixel {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return proceduralGridCopy("wheat-field", w.W, w.H, w.tick, w.cfg)
+	return renderProceduralGrid("wheat-field", w.W, w.H, w.tick, w.cfg, w.timers, w.values, w.rng.State())
 }
 
 func (w *Windmill) GridCopy() [][]Pixel {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return proceduralGridCopy("windmill", w.W, w.H, w.tick, w.cfg)
+	return renderProceduralGrid("windmill", w.W, w.H, w.tick, w.cfg, w.timers, w.values, w.rng.State())
 }
 
 func proceduralGridCopy(kind string, w, h, tick int, cfg ProceduralConfig) [][]Pixel {
