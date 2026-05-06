@@ -335,6 +335,29 @@ func (a *atmosphere) maybeRotateEffect(cur int) bool {
 	return a.rotateToEffect(cur, pick)
 }
 
+// rotateToNextEffect immediately advances to another effect from the configured
+// rotation pool. Unlike maybeRotateEffect, this is a live-control command and
+// intentionally ignores the automatic rotation cadence/enabled gate.
+func (a *atmosphere) rotateToNextEffect() bool {
+	a.mu.Lock()
+	cur := a.effect.CurrentTick()
+	policy := a.rotation
+	currentType := a.effect.Type()
+	a.mu.Unlock()
+
+	pool := policy.resolvedAllowedEffects()
+	a.mu.Lock()
+	pick := pickNextEffect(a.sceneRNG, pool, currentType)
+	a.mu.Unlock()
+	if pick == "" || pick == currentType {
+		a.mu.Lock()
+		a.rotationStartTick = cur
+		a.mu.Unlock()
+		return false
+	}
+	return a.rotateToEffect(cur, pick)
+}
+
 // rotateToEffect builds a fresh runtime for effectType, swaps it in, and
 // broadcasts a snapshot whose `type` differs from the previous one so SSE
 // consumers (live monitor + every embedded canvas) crossfade per the

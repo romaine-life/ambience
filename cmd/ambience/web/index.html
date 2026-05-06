@@ -460,6 +460,7 @@
       <div class="switcher-row">
         <label for="effectSelect">effect</label>
         <select id="effectSelect" title="shared live effect"></select>
+        <button class="iconbtn" id="nextEffectButton" type="button" title="advance to another effect">next</button>
       </div>
       <div class="switcher-row">
         <label for="presetSelect">preset</label>
@@ -536,6 +537,7 @@
     lockState: document.getElementById('lockState'),
     lockHelp: document.getElementById('lockHelp'),
     effectSelect: document.getElementById('effectSelect'),
+    nextEffectButton: document.getElementById('nextEffectButton'),
     presetSelect: document.getElementById('presetSelect'),
     controlBody: document.getElementById('controlBody'),
   };
@@ -559,6 +561,7 @@
     controls.setLocked(nextLocked);
     el.lockButton.disabled = false;
     el.signOutButton.disabled = false;
+    el.nextEffectButton.disabled = nextLocked;
     el.signOutButton.classList.toggle('visible', controlAuthenticated && controlAuthRequired);
     el.lockButton.classList.toggle('unlocked', !nextLocked && controlAuthenticated);
     el.lockState.classList.toggle('locked', nextLocked);
@@ -893,6 +896,30 @@
       log('trigger failed: ' + eventName, 'system');
     }
   }
+
+  async function advanceSharedEffect() {
+    if (controls.isLocked()) return;
+    el.nextEffectButton.disabled = true;
+    try {
+      const resp = await fetch('/next-effect', {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+      if (resp.status === 401) {
+        controlAuthenticated = false;
+        setControlsLocked(true);
+      }
+      if (!resp.ok) throw new Error('next-effect returned ' + resp.status);
+      log('requested next effect', 'scene');
+    } catch (err) {
+      console.error('next effect', err);
+      log('next effect failed', 'system');
+    } finally {
+      if (!controls.isLocked()) el.nextEffectButton.disabled = false;
+    }
+  }
+
+  el.nextEffectButton.addEventListener('click', advanceSharedEffect);
 
   function applySnapshot(snap) {
     const nextType = (snap && snap.type) || 'rain';
