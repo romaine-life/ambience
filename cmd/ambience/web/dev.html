@@ -533,6 +533,7 @@
 		panel.classList.toggle('collapsed', on);
 		toggle.textContent = on ? '+' : '–';
 	}
+	setCollapsed(true);
 	toggle.addEventListener('click', () => setCollapsed(!panel.classList.contains('collapsed')));
 	window.addEventListener('keydown', (e) => {
 		if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;

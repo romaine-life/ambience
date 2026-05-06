@@ -77,6 +77,7 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 
 	function renderPixelGridEffect(effect, ctx, canvasW, canvasH, opts) {
 		opts = opts || {};
+		ctx.imageSmoothingEnabled = false;
 		const grid = ensurePixelGrid(effect);
 		if (opts.transparent) {
 			ctx.clearRect(0, 0, canvasW, canvasH);
@@ -86,19 +87,30 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 		}
 		const w = Math.max(1, effect.w | 0);
 		const h = Math.max(1, effect.h | 0);
-		const sx = canvasW / w;
-		const sy = canvasH / h;
-		const ceilSx = Math.ceil(sx);
-		const ceilSy = Math.ceil(sy);
-		for (let y = 0; y < h; y++) {
-			for (let x = 0; x < w; x++) {
-				const i = (y * w + x) * 3;
-				const r = grid[i], g = grid[i + 1], b = grid[i + 2];
-				if (r === 0 && g === 0 && b === 0) continue;
-				ctx.fillStyle = `rgb(${r},${g},${b})`;
-				ctx.fillRect(Math.floor(x * sx), Math.floor(y * sy), ceilSx, ceilSy);
-			}
+		if (!effect._pixelCanvas || effect._pixelCanvas.width !== w || effect._pixelCanvas.height !== h) {
+			effect._pixelCanvas = (typeof OffscreenCanvas !== 'undefined')
+				? new OffscreenCanvas(w, h)
+				: document.createElement('canvas');
+			effect._pixelCanvas.width = w;
+			effect._pixelCanvas.height = h;
+			effect._pixelImage = null;
 		}
+		const pctx = effect._pixelCanvas.getContext('2d');
+		pctx.imageSmoothingEnabled = false;
+		if (!effect._pixelImage || effect._pixelImage.width !== w || effect._pixelImage.height !== h) {
+			effect._pixelImage = pctx.createImageData(w, h);
+		}
+		const out = effect._pixelImage.data;
+		for (let i = 0, j = 0; i < grid.length; i += 3, j += 4) {
+			const r = grid[i], g = grid[i + 1], b = grid[i + 2];
+			out[j] = r;
+			out[j + 1] = g;
+			out[j + 2] = b;
+			out[j + 3] = (r === 0 && g === 0 && b === 0) ? 0 : 255;
+		}
+		pctx.clearRect(0, 0, w, h);
+		pctx.putImageData(effect._pixelImage, 0, 0);
+		ctx.drawImage(effect._pixelCanvas, 0, 0, canvasW, canvasH);
 	}
 
 	// EffectTransition wraps two sims (an outgoing one and an incoming one)
@@ -172,6 +184,7 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 				this._scratch.height = h;
 			}
 			const sctx = this._scratch.getContext('2d');
+			sctx.imageSmoothingEnabled = false;
 			sctx.clearRect(0, 0, w, h);
 			this.outgoing.render(sctx, w, h, transparentOpts);
 
@@ -181,6 +194,7 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 			ctx.restore();
 
 			ctx.save();
+			ctx.imageSmoothingEnabled = false;
 			ctx.globalAlpha = 1 - t;
 			ctx.drawImage(this._scratch, 0, 0);
 			ctx.restore();

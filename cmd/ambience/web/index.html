@@ -767,6 +767,7 @@
     el.panel.classList.toggle('collapsed', on);
     el.togglePanel.textContent = on ? '+' : '-';
   }
+  setPanelCollapsed(true);
   el.togglePanel.addEventListener('click', () => {
     setPanelCollapsed(!el.panel.classList.contains('collapsed'));
   });
