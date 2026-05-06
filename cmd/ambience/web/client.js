@@ -141,6 +141,8 @@
 	const HARD_CATCHUP_DRIFT = 100;
 
 	const ctx = canvas.getContext('2d');
+	if (canvas.style) canvas.style.imageRendering = canvas.style.imageRendering || 'pixelated';
+	ctx.imageSmoothingEnabled = false;
 	let initialFadeCover = null;
 
 	// Mark body so consumer CSS can conditionally adapt (e.g. make terminal

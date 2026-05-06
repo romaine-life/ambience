@@ -13,6 +13,8 @@ class Ambience {
 	constructor({ canvas, stream }) {
 		this.canvas = canvas;
 		this.ctx = canvas.getContext('2d');
+		if (this.canvas.style) this.canvas.style.imageRendering = this.canvas.style.imageRendering || 'pixelated';
+		this.ctx.imageSmoothingEnabled = false;
 		this.frame = null;
 
 		this._resize = () => this.resize();

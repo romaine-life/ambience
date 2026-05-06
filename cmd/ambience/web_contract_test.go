@@ -32,3 +32,37 @@ func TestBrowserEffectsComeFromWASMRuntime(t *testing.T) {
 		t.Fatalf("legacy browser effect files should not be bundled; found %d files in web/effects", len(files))
 	}
 }
+
+func TestBrowserRenderingStaysPixelGrid(t *testing.T) {
+	sim, err := os.ReadFile(filepath.Join("web", "sim.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sim), "ctx.imageSmoothingEnabled = false") {
+		t.Fatal("shared pixel renderer must disable canvas smoothing")
+	}
+
+	client, err := os.ReadFile(filepath.Join("web", "client.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientBody := string(client)
+	if !strings.Contains(clientBody, "style.imageRendering") || !strings.Contains(clientBody, "'pixelated'") {
+		t.Fatal("embeddable client must force pixelated canvas scaling")
+	}
+	if !strings.Contains(clientBody, "ctx.imageSmoothingEnabled = false") {
+		t.Fatal("embeddable client must disable canvas smoothing")
+	}
+}
+
+func TestDevPanelsDefaultCollapsed(t *testing.T) {
+	for _, name := range []string{"index.html", "dev.html"} {
+		bodyBytes, err := os.ReadFile(filepath.Join("web", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(bodyBytes), "setPanelCollapsed(true)") && !strings.Contains(string(bodyBytes), "setCollapsed(true)") {
+			t.Fatalf("%s must collapse the control panel on load", name)
+		}
+	}
+}
