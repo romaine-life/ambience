@@ -31,6 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
         dest="create_namespace",
         help="Do not pass Helm --create-namespace; use when the namespace is pre-created.",
     )
+    deploy_validation.add_argument(
+        "--skip-external-dns",
+        action="store_true",
+        help="Annotate the validation HTTPRoute so external-dns leaves pre-provisioned host records alone.",
+    )
 
     screenshot = subparsers.add_parser("capture-validation-screenshot")
     screenshot.add_argument("--page-path", required=True)
@@ -114,6 +119,7 @@ def main() -> int:
                     release=release,
                     public_host=public_host,
                     create_namespace=args.create_namespace,
+                    external_dns=not args.skip_external_dns,
                 )
             )
         elif args.command == "capture-validation-screenshot":

@@ -16,7 +16,14 @@ CLAUDE_NAMESPACE="${CLAUDE_NAMESPACE:-tank-operator}"
 CLAUDE_CA_NAMESPACE="${CLAUDE_CA_NAMESPACE:-tank-operator-sessions}"
 
 NAMESPACE="${GLIMMUNG_VALIDATION_NAMESPACE}"
-VALIDATION_HOST="${NAMESPACE}.ambience.dev.romaine.life"
+VALIDATION_SLOT_INDEX="${GLIMMUNG_NATIVE_SLOT_INDEX:-}"
+PREPROVISIONED_PUBLIC_HOST=""
+if [ -n "$VALIDATION_SLOT_INDEX" ]; then
+  VALIDATION_HOST="${AMBIENCE_STANDBY_HOST_PREFIX:-ambience-slot-}${VALIDATION_SLOT_INDEX}.ambience.dev.romaine.life"
+  PREPROVISIONED_PUBLIC_HOST="1"
+else
+  VALIDATION_HOST="${NAMESPACE}.ambience.dev.romaine.life"
+fi
 VALIDATION_URL="https://${VALIDATION_HOST}"
 IMAGE_TAG="${NAMESPACE}"
 IMAGE_JSON="/tmp/ambience-preview-image.json"
@@ -59,15 +66,22 @@ push_validation_image() {
 
 deploy_validation_env() {
   local image
+  local -a args
   image="$(cat "$IMAGE_FILE")"
+  args=(
+    deploy-validation-preview
+    --namespace "$NAMESPACE"
+    --image "$image"
+    --release "$RELEASE_NAME"
+    --public-host "$VALIDATION_HOST"
+    --no-create-namespace
+  )
+  if [ -n "$PREPROVISIONED_PUBLIC_HOST" ]; then
+    args+=(--skip-external-dns)
+  fi
   (
     cd "$REPO_DIR"
-    python3 -m ambience_preview.cli deploy-validation-preview \
-      --namespace "$NAMESPACE" \
-      --image "$image" \
-      --release "$RELEASE_NAME" \
-      --public-host "$VALIDATION_HOST" \
-      --no-create-namespace
+    python3 -m ambience_preview.cli "${args[@]}"
   )
 }
 
@@ -81,12 +95,14 @@ check_validation_env() {
 emit_env_outputs() {
   jq -nc \
     --arg validation_url "$VALIDATION_URL" \
+    --arg validation_slot_index "$VALIDATION_SLOT_INDEX" \
     --arg namespace "$NAMESPACE" \
     --arg image_tag "$IMAGE_TAG" \
     --arg claude_namespace "$CLAUDE_NAMESPACE" \
     --arg claude_ca_namespace "$CLAUDE_CA_NAMESPACE" \
     '{
       validation_url: $validation_url,
+      validation_slot_index: $validation_slot_index,
       namespace: $namespace,
       image_tag: $image_tag,
       claude_namespace: $claude_namespace,

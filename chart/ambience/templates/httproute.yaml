@@ -6,6 +6,10 @@ kind: HTTPRoute
 metadata:
   name: {{ include "ambience.name" . }}
   namespace: {{ .Release.Namespace }}
+  {{- if not .Values.route.externalDns.enabled }}
+  annotations:
+    external-dns.alpha.kubernetes.io/exclude: "true"
+  {{- end }}
   labels:
     {{- include "ambience.labels" . | nindent 4 }}
 spec:

@@ -167,6 +167,7 @@ def deploy_preview(
     release: str = DEFAULT_RELEASE_NAME,
     public_host: str | None = None,
     create_namespace: bool = True,
+    external_dns: bool = True,
     tls_secret_name: str | None = None,
     timeout: str = "10m",
     rollout_timeout: str = "180s",
@@ -211,6 +212,7 @@ def deploy_preview(
         string_values["route.attachListenerSet.name"] = "ambience-wildcard"
         string_values["route.attachListenerSet.namespace"] = "ambience-dev"
         bool_values["route.enabled"] = True
+        bool_values["route.externalDns.enabled"] = external_dns
         bool_values["certificate.enabled"] = False
         bool_values["gateway.listenerSetEnabled"] = False
         bool_values["wildcardCertificate.enabled"] = False

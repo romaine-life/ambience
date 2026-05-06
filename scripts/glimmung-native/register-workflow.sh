@@ -60,6 +60,7 @@ workflow_payload="$(
           kind: "k8s_job",
           outputs: [
             "validation_url",
+            "validation_slot_index",
             "namespace",
             "image_tag",
             "claude_namespace",
@@ -91,6 +92,7 @@ workflow_payload="$(
           kind: "k8s_job",
           inputs: {
             validation_url: "${{ phases.env-prep.outputs.validation_url }}",
+            validation_slot_index: "${{ phases.env-prep.outputs.validation_slot_index }}",
             namespace: "${{ phases.env-prep.outputs.namespace }}",
             image_tag: "${{ phases.env-prep.outputs.image_tag }}",
             claude_namespace: "${{ phases.env-prep.outputs.claude_namespace }}",
