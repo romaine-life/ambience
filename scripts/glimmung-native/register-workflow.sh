@@ -123,6 +123,7 @@ workflow_payload="$(
                 {slug: "prepare-agent-context", title: "Prepare agent context"},
                 {slug: "run-agent", title: "LLM: Run agent job"},
                 {slug: "collect-evidence", title: "Collect evidence"},
+                {slug: "summarize-agent", title: "Summarize agent result"},
                 {slug: "verify-result", title: "Verify result"},
                 {slug: "push-branch", title: "Confirm pushed branch"},
                 {slug: "emit-agent-outputs", title: "Emit verification"}
