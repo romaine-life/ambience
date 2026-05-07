@@ -16,16 +16,19 @@ image-packaging feedback is needed before a PR is ready, manually dispatch that
 workflow with `git_ref`. Release/deploy workflows are the only path that
 publishes images.
 
-## Issue-agent flow
+## Agent flow
 
-Glimmung dispatches autonomous issue-runner work for ambience as a
-native-k8s flow (`agent-run` workflow). The platform principle for
-agentic flows is to **split LLM work into discrete stages** — see
-`tank-operator/docs/agent-llm-task-splitting.md`. The current ambience
-flow runs all LLM work in one `run-agent` step, which is the wrong
-shape; the planned restructure into test-plan / implementation /
-verification stages is documented in
+Glimmung dispatches autonomous agent runs for ambience as a native-k8s
+flow (`agent-run` workflow). Per the platform principle in
+`tank-operator/docs/agent-llm-task-splitting.md`, LLM work is split
+across narrowly-scoped stages: a plan-and-implement pod (two
+sequential `claude --print` calls — test plan → implementation) and a
+verify pod, with structured JSON+MD handoff artifacts between stages.
+Design and stage contracts live at
 [docs/issue-agent-stage-split.md](docs/issue-agent-stage-split.md).
+
+Runs are started directly via the glimmung UI/API; there is no
+GitHub-label trigger.
 
 When developing a new effect, the relevant references are
 [docs/effects-cookbook.md](docs/effects-cookbook.md) (file pattern +

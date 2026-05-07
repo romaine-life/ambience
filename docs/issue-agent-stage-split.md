@@ -61,7 +61,7 @@ that would prove the change works.
 
 **Input context:** issue body, `.github/agent/prompt-test-plan.md`,
 `AGENTS.md`, `CLAUDE.md`, `docs/effects-cookbook.md`,
-`docs/dev-endpoints.md`, `screenshot-pages.json`.
+`docs/dev-endpoints.md`.
 
 **Tools:** Read, Grep, ToolSearch, optional WebFetch. **No** Edit,
 Write, or Bash-state-mutating tools.

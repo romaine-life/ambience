@@ -28,7 +28,6 @@ Every new effect must edit each of these:
 - `cmd/ambience/effect_frames.go` — add a one-line `Frame()` method.
 - `sim/gridcopy.go` — add a one-line `GridCopy()` method.
 - `cmd/ambience-wasm/main.go` — add the effect to the slice + switch.
-- `screenshot-pages.json` — add `/dev/<effect>`.
 
 That is the full list. There are no other shared files to touch for
 a fresh effect — if you find yourself editing

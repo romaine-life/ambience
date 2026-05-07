@@ -595,6 +595,14 @@ else
   git checkout -B "${BRANCH_NAME}"
 fi
 
+# Pre-warm the Go module cache so the implementation stage's
+# `go build ./...` and `go test ./...` calls don't show pages of
+# `go: downloading ...` lines in the LLM's tool output. Modules land
+# under $HOME/go (HOME=/workspace per the Job env block); the cache
+# is per-pod (emptyDir) so we pay this once per stage 1 pod.
+echo "=== prewarm: go mod download ==="
+go mod download 2>&1 | tail -20 || true
+
 # ---- Stage 1: test plan ---------------------------------------------------
 echo "=== STAGE: test-plan ==="
 cat /agent-config/prompt-test-plan.md /tmp/issue-context.md > /tmp/plan-input.md
@@ -697,6 +705,12 @@ cd /workspace/repo
 if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH_NAME}"; then
   git checkout -B "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
 fi
+
+# Pre-warm the Go module cache so any `go test` items in the test
+# plan's required_evidence don't show download spam in the LLM's
+# tool output. Verify pod has its own emptyDir; cache is fresh.
+echo "=== prewarm: go mod download ==="
+go mod download 2>&1 | tail -20 || true
 
 # Make prior-stage handoff artifacts visible to the verifier under
 # /workspace/evidence/ so the prompt's "Read /workspace/evidence/..."

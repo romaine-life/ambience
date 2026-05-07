@@ -1,9 +1,0 @@
-[
-  { "path": "/", "label": "live-monitor" },
-  { "path": "/_styleguide", "label": "styleguide" },
-  { "path": "/dev", "label": "dev-default" },
-  { "path": "/dev/rain", "label": "dev-rain" },
-  { "path": "/dev/fireflies", "label": "dev-fireflies" },
-  { "path": "/dev/volcano", "label": "dev-volcano" },
-  { "path": "/dev/cave-crystals", "label": "dev-cave-crystals" }
-]
