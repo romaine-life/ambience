@@ -25,8 +25,10 @@ that actually fits the change**.
    the stated request.
 3. Make your code changes under `/workspace/repo/`.
 4. **Capture evidence appropriate to the change type** (see below).
-   Save it under `/workspace/evidence/`. The wrapper uploads PNGs and
-   embeds notes in the PR body. Do **not** commit anything under
+   Save it under `/workspace/evidence/`. The wrapper uploads PNGs,
+   embeds notes in the PR body, and uses `/workspace/evidence/notes.md`
+   as the Glimmung touchpoint summary when that file exists. Do **not**
+   commit anything under
    `/workspace/evidence/` — that path is a sibling of `/workspace/repo`
    by design, so it's outside your git working tree and won't be
    picked up by `git add -A`.
@@ -91,6 +93,12 @@ Capture a screenshot of the page where the bug was visible (showing
 the fixed behavior). If the bug is invisible (perf, logic, race), use
 `notes.md`.
 
+### Summary notes
+
+Always write `/workspace/evidence/notes.md`, even when screenshots are
+the primary evidence. This is the short human summary Glimmung shows
+on the touchpoint page.
+
 ## What goes where
 
 - `/workspace/evidence/screenshots/*.png` — visual evidence; uploaded
@@ -104,9 +112,11 @@ the fixed behavior). If the bug is invisible (perf, logic, race), use
   panels, dev pages); omit for refactors / docs / non-visible behavior
   and the link will fall back to the bare host.
 - `/workspace/evidence/notes.md` — markdown text included **verbatim**
-  at the top of the PR body. Use this for context, reasoning, command
-  output, secondary deep-links, or anything else worth showing the
-  reviewer. The primary validation deep-link belongs in
+  at the top of the PR body and persisted as the Glimmung touchpoint
+  summary. Write this for every run. Keep the first paragraph short:
+  what changed, what evidence was captured, and how a reviewer should
+  verify it. Add command output, secondary deep-links, or open questions
+  below that when useful. The primary validation deep-link belongs in
   `validation-path.txt`, not here.
 - `/workspace/repo/` — your actual code changes; committed and pushed.
 

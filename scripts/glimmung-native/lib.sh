@@ -247,6 +247,7 @@ native_completed() {
   local outputs_json="${1:-null}"
   local verification_json="${2:-null}"
   local screenshots_markdown="${3:-}"
+  local summary_markdown="${4:-}"
   local payload
   payload="$(
     jq -nc \
@@ -254,12 +255,14 @@ native_completed() {
       --argjson outputs "$outputs_json" \
       --argjson verification "$verification_json" \
       --arg screenshots "$screenshots_markdown" \
+      --arg summary "$summary_markdown" \
       '{
         conclusion: $conclusion
       }
       + (if $outputs != null then {outputs: $outputs} else {} end)
       + (if $verification != null then {verification: $verification} else {} end)
-      + (if $screenshots != "" then {screenshots_markdown: $screenshots} else {} end)'
+      + (if $screenshots != "" then {screenshots_markdown: $screenshots} else {} end)
+      + (if $summary != "" then {summary_markdown: $summary} else {} end)'
   )"
   native_post_json "$GLIMMUNG_COMPLETED_URL" "$payload"
 }

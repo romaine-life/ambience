@@ -40,9 +40,11 @@ VERIFICATION_JSON="/tmp/verification.json"
 VERIFICATION_REASONS="/tmp/verification-reasons.txt"
 EVIDENCE_REFS="/tmp/evidence-refs.txt"
 SCREENSHOTS_MD="/tmp/screenshots.md"
+SUMMARY_MD="/tmp/summary.md"
 : >"$VERIFICATION_REASONS"
 : >"$EVIDENCE_REFS"
 : >"$SCREENSHOTS_MD"
+: >"$SUMMARY_MD"
 
 clone_repo() {
   native_clone_repo "$REPO_SLUG" "$REPO_DIR" main "$BRANCH_NAME"
@@ -236,6 +238,24 @@ write_verification() {
   cat "$VERIFICATION_JSON"
 }
 
+write_agent_summary() {
+  if [ -s /tmp/evidence/notes.md ]; then
+    cp /tmp/evidence/notes.md "$SUMMARY_MD"
+    return 0
+  fi
+
+  if [ ! -s /tmp/agent-events.jsonl ]; then
+    return 0
+  fi
+  jq -sr '
+    map(
+      select(.type == "result" and (.result? | type == "string") and (.result | length > 0))
+      | .result
+    )
+    | last // empty
+  ' /tmp/agent-events.jsonl >"$SUMMARY_MD" || true
+}
+
 fetch_agent_branch() {
   local token auth_header
   token="$(native_github_token)"
@@ -403,9 +423,10 @@ native_step "clone-repo" clone_repo
 native_step "prepare-agent-context" prepare_agent_context
 native_step_allow_failure "run-agent" run_agent || AGENT_EXIT_CODE=$?
 native_step "collect-evidence" collect_evidence
+native_step "summarize-agent" write_agent_summary
 native_step "verify-result" verify_result
 native_step "push-branch" push_branch
 native_step "emit-agent-outputs" emit_agent_outputs
 native_assert_resume_satisfied
 
-native_completed "null" "$(cat "$VERIFICATION_JSON")" "$(cat "$SCREENSHOTS_MD")"
+native_completed "null" "$(cat "$VERIFICATION_JSON")" "$(cat "$SCREENSHOTS_MD")" "$(cat "$SUMMARY_MD")"
