@@ -1,3 +1,15 @@
+> **Deprecated 2026-05-07.** This monolithic prompt is replaced by the
+> three stage prompts in this directory:
+>
+> - `prompt-test-plan.md`
+> - `prompt-implementation.md`
+> - `prompt-verification.md`
+>
+> See `docs/issue-agent-stage-split.md` for the design and
+> `tank-operator/docs/agent-llm-task-splitting.md` for the principle.
+> This file is kept for one release for traceability and will be
+> removed thereafter.
+
 # Ambience issue-agent prompt
 
 You are an agentic coding assistant working on the `nelsong6/ambience`
