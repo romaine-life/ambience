@@ -80,6 +80,7 @@ workflow_payload="$(
                 {slug: "clone-repo", title: "Clone repository"},
                 {slug: "build-validation-image", title: "Build validation image"},
                 {slug: "push-validation-image", title: "Verify validation image"},
+                {slug: "reap-slot-conflicts", title: "Reap conflicting slot claimants"},
                 {slug: "deploy-validation-env", title: "Deploy validation environment"},
                 {slug: "check-validation-env", title: "Check validation environment"},
                 {slug: "emit-env-outputs", title: "Emit phase outputs"}

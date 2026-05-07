@@ -64,6 +64,50 @@ push_validation_image() {
   echo "verified romainecr.azurecr.io/ambience:${IMAGE_TAG}"
 }
 
+# Aborted runs leak their glim-run-* namespace because the agent-run workflow
+# has no terminal teardown phase (only env-prep + agent-execute). Multiple
+# leaked namespaces all claiming the same ambience-slot-N hostname leave
+# Envoy Gateway picking the oldest by creationTimestamp — so a fresh
+# verify-loop can be routed at a stale, pre-current image and 404 effects
+# the agent just shipped. Defensively reap any peer namespace whose
+# HTTPRoute claims our slot host before we install ours.
+reap_conflicting_slot() {
+  if [ -z "$VALIDATION_SLOT_INDEX" ]; then
+    echo "no slot index set; nothing to reap"
+    return 0
+  fi
+  local conflicts
+  conflicts="$(
+    kubectl get httproute --all-namespaces -o json \
+      | jq -r --arg host "$VALIDATION_HOST" --arg ns "$NAMESPACE" '
+          .items[]
+          | select(.spec.hostnames | index($host))
+          | select(.metadata.namespace != $ns)
+          | "\(.metadata.namespace)\t\(.metadata.name)"
+        '
+  )"
+  if [ -z "$conflicts" ]; then
+    echo "no peer claims ${VALIDATION_HOST}"
+    return 0
+  fi
+  while IFS=$'\t' read -r conflict_ns conflict_name; do
+    [ -n "$conflict_ns" ] || continue
+    case "$conflict_ns" in
+      glim-run-*) ;;
+      *)
+        echo "skipping reap of ${conflict_ns}/${conflict_name}: not a glim-run-* namespace" >&2
+        continue
+        ;;
+    esac
+    echo "reaping ${VALIDATION_HOST} claimant ${conflict_ns}/${conflict_name}"
+    # Delete the HTTPRoute first so Envoy reroutes before we proceed, then
+    # tear down the helm release and namespace asynchronously.
+    kubectl delete httproute "$conflict_name" --namespace "$conflict_ns" --ignore-not-found=true >/dev/null 2>&1 || true
+    helm uninstall "$RELEASE_NAME" --namespace "$conflict_ns" >/dev/null 2>&1 || true
+    kubectl delete namespace "$conflict_ns" --ignore-not-found=true --wait=false >/dev/null 2>&1 || true
+  done <<<"$conflicts"
+}
+
 deploy_validation_env() {
   local image
   local -a args
@@ -114,6 +158,7 @@ emit_env_outputs() {
 native_step "clone-repo" clone_repo
 native_step "build-validation-image" build_validation_image
 native_step "push-validation-image" push_validation_image
+native_step "reap-slot-conflicts" reap_conflicting_slot
 native_step "deploy-validation-env" deploy_validation_env
 native_step "check-validation-env" check_validation_env
 native_step "emit-env-outputs" emit_env_outputs
