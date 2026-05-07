@@ -144,11 +144,9 @@ Transitions between scenes are a config DRIFT — `lerpConfig` over
 angular LERP so the 0/360° seam is crossed along the shortest arc.
 Server applies interpolated configs to its sim each tick and broadcasts
 every 10 ticks during drift (~1 Hz), so client replicas stay near-sync
-without overwhelming the SSE stream. See
-[#8](https://github.com/nelsong6/ambience/issues/8) for the larger
-cross-effect transition design; the current work is the within-effect
-half. Vocabulary (Scene vs Effect) is tracked in
-[#17](https://github.com/nelsong6/ambience/issues/17).
+without overwhelming the SSE stream. The larger cross-effect transition
+design is tracked in Glimmung; the current work is the within-effect
+half. Vocabulary (Scene vs Effect) is tracked in Glimmung.
 
 For local testing, `AMBIENCE_SCENE_TICKS=60` env var shortens scene
 duration to 6 s so rotations fire visibly without a 90-minute wait.
@@ -161,8 +159,8 @@ constructors in `AmbienceSim.effects` for every supported effect. The shared
 `client.js` reads `snapshotData.Type` and looks up the constructor there.
 Adding a new active effect means adding the Go `sim` runtime and exposing it
 through `cmd/ambience-wasm`; no per-consumer wiring should be needed. The
-5-slot effect template (spawn / lever / event / event-mod / end) is in the
-ambience repo issues: [#1](https://github.com/nelsong6/ambience/issues/1).
+5-slot effect template (spawn / lever / event / event-mod / end) is tracked
+in Glimmung.
 
 ## Guiding principle
 
@@ -238,15 +236,15 @@ Consumers:
 
 - Name: `ambience` (matches `ambience.romaine.life`)
 - Language: Go server + sim + terminal client; JS for browser consumers
-- First effect: Rain ([#2](https://github.com/nelsong6/ambience/issues/2))
+- First effect: Rain
 - Shared state is global across all consumers/profiles
 - K8s-native deploy — first app on the per-app deployment pattern
   (see `infra-bootstrap/k8s/apps/ambience.yaml`)
 - Effects plug in via `AmbienceSim.effects` registry; server broadcasts
   `snapshotData.Type` so clients know which constructor to pick. Adding
   Sand/Fire/Tetris requires zero client changes.
-- Repo migration from `nelsong6/` → `romaine-life/` tracked by
-  [#10](https://github.com/nelsong6/ambience/issues/10) (May 2026)
+- Repo migration from `nelsong6/` to `romaine-life/` is tracked in
+  Glimmung (May 2026)
 
 ## Status
 
@@ -256,6 +254,5 @@ my-homepage integrated via shared client (unaffected by scene/metric
 commands — client.js ignores unknown kinds). Entropy intake wired,
 visible on the `/` panel. Terminal integration tabled, see
 `docs/terminal-integration-status.md`. Persistence of shared atmosphere
-state across pod restarts is open —
-[#16](https://github.com/nelsong6/ambience/issues/16). Future effects
-ready to plug in via the registry.
+state across pod restarts is tracked in Glimmung. Future effects are ready
+to plug in via the registry.

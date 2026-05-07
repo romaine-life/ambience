@@ -26,13 +26,13 @@ BRANCH_NAME="glimmung/${GLIMMUNG_RUN_ID}"
 JOB_NAME="agent-${IMAGE_TAG}-${GLIMMUNG_ATTEMPT_INDEX:-0}"
 
 ISSUE_TITLE="${GLIMMUNG_ISSUE_TITLE:-Glimmung issue ${GLIMMUNG_ISSUE_ID:-${GLIMMUNG_RUN_ID}}}"
-GITHUB_ISSUE_NUMBER="${GLIMMUNG_ISSUE_NUMBER:-}"
-if [ -n "$GITHUB_ISSUE_NUMBER" ] && [ -n "${GLIMMUNG_ISSUE_REPO:-}" ]; then
-  ISSUE_REFERENCE="#${GITHUB_ISSUE_NUMBER}"
-  ISSUE_URL="https://github.com/${GLIMMUNG_ISSUE_REPO}/issues/${GITHUB_ISSUE_NUMBER}"
+ISSUE_NUMBER="${GLIMMUNG_ISSUE_NUMBER:-}"
+ISSUE_PROJECT="${GLIMMUNG_PROJECT:-ambience}"
+ISSUE_REFERENCE="${ISSUE_PROJECT}#${ISSUE_NUMBER:-${GLIMMUNG_ISSUE_ID:-${GLIMMUNG_RUN_ID}}}"
+if [ -n "$ISSUE_NUMBER" ]; then
+  ISSUE_URL="${GLIMMUNG_BASE_URL:-https://glimmung.romaine.life}/projects/${ISSUE_PROJECT}/issues/${ISSUE_NUMBER}"
 else
-  ISSUE_REFERENCE="${GLIMMUNG_ISSUE_ID:-${GLIMMUNG_RUN_ID}}"
-  ISSUE_URL="${GLIMMUNG_BASE_URL:-https://glimmung.romaine.life}/issues/${ISSUE_REFERENCE}"
+  ISSUE_URL="${GLIMMUNG_BASE_URL:-https://glimmung.romaine.life}/issues/${ISSUE_PROJECT}/${GLIMMUNG_ISSUE_ID:-${GLIMMUNG_RUN_ID}}"
 fi
 
 AGENT_EXIT_CODE=0
@@ -77,11 +77,7 @@ write_agent_prompt() {
     echo ""
     echo "---"
     echo ""
-    if [ -n "$GITHUB_ISSUE_NUMBER" ]; then
-      echo "# Issue #${GITHUB_ISSUE_NUMBER}: ${ISSUE_TITLE}"
-    else
-      echo "# Glimmung issue ${ISSUE_REFERENCE}: ${ISSUE_TITLE}"
-    fi
+    echo "# Glimmung issue ${ISSUE_REFERENCE}: ${ISSUE_TITLE}"
     echo "URL: ${ISSUE_URL}"
     echo "Validation env: ${VALIDATION_URL}"
     echo "Glimmung run: ${GLIMMUNG_RUN_ID}"
@@ -149,11 +145,10 @@ run_agent() {
     args=(
       --namespace "$NAMESPACE"
       --job-name "$JOB_NAME"
-      --issue-number "${GITHUB_ISSUE_NUMBER:-${ISSUE_REFERENCE}}"
+      --issue-number "${ISSUE_NUMBER:-${GLIMMUNG_ISSUE_ID:-${GLIMMUNG_RUN_ID}}}"
       --issue-title "$ISSUE_TITLE"
       --issue-url "$ISSUE_URL"
       --issue-reference "$ISSUE_REFERENCE"
-      --github-issue-number "$GITHUB_ISSUE_NUMBER"
       --validation-url "$VALIDATION_URL"
       --branch-name "$BRANCH_NAME"
       --proxy-ip "$PROXY_IP"
