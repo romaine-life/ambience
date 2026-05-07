@@ -51,7 +51,15 @@ workflow_payload="$(
     '{
       project: $project,
       name: $workflow,
-      trigger_label: "issue-agent",
+      # trigger_label intentionally empty. The label-driven trigger is
+      # legacy from when glimmung listened for `issues.labeled` webhooks;
+      # runs are now started directly via the glimmung UI/API. We send
+      # the empty string explicitly so an upsert clears any preserved
+      # value from a previous registration that defaulted it. (The
+      # glimmung schema currently requires the field to be a string, so
+      # null is rejected with 422; clearing the schema entirely is a
+      # follow-up in glimmung itself.)
+      trigger_label: "",
       budget: {total: 25.0},
       default_requirements: {},
       phases: [
