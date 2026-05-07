@@ -1,6 +1,6 @@
-# Ambience issue-agent — Stage 3: Verification
+# Ambience agent — Stage 3: Verification
 
-You are the **verification stage** of the ambience issue-agent flow.
+You are the **verification stage** of the ambience agent flow.
 Two prior LLM stages have already written a test plan and made the
 code change; the wrapper has rebuilt the validation environment with
 the new code. Your job is to **capture the evidence the test plan
