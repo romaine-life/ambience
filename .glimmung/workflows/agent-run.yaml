@@ -1,0 +1,137 @@
+# Canonical agent-run workflow definition.
+#
+# Glimmung's DB is the runtime source of truth, but this file is the
+# desired state. The workflow detail view in glimmung has a
+# 'Check for updates' button that compares this file against the
+# registered workflow, and an 'Install' button that promotes this
+# file's shape into Cosmos.
+#
+# Glimmung overrides the 'project' and 'name' fields from the file
+# location, so they're omitted here. Edit any other field to propose
+# a workflow change; merge the PR; click 'Install' (or use the
+# glimmung MCP tool) to promote.
+#
+# Image tag bumps after a runner-image rebuild are manual today —
+# update the four image: lines below to point at the new
+# native-<7-char-SHA> tag, then sync.
+---
+trigger_label: null
+budget:
+  total: 25.0
+default_requirements: {}
+phases:
+- name: env-prep
+  kind: k8s_job
+  outputs:
+  - validation_url
+  - validation_slot_index
+  - namespace
+  - image_tag
+  - claude_namespace
+  - claude_ca_namespace
+  jobs:
+  - id: env-prep
+    name: Build and deploy validation environment
+    image: romainecr.azurecr.io/ambience-agent-runner:native-d0eb531
+    command:
+    - /bin/bash
+    - /opt/ambience-native/scripts/env-prep.sh
+    env:
+      AZURE_SUBSCRIPTION_ID: aee0cbd2-8074-4001-b610-0f8edb4eaa3c
+    timeout_seconds: 2400
+    steps:
+    - slug: clone-repo
+      title: Clone repository
+    - slug: build-validation-image
+      title: Build validation image
+    - slug: push-validation-image
+      title: Verify validation image
+    - slug: reap-slot-conflicts
+      title: Reap conflicting slot claimants
+    - slug: deploy-validation-env
+      title: Deploy validation environment
+    - slug: check-validation-env
+      title: Check validation environment
+    - slug: emit-env-outputs
+      title: Emit phase outputs
+- name: agent-execute
+  kind: k8s_job
+  inputs:
+    validation_url: ${{ phases.env-prep.outputs.validation_url }}
+    validation_slot_index: ${{ phases.env-prep.outputs.validation_slot_index }}
+    namespace: ${{ phases.env-prep.outputs.namespace }}
+    image_tag: ${{ phases.env-prep.outputs.image_tag }}
+    claude_namespace: ${{ phases.env-prep.outputs.claude_namespace }}
+    claude_ca_namespace: ${{ phases.env-prep.outputs.claude_ca_namespace }}
+  verify: true
+  recycle_policy:
+    max_attempts: 0
+    'on':
+    - verify_fail
+    - verify_malformed
+    lands_at: self
+  jobs:
+  - id: agent-execute
+    name: Run agent and verify result
+    image: romainecr.azurecr.io/ambience-agent-runner:native-d0eb531
+    command:
+    - /bin/bash
+    - /opt/ambience-native/scripts/agent-execute.sh
+    env:
+      AZURE_SUBSCRIPTION_ID: aee0cbd2-8074-4001-b610-0f8edb4eaa3c
+      AGENT_CONTAINER_TAG: latest
+      AGENT_SCREENSHOT_STORAGE_ACCOUNT: romaineglimmungartifacts
+      AGENT_SCREENSHOT_CONTAINER: artifacts
+      AGENT_SCREENSHOT_CONTAINER_URL: https://glimmung.romaine.life/v1/artifacts
+    timeout_seconds: 5400
+    steps:
+    - slug: clone-repo
+      title: Clone repository
+    - slug: prepare-agent-context
+      title: Prepare agent context
+    - slug: run-plan-and-implement
+      title: 'LLM: Plan + implement'
+    - slug: push-branch
+      title: Confirm pushed branch
+    - slug: rebuild-validation
+      title: Rebuild validation env
+    - slug: run-verification
+      title: 'LLM: Verify'
+    - slug: collect-evidence
+      title: Collect evidence
+    - slug: summarize-agent
+      title: Summarize agent result
+    - slug: verify-result
+      title: Verify result
+    - slug: upload-screenshots
+      title: Upload screenshots
+    - slug: emit-agent-outputs
+      title: Emit verification
+- name: env-destroy
+  kind: k8s_job
+  always: true
+  jobs:
+  - id: env-destroy
+    name: Tear down validation environment
+    image: romainecr.azurecr.io/ambience-agent-runner:native-d0eb531
+    command:
+    - /bin/bash
+    - /opt/ambience-native/scripts/env-destroy.sh
+    env:
+      AZURE_SUBSCRIPTION_ID: aee0cbd2-8074-4001-b610-0f8edb4eaa3c
+    timeout_seconds: 600
+    steps:
+    - slug: describe-pre-teardown
+      title: Describe pre-teardown state
+    - slug: uninstall-helm-release
+      title: Uninstall helm release
+    - slug: delete-namespace
+      title: Delete namespace
+pr:
+  enabled: true
+  recycle_policy:
+    max_attempts: 3
+    'on':
+    - pr_review_changes_requested
+    lands_at: agent-execute
+
