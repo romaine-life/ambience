@@ -526,13 +526,8 @@ else
   git checkout -B "${BRANCH_NAME}"
 fi
 
-if [ -n "${GITHUB_ISSUE_NUMBER:-}" ]; then
-  issue_heading="# Issue #${GITHUB_ISSUE_NUMBER}: ${ISSUE_TITLE}"
-  close_line="Closes #${GITHUB_ISSUE_NUMBER}"
-else
-  issue_heading="# Glimmung issue ${ISSUE_REFERENCE}: ${ISSUE_TITLE}"
-  close_line="Glimmung-Issue: ${ISSUE_REFERENCE}"
-fi
+issue_heading="# Glimmung issue ${ISSUE_REFERENCE}: ${ISSUE_TITLE}"
+close_line="Glimmung issue: ${ISSUE_REFERENCE}"
 
 cat > /tmp/issue-context.md <<EOF
 ${issue_heading}
@@ -639,7 +634,6 @@ def _agent_job_spec(
     issue_title: str,
     issue_url: str,
     issue_reference: str | None,
-    github_issue_number: str | None,
     validation_url: str,
     branch_name: str,
     proxy_ip: str,
@@ -649,7 +643,6 @@ def _agent_job_spec(
     """Build the Job spec as a Python dict. No templating; values land directly
     in their typed positions."""
     issue_ref = issue_reference or (f"#{issue_number}" if issue_number else "glimmung-run")
-    gh_issue_number = issue_number if github_issue_number is None else github_issue_number
 
     return {
         "apiVersion": "batch/v1",
@@ -714,7 +707,6 @@ def _agent_job_spec(
                                 {"name": "HOME", "value": "/workspace"},
                                 {"name": "ISSUE_NUMBER", "value": str(issue_number)},
                                 {"name": "ISSUE_REFERENCE", "value": issue_ref},
-                                {"name": "GITHUB_ISSUE_NUMBER", "value": gh_issue_number or ""},
                                 {"name": "ISSUE_TITLE", "value": issue_title},
                                 {"name": "ISSUE_URL", "value": issue_url},
                                 {"name": "VALIDATION_URL", "value": validation_url},
@@ -757,7 +749,6 @@ def apply_agent_job(
     agent_container_tag: str,
     repo_slug: str = "nelsong6/ambience",
     issue_reference: str | None = None,
-    github_issue_number: str | None = None,
 ) -> dict:
     """Render the agent Job spec and `kubectl apply -f -` it."""
     import json as _json
@@ -768,7 +759,6 @@ def apply_agent_job(
         issue_title=issue_title,
         issue_url=issue_url,
         issue_reference=issue_reference,
-        github_issue_number=github_issue_number,
         validation_url=validation_url,
         branch_name=branch_name,
         proxy_ip=proxy_ip,

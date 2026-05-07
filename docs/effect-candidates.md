@@ -1,15 +1,13 @@
 # Effect candidates
 
-In-repo companion to
-[#9](https://github.com/nelsong6/ambience/issues/9). That issue is the
-canonical rolling list; this doc gives the backlog a place to grow with
-a little more shape than a flat bullet line — a fit note against the
-5-slot template ([#1](https://github.com/nelsong6/ambience/issues/1)),
-a one-line reason it feels ambient, and current promotion status.
+In-repo companion for the canonical rolling list in Glimmung. This doc
+gives the backlog a place to grow with a little more shape than a flat
+bullet line: a fit note against the 5-slot template, a one-line reason it
+feels ambient, and current promotion status.
 
 When a candidate is promoted, leave the row in place but mark it
-`promoted: #N` so the historical reasoning stays browsable next to the
-implementation issue.
+`promoted: ambience#N` so the historical reasoning stays browsable next to
+the implementation issue.
 
 ## Selection criteria
 

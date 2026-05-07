@@ -200,8 +200,7 @@ Go tests in `terminal/`.
 
 ## Effects model
 
-Every effect fills a 5-slot template — see
-[issue #1](https://github.com/nelsong6/ambience/issues/1):
+Every effect fills a 5-slot template:
 
 1. **Spawn config** — random init params
 2. **Continuous levers** — micro-drift fed by entropy
@@ -218,10 +217,8 @@ subscribers to every live effect. The `/dev` page reads the same registry
 to switch effects without page-specific wiring.
 
 For backlog candidates not yet promoted to their own implementation
-issue, see [`docs/effect-candidates.md`](docs/effect-candidates.md) —
-in-repo companion to
-[#9](https://github.com/nelsong6/ambience/issues/9), with 5-slot fit
-notes and promotion status per candidate.
+issue, see [`docs/effect-candidates.md`](docs/effect-candidates.md), with
+5-slot fit notes and promotion status per candidate.
 
 ## Guiding principle
 
@@ -398,8 +395,6 @@ terminal), my-homepage (bookmark terminal). Entropy flow wired.
 
 Terminal rain-only sync is implemented in the `terminal` package, but
 fzt-automate rendering integration is still tabled pending platform
-rendering work — see issues
-[#11–#15](https://github.com/nelsong6/ambience/issues?q=is%3Aopen+label%3Aterminal-client).
+rendering work tracked in Glimmung.
 
-Repo migration `nelsong6/` → `romaine-life/` tracked by
-[#10](https://github.com/nelsong6/ambience/issues/10).
+Repo migration `nelsong6/` to `romaine-life/` is tracked in Glimmung.
