@@ -468,17 +468,28 @@ def destroy_pr_preview(*, pr_number: int, release: str = DEFAULT_PR_RELEASE_NAME
 #     blocked for the full timeout on every failure).
 # ---------------------------------------------------------------------------
 
-# Bash that runs inside the agent container. Plain Python string — no
-# interpolation happens here. All `${VAR}` references are evaluated by the
+# Bash fragments that run inside the agent container. Plain Python strings —
+# no Python-side interpolation. All `${VAR}` references are evaluated by the
 # container's bash from the env block defined in apply_agent_job below
 # (REPO_SLUG, GH_TOKEN, ISSUE_NUMBER, BRANCH_NAME, etc).
-_AGENT_BASH_SCRIPT = r"""set -euo pipefail
+#
+# The flow is split across two K8s Job pods to reduce per-step LLM context
+# burden (see docs/issue-agent-stage-split.md and tank-operator's
+# docs/agent-llm-task-splitting.md):
+#
+#   pod 1 — _PLAN_AND_IMPLEMENT_BASH: two sequential `claude --print`
+#   invocations (test-plan, then implementation), each with a fresh LLM
+#   context. Pod 1 commits + pushes the implementation branch on success.
+#
+#   pod 2 — _VERIFY_BASH: one `claude --print` invocation that reads the
+#   prior stages' JSON+MD handoff artifacts (mounted via configmap) and
+#   captures evidence against the rebuilt validation env. Pod 2 does NOT
+#   touch git.
+#
+# Both share the same bootstrap (claude state seed + git auth header).
 
-# Pre-create the evidence dirs the agent writes into. Sibling of
-# /workspace/repo (the clone root) so `git add -A` in the repo doesn't
-# pick PNGs/notes up. The post-Job workflow extracts /workspace/evidence
-# from the agent pod's stdout (see end of script); the dirs need to
-# exist for the tar to succeed even if the agent produced no evidence.
+_AGENT_BOOTSTRAP_BASH = r"""set -euo pipefail
+
 mkdir -p /workspace/evidence/screenshots
 
 # Seed claude state — placeholder credentials so claude never tries to
@@ -519,15 +530,6 @@ git config --global user.name "ambience-agent[bot]"
 git config --global user.email "ambience-agent@romaine.life"
 GIT_AUTH_HEADER="Authorization: Basic $(printf 'x-access-token:%s' "${GH_TOKEN}" | base64 | tr -d '\n')"
 
-git -c "http.extraHeader=${GIT_AUTH_HEADER}" \
-  clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
-cd /workspace/repo
-if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH_NAME}"; then
-  git checkout -B "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
-else
-  git checkout -B "${BRANCH_NAME}"
-fi
-
 issue_heading="# Glimmung issue ${ISSUE_REFERENCE}: ${ISSUE_TITLE}"
 close_line="Glimmung issue: ${ISSUE_REFERENCE}"
 
@@ -536,52 +538,12 @@ ${issue_heading}
 URL: ${ISSUE_URL}
 Validation env: ${VALIDATION_URL}
 EOF
-cat /agent-config/prompt.md /tmp/issue-context.md > /tmp/agent-input.md
+"""
 
-# stream-json + verbose so the GHA step surfaces tool calls + partial
-# messages as they happen, instead of going silent for the whole agent
-# run and dumping the final response at exit. Each event is one JSON
-# object on its own line; the workflow's `kubectl logs -f` pipes them
-# straight to the step output.
-cat /tmp/agent-input.md | claude \
-  --print \
-  --output-format stream-json \
-  --verbose \
-  --dangerously-skip-permissions \
-  2>&1 | tee /tmp/claude-stream.log
-
-# Refuse to publish runner-local config files. The prompt tells the
-# agent not to touch these; this is the second line of defense.
-BLOCKED=$(git status --porcelain -- .github/workflows .github/agent .mcp.json 2>/dev/null || true)
-if [ -n "$BLOCKED" ]; then
-  echo "agent modified runner-local config files (forbidden by prompt):" >&2
-  echo "$BLOCKED" >&2
-  exit 1
-fi
-
-git add -A
-if git diff --cached --quiet; then
-  echo "agent produced no changes; failing job so the workflow doesn't open an empty PR" >&2
-  exit 1
-fi
-git commit -m "agent: address ${ISSUE_REFERENCE}
-
-${ISSUE_TITLE}
-
-${close_line}"
-
-# Sync onto current main before pushing. The agent ran for several minutes;
-# main may have moved (e.g. someone merged a workflow tweak). Pushing a
-# branch whose tip has a stale view of `.github/workflows/*` would be
-# rejected by GitHub's workflow-permission check, even though the agent's
-# commit didn't touch those files. Rebase replays the agent's single
-# commit on top of current main; if there's a real conflict we fail loudly
-# rather than ship a stale-base branch.
-git -c "http.extraHeader=${GIT_AUTH_HEADER}" fetch origin main
-git rebase origin/main
-
-git -c "http.extraHeader=${GIT_AUTH_HEADER}" push origin "HEAD:${BRANCH_NAME}"
-
+# Common tail used by both pod scripts. Stages have already written their
+# JSON+MD into /workspace/evidence/; the tar is the side-channel back to
+# the wrapper (kubectl logs) since exec-tar fails on Succeeded pods.
+_AGENT_EVIDENCE_TAIL_BASH = r"""
 # Stream the evidence dir as a base64-encoded tarball to stdout between
 # clear markers the workflow extracts via sed. We can't kubectl cp from
 # a Succeeded pod (exec-tar requires a live container; the bash exit
@@ -604,21 +566,14 @@ git -c "http.extraHeader=${GIT_AUTH_HEADER}" push origin "HEAD:${BRANCH_NAME}"
 #
 # Empty evidence dir is fine; the markers just frame an empty tar.
 if [ -d /workspace/evidence ]; then
-  # Settle background work the agent might have left behind.
   wait 2>/dev/null || true
   sync || true
 
-  # Stage the tarball on disk first. Stderr from tar/gzip is captured
-  # to a sidecar file so it can never interleave with the base64 stream.
   if ! tar -czf /tmp/evidence.tgz -C /workspace/evidence . 2>/tmp/tar.err; then
     echo "evidence tar FAILED; stderr was:" >&2
     cat /tmp/tar.err >&2 || true
-    # Continue anyway with whatever (possibly partial) tarball was written.
   fi
 
-  # Emit markers and base64 from the staged file. base64's input is the
-  # local file (no pipes that could interleave), and stderr for the
-  # whole block is suppressed so any stragglers can't poison the stream.
   {
     echo "===EVIDENCE-TAR-START==="
     base64 < /tmp/evidence.tgz
@@ -626,6 +581,180 @@ if [ -d /workspace/evidence ]; then
   } 2>/dev/null
 fi
 """
+
+# Pod 1: test-plan + implementation. Two `claude --print` calls in sequence
+# with fresh contexts; the wrapper checks the JSON status of each before
+# allowing the next stage to start.
+_PLAN_AND_IMPLEMENT_BASH = _AGENT_BOOTSTRAP_BASH + r"""
+git -c "http.extraHeader=${GIT_AUTH_HEADER}" \
+  clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
+cd /workspace/repo
+if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH_NAME}"; then
+  git checkout -B "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
+else
+  git checkout -B "${BRANCH_NAME}"
+fi
+
+# ---- Stage 1: test plan ---------------------------------------------------
+echo "=== STAGE: test-plan ==="
+cat /agent-config/prompt-test-plan.md /tmp/issue-context.md > /tmp/plan-input.md
+cat /tmp/plan-input.md | claude \
+  --print \
+  --output-format stream-json \
+  --verbose \
+  --dangerously-skip-permissions \
+  2>&1 | tee /tmp/test-plan-stream.log
+
+if [ ! -f /workspace/evidence/issue-agent-test-plan.json ]; then
+  echo "test-plan stage exited without writing issue-agent-test-plan.json" >&2
+  exit 1
+fi
+plan_status="$(jq -r '.status // "missing"' /workspace/evidence/issue-agent-test-plan.json)"
+if [ "$plan_status" != "pass" ]; then
+  echo "test-plan aborted: status=${plan_status} reason=$(jq -r '.abort_reason // ""' /workspace/evidence/issue-agent-test-plan.json)" >&2
+  exit 1
+fi
+
+# Test-plan stage may not modify the working tree.
+if [ -n "$(git status --porcelain)" ]; then
+  echo "test-plan stage modified files (forbidden):" >&2
+  git status --short >&2
+  exit 1
+fi
+
+# ---- Stage 2: implementation ---------------------------------------------
+echo "=== STAGE: implementation ==="
+{
+  cat /agent-config/prompt-implementation.md
+  cat /tmp/issue-context.md
+  echo ""
+  echo "## Test plan from prior stage"
+  echo ""
+  echo '```json'
+  cat /workspace/evidence/issue-agent-test-plan.json
+  echo '```'
+  echo ""
+  cat /workspace/evidence/issue-agent-test-plan.md 2>/dev/null || true
+} > /tmp/impl-input.md
+
+cat /tmp/impl-input.md | claude \
+  --print \
+  --output-format stream-json \
+  --verbose \
+  --dangerously-skip-permissions \
+  2>&1 | tee /tmp/impl-stream.log
+
+if [ ! -f /workspace/evidence/issue-agent-implementation.json ]; then
+  echo "implementation stage exited without writing issue-agent-implementation.json" >&2
+  exit 1
+fi
+impl_status="$(jq -r '.status // "missing"' /workspace/evidence/issue-agent-implementation.json)"
+if [ "$impl_status" != "pass" ]; then
+  echo "implementation aborted: status=${impl_status} reason=$(jq -r '.abort_reason // ""' /workspace/evidence/issue-agent-implementation.json)" >&2
+  exit 1
+fi
+
+# Refuse to publish runner-local config files. The prompt tells the
+# agent not to touch these; this is the second line of defense.
+BLOCKED=$(git status --porcelain -- .github/workflows .github/agent .mcp.json 2>/dev/null || true)
+if [ -n "$BLOCKED" ]; then
+  echo "implementation stage modified runner-local config files (forbidden):" >&2
+  echo "$BLOCKED" >&2
+  exit 1
+fi
+
+git add -A
+if git diff --cached --quiet; then
+  echo "implementation stage produced no changes; failing job so the workflow doesn't open an empty PR" >&2
+  exit 1
+fi
+git commit -m "agent: address ${ISSUE_REFERENCE}
+
+${ISSUE_TITLE}
+
+${close_line}"
+
+# Sync onto current main before pushing — same rationale as the prior
+# monolithic shape: main may have moved during the run.
+git -c "http.extraHeader=${GIT_AUTH_HEADER}" fetch origin main
+git rebase origin/main
+
+git -c "http.extraHeader=${GIT_AUTH_HEADER}" push origin "HEAD:${BRANCH_NAME}"
+""" + _AGENT_EVIDENCE_TAIL_BASH
+
+# Pod 2: verification. Reads prior stages' handoff artifacts from the
+# agent-config configmap (the wrapper repopulates it between stages with
+# the extracted JSON+MD files from pod 1's evidence tar).
+_VERIFY_BASH = _AGENT_BOOTSTRAP_BASH + r"""
+# Pod 2 starts from the pushed implementation branch — the agent's code
+# changes are already on the remote (pod 1 pushed). Clone, check it out.
+git -c "http.extraHeader=${GIT_AUTH_HEADER}" \
+  clone --branch "${BRANCH_NAME}" \
+  "https://github.com/${REPO_SLUG}.git" /workspace/repo \
+  || git -c "http.extraHeader=${GIT_AUTH_HEADER}" \
+       clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
+cd /workspace/repo
+if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH_NAME}"; then
+  git checkout -B "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
+fi
+
+# Make prior-stage handoff artifacts visible to the verifier under
+# /workspace/evidence/ so the prompt's "Read /workspace/evidence/..."
+# instructions resolve. The wrapper has already copied these into the
+# agent-config configmap.
+for f in issue-agent-test-plan.json issue-agent-test-plan.md \
+         issue-agent-implementation.json issue-agent-implementation.md; do
+  if [ -f "/agent-config/${f}" ]; then
+    cp "/agent-config/${f}" "/workspace/evidence/${f}"
+  fi
+done
+
+echo "=== STAGE: verification ==="
+{
+  cat /agent-config/prompt-verification.md
+  cat /tmp/issue-context.md
+  echo ""
+  echo "## Test plan from prior stage"
+  echo ""
+  echo '```json'
+  cat /workspace/evidence/issue-agent-test-plan.json 2>/dev/null || echo '{}'
+  echo '```'
+  echo ""
+  cat /workspace/evidence/issue-agent-test-plan.md 2>/dev/null || true
+  echo ""
+  echo "## Implementation result from prior stage"
+  echo ""
+  echo '```json'
+  cat /workspace/evidence/issue-agent-implementation.json 2>/dev/null || echo '{}'
+  echo '```'
+  echo ""
+  cat /workspace/evidence/issue-agent-implementation.md 2>/dev/null || true
+} > /tmp/verify-input.md
+
+cat /tmp/verify-input.md | claude \
+  --print \
+  --output-format stream-json \
+  --verbose \
+  --dangerously-skip-permissions \
+  2>&1 | tee /tmp/verify-stream.log
+
+if [ ! -f /workspace/evidence/issue-agent-verification.json ]; then
+  echo "verification stage exited without writing issue-agent-verification.json" >&2
+  exit 1
+fi
+
+# Verification stage may not modify the working tree.
+if [ -n "$(git status --porcelain)" ]; then
+  echo "verification stage modified files (forbidden):" >&2
+  git status --short >&2
+  exit 1
+fi
+""" + _AGENT_EVIDENCE_TAIL_BASH
+
+_STAGE_BASH_SCRIPTS = {
+    "plan-and-implement": _PLAN_AND_IMPLEMENT_BASH,
+    "verify": _VERIFY_BASH,
+}
 
 
 def _agent_job_spec(
@@ -641,9 +770,15 @@ def _agent_job_spec(
     proxy_ip: str,
     agent_container_tag: str,
     repo_slug: str = "nelsong6/ambience",
+    stage: str = "plan-and-implement",
 ) -> dict:
     """Build the Job spec as a Python dict. No templating; values land directly
-    in their typed positions."""
+    in their typed positions. `stage` selects which bash script the agent
+    container runs (see _STAGE_BASH_SCRIPTS)."""
+    if stage not in _STAGE_BASH_SCRIPTS:
+        raise ValueError(
+            f"unknown stage {stage!r}; expected one of {sorted(_STAGE_BASH_SCRIPTS)}"
+        )
     issue_ref = issue_reference or (f"#{issue_number}" if issue_number else "glimmung-run")
 
     return {
@@ -703,7 +838,7 @@ def _agent_job_spec(
                             # interactive sessions). See tank-operator/agent-container/.
                             "image": f"romainecr.azurecr.io/agent-container:{agent_container_tag}",
                             "imagePullPolicy": "IfNotPresent",
-                            "command": ["/bin/bash", "-c", _AGENT_BASH_SCRIPT],
+                            "command": ["/bin/bash", "-c", _STAGE_BASH_SCRIPTS[stage]],
                             "env": [
                                 {"name": "NODE_EXTRA_CA_CERTS", "value": "/etc/claude-ca/ca.crt"},
                                 {"name": "HOME", "value": "/workspace"},
@@ -714,6 +849,7 @@ def _agent_job_spec(
                                 {"name": "VALIDATION_URL", "value": validation_url},
                                 {"name": "BRANCH_NAME", "value": branch_name},
                                 {"name": "REPO_SLUG", "value": repo_slug},
+                                {"name": "AGENT_STAGE", "value": stage},
                                 {
                                     "name": "GH_TOKEN",
                                     "valueFrom": {
@@ -751,8 +887,10 @@ def apply_agent_job(
     agent_container_tag: str,
     repo_slug: str = "nelsong6/ambience",
     issue_reference: str | None = None,
+    stage: str = "plan-and-implement",
 ) -> dict:
-    """Render the agent Job spec and `kubectl apply -f -` it."""
+    """Render the agent Job spec and `kubectl apply -f -` it. `stage` is one
+    of plan-and-implement / verify (see _STAGE_BASH_SCRIPTS)."""
     import json as _json
     spec = _agent_job_spec(
         namespace=namespace,
@@ -766,6 +904,7 @@ def apply_agent_job(
         proxy_ip=proxy_ip,
         agent_container_tag=agent_container_tag,
         repo_slug=repo_slug,
+        stage=stage,
     )
     proc = subprocess.run(
         ["kubectl", "apply", "-f", "-"],

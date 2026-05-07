@@ -125,11 +125,14 @@ workflow_payload="$(
               steps: [
                 {slug: "clone-repo", title: "Clone repository"},
                 {slug: "prepare-agent-context", title: "Prepare agent context"},
-                {slug: "run-agent", title: "LLM: Run agent job"},
+                {slug: "run-plan-and-implement", title: "LLM: Plan + implement"},
+                {slug: "push-branch", title: "Confirm pushed branch"},
+                {slug: "rebuild-validation", title: "Rebuild validation env"},
+                {slug: "run-verification", title: "LLM: Verify"},
                 {slug: "collect-evidence", title: "Collect evidence"},
                 {slug: "summarize-agent", title: "Summarize agent result"},
                 {slug: "verify-result", title: "Verify result"},
-                {slug: "push-branch", title: "Confirm pushed branch"},
+                {slug: "upload-screenshots", title: "Upload screenshots"},
                 {slug: "emit-agent-outputs", title: "Emit verification"}
               ]
             }

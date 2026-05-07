@@ -83,6 +83,12 @@ def build_parser() -> argparse.ArgumentParser:
     apply_agent.add_argument("--proxy-ip", required=True)
     apply_agent.add_argument("--agent-container-tag", required=True)
     apply_agent.add_argument("--repo-slug", default="nelsong6/ambience")
+    apply_agent.add_argument(
+        "--stage",
+        default="plan-and-implement",
+        choices=["plan-and-implement", "verify"],
+        help="Which stage's bash script the agent container runs.",
+    )
 
     wait_agent = subparsers.add_parser(
         "wait-agent-job",
@@ -164,6 +170,7 @@ def main() -> int:
                     proxy_ip=args.proxy_ip,
                     agent_container_tag=args.agent_container_tag,
                     repo_slug=args.repo_slug,
+                    stage=args.stage,
                 )
             )
         elif args.command == "wait-agent-job":
