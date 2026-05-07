@@ -146,6 +146,33 @@ workflow_payload="$(
               ]
             }
           ]
+        },
+        {
+          # Always-run teardown (glimmung#296). Runs on success/abort/fail
+          # so the slot namespace is cleaned up immediately rather than
+          # leaking until the next env-prep on the same slot reaps it.
+          # The env-prep slot-reap (ambience#224) stays in place as
+          # belt-and-suspenders for the case where this teardown fails.
+          name: "env-destroy",
+          kind: "k8s_job",
+          always: true,
+          jobs: [
+            {
+              id: "env-destroy",
+              name: "Tear down validation environment",
+              image: $image,
+              command: ["/bin/bash", "/opt/ambience-native/scripts/env-destroy.sh"],
+              env: {
+                AZURE_SUBSCRIPTION_ID: $subscription
+              },
+              timeout_seconds: 600,
+              steps: [
+                {slug: "describe-pre-teardown", title: "Describe pre-teardown state"},
+                {slug: "uninstall-helm-release", title: "Uninstall helm release"},
+                {slug: "delete-namespace", title: "Delete namespace"}
+              ]
+            }
+          ]
         }
       ],
       pr: {
