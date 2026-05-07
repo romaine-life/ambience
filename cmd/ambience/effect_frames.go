@@ -8,6 +8,7 @@ func (r *autumnLeavesRuntime) Frame() [][]sim.Pixel  { return r.sim.GridCopy() }
 func (r *beachRuntime) Frame() [][]sim.Pixel         { return r.sim.GridCopy() }
 func (r *burningTreesRuntime) Frame() [][]sim.Pixel  { return r.sim.GridCopy() }
 func (r *campfireRuntime) Frame() [][]sim.Pixel      { return r.sim.GridCopy() }
+func (r *caveCrystalsRuntime) Frame() [][]sim.Pixel  { return r.sim.GridCopy() }
 func (r *dustRuntime) Frame() [][]sim.Pixel          { return r.sim.GridCopy() }
 func (r *firefliesRuntime) Frame() [][]sim.Pixel     { return r.sim.GridCopy() }
 func (r *lighthouseRuntime) Frame() [][]sim.Pixel    { return r.sim.GridCopy() }
