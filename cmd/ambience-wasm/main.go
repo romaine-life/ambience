@@ -66,6 +66,7 @@ func supportedEffects(js.Value, []js.Value) any {
 		"beach",
 		"burning-trees",
 		"campfire",
+		"cave-crystals",
 		"dust",
 		"fireflies",
 		"lighthouse",
@@ -127,6 +128,8 @@ func makeRuntime(kind string, w, h int, seed int64, cfg json.RawMessage) (*runti
 		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewBurningTrees)
 	case "campfire":
 		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewCampfire)
+	case "cave-crystals":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewCaveCrystals)
 	case "dust":
 		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewDust)
 	case "fireflies":
