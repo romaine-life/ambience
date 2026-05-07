@@ -99,8 +99,12 @@ workflow_payload="$(
             claude_ca_namespace: "${{ phases.env-prep.outputs.claude_ca_namespace }}"
           },
           verify: true,
+          # Recycle disabled (max_attempts: 0) — any verify_fail /
+          # verify_malformed aborts the run immediately. Restore a
+          # real cap once the verifier is trustworthy enough to retry
+          # on without spawning runaway recycle children.
           recycle_policy: {
-            max_attempts: 3,
+            max_attempts: 0,
             on: ["verify_fail", "verify_malformed"],
             lands_at: "self"
           },
