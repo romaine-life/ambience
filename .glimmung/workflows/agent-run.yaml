@@ -63,13 +63,9 @@ phases:
     image_tag: ${{ phases.env-prep.outputs.image_tag }}
     claude_namespace: ${{ phases.env-prep.outputs.claude_namespace }}
     claude_ca_namespace: ${{ phases.env-prep.outputs.claude_ca_namespace }}
+  outputs:
+  - verification
   verify: true
-  recycle_policy:
-    max_attempts: 0
-    'on':
-    - verify_fail
-    - verify_malformed
-    lands_at: self
   jobs:
   - id: agent-execute
     name: Run agent and verify result
@@ -107,6 +103,17 @@ phases:
       title: Upload screenshots
     - slug: emit-agent-outputs
       title: Emit verification
+- name: agent-verify-gate
+  kind: k8s_job
+  evidence_verification_gate: true
+  inputs:
+    verification: ${{ phases.agent-execute.outputs.verification }}
+  recycle_policy:
+    max_attempts: 0
+    'on':
+    - verify_fail
+    - verify_malformed
+    lands_at: agent-execute
 - name: env-destroy
   kind: k8s_job
   always: true

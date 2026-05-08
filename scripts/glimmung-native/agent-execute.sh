@@ -532,4 +532,12 @@ native_step_allow_failure "upload-screenshots" upload_screenshots || true
 native_step "emit-agent-outputs" emit_agent_outputs
 native_assert_resume_satisfied
 
-native_completed "null" "$(cat "$VERIFICATION_JSON")" "$(cat "$SCREENSHOTS_MD")" "$(cat "$SUMMARY_MD")"
+# Emit `verification` as a phase output so the downstream
+# evidence_verification_gate (glimmung-supplied phase) can read the
+# artifact via `${{ phases.agent-execute.outputs.verification }}` and
+# decide pass/fail. The verification artifact stays as a structured
+# field on the completed callback too (the run viewer reads it from
+# attempt.metadata.verification); the phase-output is the parallel
+# wire-format for the gate's input substitution.
+verification_outputs="$(jq -nc --slurpfile v "$VERIFICATION_JSON" '{verification: ($v[0] | tostring)}')"
+native_completed "$verification_outputs" "$(cat "$VERIFICATION_JSON")" "$(cat "$SCREENSHOTS_MD")" "$(cat "$SUMMARY_MD")"
