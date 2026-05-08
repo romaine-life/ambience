@@ -230,7 +230,7 @@ native_step_run() {
     native_failed "step ${step_slug} exited ${rc}"
     exit "$rc"
   fi
-  return "$rc"
+  return 0
 }
 
 native_assert_resume_satisfied() {
