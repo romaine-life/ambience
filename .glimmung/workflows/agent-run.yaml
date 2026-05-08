@@ -32,7 +32,7 @@ phases:
   jobs:
   - id: env-prep
     name: Build and deploy validation environment
-    image: romainecr.azurecr.io/ambience-agent-runner:native-d0eb531
+    image: romainecr.azurecr.io/ambience-agent-runner:native-ae3d4b1
     command:
     - /bin/bash
     - /opt/ambience-native/scripts/env-prep.sh
@@ -68,7 +68,7 @@ phases:
   jobs:
   - id: test-plan
     name: 'LLM: author test plan'
-    image: romainecr.azurecr.io/ambience-agent-runner:native-d0eb531
+    image: romainecr.azurecr.io/ambience-agent-runner:native-ae3d4b1
     command:
     - /bin/bash
     - /opt/ambience-native/scripts/test-plan.sh
@@ -106,7 +106,7 @@ phases:
   jobs:
   - id: implement
     name: 'LLM: implement'
-    image: romainecr.azurecr.io/ambience-agent-runner:native-d0eb531
+    image: romainecr.azurecr.io/ambience-agent-runner:native-ae3d4b1
     command:
     - /bin/bash
     - /opt/ambience-native/scripts/implement.sh
@@ -150,7 +150,7 @@ phases:
   jobs:
   - id: verify
     name: 'LLM: capture evidence'
-    image: romainecr.azurecr.io/ambience-agent-runner:native-d0eb531
+    image: romainecr.azurecr.io/ambience-agent-runner:native-ae3d4b1
     command:
     - /bin/bash
     - /opt/ambience-native/scripts/verify.sh
@@ -193,7 +193,7 @@ phases:
   jobs:
   - id: env-destroy
     name: Tear down validation environment
-    image: romainecr.azurecr.io/ambience-agent-runner:native-d0eb531
+    image: romainecr.azurecr.io/ambience-agent-runner:native-ae3d4b1
     command:
     - /bin/bash
     - /opt/ambience-native/scripts/env-destroy.sh
@@ -214,4 +214,3 @@ pr:
     'on':
     - pr_review_changes_requested
     lands_at: implement
-
