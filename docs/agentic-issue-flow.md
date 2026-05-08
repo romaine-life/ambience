@@ -46,17 +46,11 @@ re-fetching it from GitHub Issues.
 
 ## Workflow Registration
 
-After a native runner image is built, register Ambience with:
-
-```bash
-AMBIENCE_NATIVE_RUNNER_IMAGE=romainecr.azurecr.io/ambience-agent-runner:native-<sha> \
-  scripts/glimmung-native/register-workflow.sh
-```
-
-The registration currently creates two native phases:
-
-- `env-prep`
-- `agent-execute`
+The `agent-run` workflow is registered with Glimmung over MCP — the
+canonical path is the `register_workflow` / `sync_workflow` tools on
+the glimmung MCP server, not a script in this repo. Glimmung owns the
+workflow definition; ambience contributes the per-phase runner scripts
+under `scripts/glimmung-native/` and the runner image they execute in.
 
 The terminal review surface is the Glimmung Report primitive. The current
 Glimmung registration schema still exposes that knob as `pr.enabled` until the
