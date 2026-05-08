@@ -286,8 +286,6 @@ write_verification() {
 }
 
 finalize() {
-  collect_evidence
-
   if [ "$VERIFY_EXIT_CODE" -ne 0 ]; then
     add_reason "verify pod exited with ${VERIFY_EXIT_CODE}; see native step logs"
     if [ -s "$POD_LOG" ]; then
@@ -312,6 +310,7 @@ finalize() {
   fi
 
   write_verification "pass"
+  write_summary
 }
 
 upload_screenshots() {
@@ -406,8 +405,8 @@ emit() {
 native_step "clone" clone_repo
 native_step "prepare" prepare_context
 native_step_allow_failure "llm" run_llm || VERIFY_EXIT_CODE=$?
+native_step "collect" collect_evidence
 native_step "finalize" finalize
 native_step_allow_failure "upload-screenshots" upload_screenshots || true
-native_step "write-summary" write_summary
 native_step "emit" emit
 native_assert_resume_satisfied
