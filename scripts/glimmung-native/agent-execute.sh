@@ -408,6 +408,14 @@ enforce_evidence_contract() {
 }
 
 verify_result() {
+  # Returns 0 on pass, 1 on fail/error. The non-zero exit makes the
+  # verify-result step show red in the run graph so the operator can
+  # see *which* step caused the verdict, instead of the failure being
+  # buried in the artifact while every step shows green. The verify-
+  # result step is wired with native_step_allow_failure so the script
+  # still reaches emit-agent-outputs and native_completed — the
+  # verification artifact still flows to glimmung, decision engine
+  # still routes on verification.status, abort behavior unchanged.
   if [ "$PLAN_EXIT_CODE" -ne 0 ]; then
     add_reason "plan-and-implement pod exited with ${PLAN_EXIT_CODE}; see native step logs"
     if [ -s "$STAGE1_LOG" ]; then
@@ -415,7 +423,7 @@ verify_result() {
         | head -5 >>"$VERIFICATION_REASONS" || true
     fi
     write_verification "fail"
-    return 0
+    return 1
   fi
   if [ "$VERIFY_EXIT_CODE" -ne 0 ]; then
     add_reason "verify pod exited with ${VERIFY_EXIT_CODE}; see native step logs"
@@ -424,7 +432,7 @@ verify_result() {
         | head -5 >>"$VERIFICATION_REASONS" || true
     fi
     write_verification "fail"
-    return 0
+    return 1
   fi
 
   # Verifier's own claim
@@ -433,13 +441,13 @@ verify_result() {
   if [ "$verifier_status" != "pass" ]; then
     add_reason "verifier reported status=${verifier_status} reason=$(jq -r '.abort_reason // ""' "${EVIDENCE_DIR}/issue-agent-verification.json" 2>/dev/null || echo "")"
     write_verification "fail"
-    return 0
+    return 1
   fi
 
   # Wrapper-side recheck against the test plan's required_evidence.
   if ! enforce_evidence_contract; then
     write_verification "fail"
-    return 0
+    return 1
   fi
 
   write_verification "pass"
@@ -527,7 +535,12 @@ else
 fi
 native_step "collect-evidence" collect_evidence
 native_step "summarize-agent" write_agent_summary
-native_step "verify-result" verify_result
+# allow_failure on verify-result so a verify_fail/verify_error verdict
+# surfaces as a red step in the run graph (operator can see which step
+# made the call) without aborting the script before emit-agent-outputs
+# delivers the artifact to glimmung. The decision engine routes on
+# verification.status from that artifact — same as before.
+native_step_allow_failure "verify-result" verify_result || true
 native_step_allow_failure "upload-screenshots" upload_screenshots || true
 native_step "emit-agent-outputs" emit_agent_outputs
 native_assert_resume_satisfied
