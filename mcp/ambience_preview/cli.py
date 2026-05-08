@@ -85,9 +85,14 @@ def build_parser() -> argparse.ArgumentParser:
     apply_agent.add_argument("--repo-slug", default="nelsong6/ambience")
     apply_agent.add_argument(
         "--stage",
-        default="plan-and-implement",
-        choices=["plan-and-implement", "verify"],
+        default="test-plan",
+        choices=["test-plan", "implement", "verify"],
         help="Which stage's bash script the agent container runs.",
+    )
+    apply_agent.add_argument(
+        "--config-map-name",
+        default="agent-config",
+        help="Name of the configmap mounted at /agent-config in the agent pod.",
     )
 
     wait_agent = subparsers.add_parser(
@@ -171,6 +176,7 @@ def main() -> int:
                     agent_container_tag=args.agent_container_tag,
                     repo_slug=args.repo_slug,
                     stage=args.stage,
+                    config_map_name=args.config_map_name,
                 )
             )
         elif args.command == "wait-agent-job":

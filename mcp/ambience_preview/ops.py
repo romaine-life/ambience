@@ -582,28 +582,16 @@ if [ -d /workspace/evidence ]; then
 fi
 """
 
-# Pod 1: test-plan + implementation. Two `claude --print` calls in sequence
-# with fresh contexts; the wrapper checks the JSON status of each before
-# allowing the next stage to start.
-_PLAN_AND_IMPLEMENT_BASH = _AGENT_BOOTSTRAP_BASH + r"""
+# Pod: test-plan. Read-only analysis — no code edits, no git mutations.
+# Clones main, runs the test-plan LLM, emits issue-agent-test-plan.json.
+_TEST_PLAN_BASH = _AGENT_BOOTSTRAP_BASH + r"""
 git -c "http.extraHeader=${GIT_AUTH_HEADER}" \
   clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
 cd /workspace/repo
-if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH_NAME}"; then
-  git checkout -B "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
-else
-  git checkout -B "${BRANCH_NAME}"
-fi
 
-# Pre-warm the Go module cache so the implementation stage's
-# `go build ./...` and `go test ./...` calls don't show pages of
-# `go: downloading ...` lines in the LLM's tool output. Modules land
-# under $HOME/go (HOME=/workspace per the Job env block); the cache
-# is per-pod (emptyDir) so we pay this once per stage 1 pod.
 echo "=== prewarm: go mod download ==="
 go mod download 2>&1 | tail -20 || true
 
-# ---- Stage 1: test plan ---------------------------------------------------
 echo "=== STAGE: test-plan ==="
 cat /agent-config/prompt-test-plan.md /tmp/issue-context.md > /tmp/plan-input.md
 cat /tmp/plan-input.md | claude \
@@ -629,22 +617,26 @@ if [ -n "$(git status --porcelain)" ]; then
   git status --short >&2
   exit 1
 fi
+""" + _AGENT_EVIDENCE_TAIL_BASH
 
-# ---- Stage 2: implementation ---------------------------------------------
+# Pod: implement. Works directly from the issue spec — does NOT receive the
+# test plan as input (runs in parallel with test-plan). Commits + pushes the
+# implementation branch.
+_IMPLEMENT_BASH = _AGENT_BOOTSTRAP_BASH + r"""
+git -c "http.extraHeader=${GIT_AUTH_HEADER}" \
+  clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
+cd /workspace/repo
+if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH_NAME}"; then
+  git checkout -B "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
+else
+  git checkout -B "${BRANCH_NAME}"
+fi
+
+echo "=== prewarm: go mod download ==="
+go mod download 2>&1 | tail -20 || true
+
 echo "=== STAGE: implementation ==="
-{
-  cat /agent-config/prompt-implementation.md
-  cat /tmp/issue-context.md
-  echo ""
-  echo "## Test plan from prior stage"
-  echo ""
-  echo '```json'
-  cat /workspace/evidence/issue-agent-test-plan.json
-  echo '```'
-  echo ""
-  cat /workspace/evidence/issue-agent-test-plan.md 2>/dev/null || true
-} > /tmp/impl-input.md
-
+cat /agent-config/prompt-implementation.md /tmp/issue-context.md > /tmp/impl-input.md
 cat /tmp/impl-input.md | claude \
   --print \
   --output-format stream-json \
@@ -662,8 +654,7 @@ if [ "$impl_status" != "pass" ]; then
   exit 1
 fi
 
-# Refuse to publish runner-local config files. The prompt tells the
-# agent not to touch these; this is the second line of defense.
+# Refuse to publish runner-local config files.
 BLOCKED=$(git status --porcelain -- .github/workflows .github/agent .mcp.json 2>/dev/null || true)
 if [ -n "$BLOCKED" ]; then
   echo "implementation stage modified runner-local config files (forbidden):" >&2
@@ -682,20 +673,18 @@ ${ISSUE_TITLE}
 
 ${close_line}"
 
-# Sync onto current main before pushing — same rationale as the prior
-# monolithic shape: main may have moved during the run.
+# Sync onto current main before pushing.
 git -c "http.extraHeader=${GIT_AUTH_HEADER}" fetch origin main
 git rebase origin/main
 
 git -c "http.extraHeader=${GIT_AUTH_HEADER}" push origin "HEAD:${BRANCH_NAME}"
 """ + _AGENT_EVIDENCE_TAIL_BASH
 
-# Pod 2: verification. Reads prior stages' handoff artifacts from the
-# agent-config configmap (the wrapper repopulates it between stages with
-# the extracted JSON+MD files from pod 1's evidence tar).
+# Pod: verify. Reads test-plan + implementation handoff artifacts from the
+# agent-config configmap (wrapper populates it from the two upstream phase
+# outputs before launching this pod).
 _VERIFY_BASH = _AGENT_BOOTSTRAP_BASH + r"""
-# Pod 2 starts from the pushed implementation branch — the agent's code
-# changes are already on the remote (pod 1 pushed). Clone, check it out.
+# Verify starts from the pushed implementation branch.
 git -c "http.extraHeader=${GIT_AUTH_HEADER}" \
   clone --branch "${BRANCH_NAME}" \
   "https://github.com/${REPO_SLUG}.git" /workspace/repo \
@@ -706,16 +695,10 @@ if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH_NAME}"; then
   git checkout -B "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
 fi
 
-# Pre-warm the Go module cache so any `go test` items in the test
-# plan's required_evidence don't show download spam in the LLM's
-# tool output. Verify pod has its own emptyDir; cache is fresh.
 echo "=== prewarm: go mod download ==="
 go mod download 2>&1 | tail -20 || true
 
-# Make prior-stage handoff artifacts visible to the verifier under
-# /workspace/evidence/ so the prompt's "Read /workspace/evidence/..."
-# instructions resolve. The wrapper has already copied these into the
-# agent-config configmap.
+# Make prior-phase handoff artifacts visible under /workspace/evidence/.
 for f in issue-agent-test-plan.json issue-agent-test-plan.md \
          issue-agent-implementation.json issue-agent-implementation.md; do
   if [ -f "/agent-config/${f}" ]; then
@@ -728,7 +711,7 @@ echo "=== STAGE: verification ==="
   cat /agent-config/prompt-verification.md
   cat /tmp/issue-context.md
   echo ""
-  echo "## Test plan from prior stage"
+  echo "## Test plan"
   echo ""
   echo '```json'
   cat /workspace/evidence/issue-agent-test-plan.json 2>/dev/null || echo '{}'
@@ -736,7 +719,7 @@ echo "=== STAGE: verification ==="
   echo ""
   cat /workspace/evidence/issue-agent-test-plan.md 2>/dev/null || true
   echo ""
-  echo "## Implementation result from prior stage"
+  echo "## Implementation result"
   echo ""
   echo '```json'
   cat /workspace/evidence/issue-agent-implementation.json 2>/dev/null || echo '{}'
@@ -766,7 +749,8 @@ fi
 """ + _AGENT_EVIDENCE_TAIL_BASH
 
 _STAGE_BASH_SCRIPTS = {
-    "plan-and-implement": _PLAN_AND_IMPLEMENT_BASH,
+    "test-plan": _TEST_PLAN_BASH,
+    "implement": _IMPLEMENT_BASH,
     "verify": _VERIFY_BASH,
 }
 
@@ -784,11 +768,13 @@ def _agent_job_spec(
     proxy_ip: str,
     agent_container_tag: str,
     repo_slug: str = "nelsong6/ambience",
-    stage: str = "plan-and-implement",
+    stage: str = "test-plan",
+    config_map_name: str = "agent-config",
 ) -> dict:
     """Build the Job spec as a Python dict. No templating; values land directly
     in their typed positions. `stage` selects which bash script the agent
-    container runs (see _STAGE_BASH_SCRIPTS)."""
+    container runs (see _STAGE_BASH_SCRIPTS). `config_map_name` allows
+    parallel phases to use distinct configmaps in the same namespace."""
     if stage not in _STAGE_BASH_SCRIPTS:
         raise ValueError(
             f"unknown stage {stage!r}; expected one of {sorted(_STAGE_BASH_SCRIPTS)}"
@@ -840,7 +826,7 @@ def _agent_job_spec(
                         {"name": "workspace", "emptyDir": {}},
                         {
                             "name": "agent-config",
-                            "configMap": {"name": "agent-config"},
+                            "configMap": {"name": config_map_name},
                         },
                     ],
                     "containers": [
@@ -901,10 +887,13 @@ def apply_agent_job(
     agent_container_tag: str,
     repo_slug: str = "nelsong6/ambience",
     issue_reference: str | None = None,
-    stage: str = "plan-and-implement",
+    stage: str = "test-plan",
+    config_map_name: str = "agent-config",
 ) -> dict:
-    """Render the agent Job spec and `kubectl apply -f -` it. `stage` is one
-    of plan-and-implement / verify (see _STAGE_BASH_SCRIPTS)."""
+    """Render the agent Job spec and `kubectl apply -f -` it. `stage` selects
+    the bash script (test-plan / implement / verify). `config_map_name` is the
+    configmap mounted at /agent-config — use a per-stage name when phases run
+    in parallel so they don't clobber each other."""
     import json as _json
     spec = _agent_job_spec(
         namespace=namespace,
@@ -919,6 +908,7 @@ def apply_agent_job(
         agent_container_tag=agent_container_tag,
         repo_slug=repo_slug,
         stage=stage,
+        config_map_name=config_map_name,
     )
     proc = subprocess.run(
         ["kubectl", "apply", "-f", "-"],

@@ -21,10 +21,25 @@ publishes images.
 Glimmung dispatches autonomous agent runs for ambience as a native-k8s
 flow (`agent-run` workflow). Per the platform principle in
 `tank-operator/docs/agent-llm-task-splitting.md`, LLM work is split
-across narrowly-scoped stages: a plan-and-implement pod (two
-sequential `claude --print` calls — test plan → implementation) and a
-verify pod, with structured JSON+MD handoff artifacts between stages.
-Design and stage contracts live at
+across three parallel-capable phases:
+
+```
+env-prep → test-plan ─┐
+         → implement  ─┴→ verify (evidence_verification_gate) → env-destroy
+```
+
+- **test-plan** and **implement** both depend on `env-prep` and run in
+  parallel. `test-plan` produces an evidence specification; `implement`
+  produces code changes and pushes the branch + rebuilds the validation env.
+- **verify** depends on both and receives their JSON outputs as phase inputs.
+  It runs the verification LLM against the rebuilt env and enforces the
+  test plan's `required_evidence` contract before emitting `pass`.
+
+Each phase has its own wrapper script in `scripts/glimmung-native/` and
+spawns one K8s Job (LLM pod) via `mcp/ambience_preview/ops.py`. Stage
+bash scripts (`_TEST_PLAN_BASH`, `_IMPLEMENT_BASH`, `_VERIFY_BASH`) live
+in `ops.py`; prompts are in `.github/agent/prompt-{test-plan,implementation,
+verification}.md`. Design and stage contracts live at
 [docs/issue-agent-stage-split.md](docs/issue-agent-stage-split.md).
 
 Runs are started directly via the glimmung UI/API; there is no

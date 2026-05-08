@@ -54,8 +54,45 @@ phases:
       title: Check validation environment
     - slug: emit-env-outputs
       title: Emit phase outputs
-- name: agent-execute
+- name: test-plan
   kind: k8s_job
+  depends_on:
+  - env-prep
+  inputs:
+    validation_url: ${{ phases.env-prep.outputs.validation_url }}
+    namespace: ${{ phases.env-prep.outputs.namespace }}
+    claude_namespace: ${{ phases.env-prep.outputs.claude_namespace }}
+    claude_ca_namespace: ${{ phases.env-prep.outputs.claude_ca_namespace }}
+  outputs:
+  - test_plan
+  jobs:
+  - id: test-plan
+    name: 'LLM: author test plan'
+    image: romainecr.azurecr.io/ambience-agent-runner:native-d0eb531
+    command:
+    - /bin/bash
+    - /opt/ambience-native/scripts/test-plan.sh
+    env:
+      AZURE_SUBSCRIPTION_ID: aee0cbd2-8074-4001-b610-0f8edb4eaa3c
+      AGENT_CONTAINER_TAG: latest
+    timeout_seconds: 1200
+    steps:
+    - slug: clone
+      title: Clone repo
+    - slug: prepare
+      title: Prepare context
+    - slug: llm
+      title: 'LLM: author test plan'
+    - slug: collect
+      title: Collect evidence
+    - slug: finalize
+      title: Finalize test plan
+    - slug: emit
+      title: Emit outputs
+- name: implement
+  kind: k8s_job
+  depends_on:
+  - env-prep
   inputs:
     validation_url: ${{ phases.env-prep.outputs.validation_url }}
     validation_slot_index: ${{ phases.env-prep.outputs.validation_slot_index }}
@@ -64,56 +101,92 @@ phases:
     claude_namespace: ${{ phases.env-prep.outputs.claude_namespace }}
     claude_ca_namespace: ${{ phases.env-prep.outputs.claude_ca_namespace }}
   outputs:
-  - verification
-  verify: true
+  - implementation
+  - branch_name
   jobs:
-  - id: agent-execute
-    name: Run agent and verify result
+  - id: implement
+    name: 'LLM: implement'
     image: romainecr.azurecr.io/ambience-agent-runner:native-d0eb531
     command:
     - /bin/bash
-    - /opt/ambience-native/scripts/agent-execute.sh
+    - /opt/ambience-native/scripts/implement.sh
+    env:
+      AZURE_SUBSCRIPTION_ID: aee0cbd2-8074-4001-b610-0f8edb4eaa3c
+      AGENT_CONTAINER_TAG: latest
+    timeout_seconds: 3000
+    steps:
+    - slug: clone
+      title: Clone repo
+    - slug: prepare
+      title: Prepare context
+    - slug: llm
+      title: 'LLM: implement'
+    - slug: collect
+      title: Collect evidence
+    - slug: push-branch
+      title: Push branch
+    - slug: rebuild-env
+      title: Rebuild validation env
+    - slug: finalize
+      title: Finalize artifact
+    - slug: emit
+      title: Emit outputs
+- name: verify
+  kind: k8s_job
+  depends_on:
+  - test-plan
+  - implement
+  inputs:
+    validation_url: ${{ phases.env-prep.outputs.validation_url }}
+    namespace: ${{ phases.env-prep.outputs.namespace }}
+    claude_namespace: ${{ phases.env-prep.outputs.claude_namespace }}
+    claude_ca_namespace: ${{ phases.env-prep.outputs.claude_ca_namespace }}
+    test_plan: ${{ phases.test-plan.outputs.test_plan }}
+    implementation: ${{ phases.implement.outputs.implementation }}
+    branch_name: ${{ phases.implement.outputs.branch_name }}
+  outputs:
+  - verification
+  verify: true
+  jobs:
+  - id: verify
+    name: 'LLM: capture evidence'
+    image: romainecr.azurecr.io/ambience-agent-runner:native-d0eb531
+    command:
+    - /bin/bash
+    - /opt/ambience-native/scripts/verify.sh
     env:
       AZURE_SUBSCRIPTION_ID: aee0cbd2-8074-4001-b610-0f8edb4eaa3c
       AGENT_CONTAINER_TAG: latest
       AGENT_SCREENSHOT_STORAGE_ACCOUNT: romaineglimmungartifacts
       AGENT_SCREENSHOT_CONTAINER: artifacts
       AGENT_SCREENSHOT_CONTAINER_URL: https://glimmung.romaine.life/v1/artifacts
-    timeout_seconds: 5400
+    timeout_seconds: 2400
     steps:
-    - slug: clone-repo
-      title: Clone repository
-    - slug: prepare-agent-context
-      title: Prepare agent context
-    - slug: run-plan-and-implement
-      title: 'LLM: Plan + implement'
-    - slug: push-branch
-      title: Confirm pushed branch
-    - slug: rebuild-validation
-      title: Rebuild validation env
-    - slug: run-verification
-      title: 'LLM: Verify'
-    - slug: collect-evidence
+    - slug: clone
+      title: Clone repo
+    - slug: prepare
+      title: Prepare context
+    - slug: llm
+      title: 'LLM: capture evidence'
+    - slug: collect
       title: Collect evidence
-    - slug: summarize-agent
-      title: Summarize agent result
-    - slug: verify-result
-      title: Verify result
+    - slug: finalize
+      title: Finalize verification
     - slug: upload-screenshots
       title: Upload screenshots
-    - slug: emit-agent-outputs
+    - slug: emit
       title: Emit verification
-- name: agent-verify-gate
+- name: evidence-gate
   kind: k8s_job
   evidence_verification_gate: true
   inputs:
-    verification: ${{ phases.agent-execute.outputs.verification }}
+    verification: ${{ phases.verify.outputs.verification }}
   recycle_policy:
     max_attempts: 0
     'on':
     - verify_fail
     - verify_malformed
-    lands_at: agent-execute
+    lands_at: implement
 - name: env-destroy
   kind: k8s_job
   always: true
@@ -140,5 +213,5 @@ pr:
     max_attempts: 3
     'on':
     - pr_review_changes_requested
-    lands_at: agent-execute
+    lands_at: implement
 
