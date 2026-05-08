@@ -252,12 +252,14 @@ native_completed() {
   payload="$(
     jq -nc \
       --arg conclusion "success" \
+      --arg job_id "$GLIMMUNG_JOB_ID" \
       --argjson outputs "$outputs_json" \
       --argjson verification "$verification_json" \
       --arg screenshots "$screenshots_markdown" \
       --arg summary "$summary_markdown" \
       '{
-        conclusion: $conclusion
+        conclusion: $conclusion,
+        job_id: $job_id
       }
       + (if $outputs != null then {outputs: $outputs} else {} end)
       + (if $verification != null then {verification: $verification} else {} end)
@@ -270,7 +272,7 @@ native_completed() {
 native_failed() {
   local reason="$1"
   local payload
-  payload="$(jq -nc --arg reason "$reason" '{reason: $reason}')"
+  payload="$(jq -nc --arg reason "$reason" --arg job_id "$GLIMMUNG_JOB_ID" '{reason: $reason, job_id: $job_id}')"
   native_post_json "$GLIMMUNG_FAILED_URL" "$payload" || true
 }
 
