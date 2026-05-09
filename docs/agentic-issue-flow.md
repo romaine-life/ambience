@@ -73,7 +73,7 @@ The native runner image is built from `.github/runner/Dockerfile` by
 `.github/workflows/build-native-runner-image.yml` and pushed to:
 
 ```text
-romainecr.azurecr.io/ambience-agent-runner:native-<sha>
+romainecr.azurecr.io/ambience-agent-runner:native-runner-<fingerprint>
 ```
 
 That image includes Azure CLI, `kubectl`, Helm, Python, Node, Playwright,

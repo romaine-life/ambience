@@ -41,11 +41,11 @@ If you only read one section in this file, read this one.
 
 Agent pods are not expected to have Docker. Do not report missing local Docker
 as a blocker. Run available repo checks first, then use PR CI as the normal
-container build gate: `.github/workflows/docker-build-check.yml` performs
-throwaway builds for the app and native-runner images with `push: false`. If
-image-packaging feedback is needed before a PR is ready, manually dispatch that
-workflow with `git_ref`. Release/deploy workflows are the only path that
-publishes images.
+container build gate: `.github/workflows/docker-build-check.yml` computes
+image fingerprints and reuses or pushes ACR proof images for trusted PRs,
+falling back to `push: false` for fork PRs. If image-packaging feedback is
+needed before a PR is ready, manually dispatch that workflow with `git_ref`.
+Release/deploy workflows publish the fingerprint-tagged images used by deploys.
 
 ## Architecture
 
