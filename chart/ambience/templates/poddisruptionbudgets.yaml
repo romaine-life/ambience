@@ -1,4 +1,4 @@
-{{- if .Values.pdb.enabled }}
+{{- if and .Values.pdb.enabled (not .Values.testEnv.enabled) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

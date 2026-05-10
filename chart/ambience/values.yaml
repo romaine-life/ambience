@@ -1,5 +1,14 @@
 nameOverride: ambience
 
+testEnv:
+  # Generic Glimmung/native validation mode. Glimmung should only need
+  # `--set testEnv.enabled=true`; this chart derives the public hostname and
+  # wildcard listener attachment from the Helm release name.
+  enabled: false
+  recordBase: ambience.dev.romaine.life
+  wildcardListenerSetName: ambience-wildcard
+  wildcardListenerSetNamespace: ambience-dev
+
 image:
   repository: romainecr.azurecr.io/ambience
   tag: 700c1d0
