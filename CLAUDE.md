@@ -19,7 +19,7 @@ Release/deploy workflows publish the fingerprint-tagged images used by deploys.
 ## Agent flow
 
 Glimmung dispatches autonomous agent runs for ambience as a native-k8s
-flow (`agent-run` workflow). Per the platform principle in
+flow (`default` workflow). Per the platform principle in
 `tank-operator/docs/agent-llm-task-splitting.md`, LLM work is split
 across three parallel-capable phases:
 
@@ -43,7 +43,9 @@ verification}.md`. Design and stage contracts live at
 [docs/issue-agent-stage-split.md](docs/issue-agent-stage-split.md).
 
 Runs are started directly via the glimmung UI/API; there is no
-GitHub-label trigger.
+GitHub-label trigger and no repo-owned `.glimmung/workflows/*.yaml`
+manifest. The live workflow shape is the `ambience.default` Workflow row
+registered in Glimmung's database.
 
 When developing a new effect, the relevant references are
 [docs/effects-cookbook.md](docs/effects-cookbook.md) (file pattern +

@@ -64,13 +64,11 @@ push_validation_image() {
   echo "verified romainecr.azurecr.io/ambience:${IMAGE_TAG}"
 }
 
-# Aborted runs leak their glim-run-* namespace because the agent-run workflow
-# has no terminal teardown phase (only env-prep + agent-execute). Multiple
-# leaked namespaces all claiming the same ambience-slot-N hostname leave
-# Envoy Gateway picking the oldest by creationTimestamp — so a fresh
-# verify-loop can be routed at a stale, pre-current image and 404 effects
-# the agent just shipped. Defensively reap any peer namespace whose
-# HTTPRoute claims our slot host before we install ours.
+# Older aborted runs could leak their glim-run-* namespace before teardown
+# existed. Multiple leaked namespaces all claiming the same ambience-slot-N
+# hostname leave Envoy Gateway picking the oldest by creationTimestamp, so a
+# fresh verify-loop can be routed at a stale image. Defensively reap any peer
+# namespace whose HTTPRoute claims our slot host before we install ours.
 reap_conflicting_slot() {
   if [ -z "$VALIDATION_SLOT_INDEX" ]; then
     echo "no slot index set; nothing to reap"
