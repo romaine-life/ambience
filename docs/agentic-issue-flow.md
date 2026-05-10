@@ -11,7 +11,7 @@ the source of issue-run execution for the native Ambience flow.
 ## Native Flow
 
 1. A Glimmung issue for the `ambience` project is dispatched to the registered
-   `agent-run` workflow.
+   `default` workflow.
 2. Glimmung creates a Run, acquires native runner capacity, creates the
    per-attempt callback token, and launches a Kubernetes Job in
    `glimmung-runs`.
@@ -46,11 +46,11 @@ re-fetching it from GitHub Issues.
 
 ## Workflow Registration
 
-The `agent-run` workflow is registered with Glimmung over MCP — the
-canonical path is the `register_workflow` / `sync_workflow` tools on
-the glimmung MCP server, not a script in this repo. Glimmung owns the
-workflow definition; ambience contributes the per-phase runner scripts
-under `scripts/glimmung-native/` and the runner image they execute in.
+The `default` workflow is registered with Glimmung over MCP/API. Glimmung's
+Cosmos-backed Workflow row is the runtime source of truth; this repo does not
+keep a `.glimmung/workflows/*.yaml` desired-state file. Ambience contributes
+the per-phase runner scripts under `scripts/glimmung-native/` and the runner
+image they execute in.
 
 The terminal review surface is the Glimmung Report primitive. The current
 Glimmung registration schema still exposes that knob as `pr.enabled` until the
