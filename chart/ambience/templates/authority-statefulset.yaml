@@ -8,7 +8,7 @@ metadata:
     {{- include "ambience.labels" . | nindent 4 }}
 spec:
   serviceName: {{ include "ambience.name" . }}-authority
-  replicas: {{ .Values.authority.replicas }}
+  replicas: {{ include "ambience.authorityReplicas" . }}
   updateStrategy:
     type: RollingUpdate
   selector:

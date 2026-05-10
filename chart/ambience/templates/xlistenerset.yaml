@@ -1,4 +1,4 @@
-{{- if .Values.gateway.listenerSetEnabled }}
+{{- if and .Values.gateway.listenerSetEnabled (not .Values.testEnv.enabled) }}
 apiVersion: gateway.networking.x-k8s.io/v1alpha1
 kind: XListenerSet
 metadata:
@@ -16,7 +16,7 @@ spec:
     - name: {{ .Values.gateway.listenerName }}
       protocol: HTTPS
       port: 443
-      hostname: {{ .Values.domain.host }}
+      hostname: {{ include "ambience.domainHost" . }}
       tls:
         mode: Terminate
         certificateRefs:

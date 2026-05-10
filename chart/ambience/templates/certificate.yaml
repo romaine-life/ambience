@@ -1,4 +1,4 @@
-{{- if .Values.certificate.enabled }}
+{{- if and .Values.certificate.enabled (not .Values.testEnv.enabled) }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -12,5 +12,5 @@ spec:
     name: {{ .Values.certificate.issuerRef.name }}
     kind: {{ .Values.certificate.issuerRef.kind }}
   dnsNames:
-    - {{ .Values.domain.host }}
+    - {{ include "ambience.domainHost" . }}
 {{- end }}

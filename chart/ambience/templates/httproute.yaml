@@ -1,6 +1,4 @@
 {{- if .Values.route.enabled }}
-{{- $listenerSetName := default .Values.gateway.listenerSetName .Values.route.attachListenerSet.name -}}
-{{- $listenerSetNamespace := default .Release.Namespace .Values.route.attachListenerSet.namespace -}}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -14,7 +12,7 @@ metadata:
     {{- include "ambience.labels" . | nindent 4 }}
 spec:
   hostnames:
-    - {{ .Values.domain.host }}
+    - {{ include "ambience.domainHost" . }}
   parentRefs:
     - group: {{ .Values.gateway.parentGateway.group }}
       kind: {{ .Values.gateway.parentGateway.kind }}
@@ -22,8 +20,8 @@ spec:
       namespace: {{ .Values.gateway.parentGateway.namespace }}
     - group: gateway.networking.x-k8s.io
       kind: XListenerSet
-      name: {{ $listenerSetName }}
-      namespace: {{ $listenerSetNamespace }}
+      name: {{ include "ambience.routeListenerSetName" . }}
+      namespace: {{ include "ambience.routeListenerSetNamespace" . }}
   rules:
     - matches:
         - path:
