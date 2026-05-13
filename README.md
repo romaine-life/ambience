@@ -371,6 +371,8 @@ edge web override directory. Authority-only Go edits can use
       "artifact": "/tmp/ambience",
       "target": "/var/run/ambience-hot/ambience",
       "health_path": "/healthz",
+      "copy_container": "hot-writer",
+      "restart_container": "ambience",
       "restart_command": ["/ambience-supervisor", "signal"]
     }
   }

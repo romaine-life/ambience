@@ -102,6 +102,20 @@ spec:
             {{- end }}
             - name: ambience-state
               mountPath: /data
+        {{- if and .Values.testEnv.enabled .Values.authority.hotSwapBackend.enabled }}
+        - name: {{ .Values.authority.hotSwapBackend.writerContainerName }}
+          image: {{ .Values.authority.hotSwapBackend.writerImage | quote }}
+          imagePullPolicy: {{ .Values.authority.hotSwapBackend.writerImagePullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p {{ .Values.authority.hotSwapBackend.mountPath | quote }}
+              while true; do sleep 3600; done
+          volumeMounts:
+            - name: hot-backend
+              mountPath: {{ .Values.authority.hotSwapBackend.mountPath | quote }}
+        {{- end }}
       volumes:
         {{- if and .Values.testEnv.enabled .Values.authority.hotSwapBackend.enabled }}
         - name: hot-backend

@@ -158,6 +158,9 @@ authority:
     mountPath: /var/run/ambience-hot
     target: /var/run/ambience-hot/ambience
     childCommand: /ambience
+    writerContainerName: hot-writer
+    writerImage: alpine:3.20
+    writerImagePullPolicy: IfNotPresent
 
 pdb:
   enabled: true
