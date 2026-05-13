@@ -12,6 +12,7 @@ COPY rngutil ./rngutil
 COPY sim ./sim
 COPY cmd/ambience ./cmd/ambience
 COPY cmd/ambience-wasm ./cmd/ambience-wasm
+COPY cmd/ambience-supervisor ./cmd/ambience-supervisor
 RUN ./scripts/build-web-wasm.sh \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ambience ./cmd/ambience
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ambience-supervisor ./cmd/ambience-supervisor
