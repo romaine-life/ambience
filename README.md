@@ -351,6 +351,35 @@ override directory first, then falls back to embedded assets from the
 image. That keeps static `/dev` iteration fast without changing the
 authority workload.
 
+Glimmung native test slots use the same split. Browser assets keep using the
+edge web override directory. Authority-only Go edits can use
+`test_slot_hot_swap.backend` against the authority pod in test slots:
+
+```json
+{
+  "test_slot_hot_swap": {
+    "enabled": true,
+    "static": {
+      "enabled": true,
+      "source": "cmd/ambience/web",
+      "target": "/var/run/ambience-web-override"
+    },
+    "backend": {
+      "enabled": true,
+      "strategy": "supervisor",
+      "build_command": "go build -o /tmp/ambience ./cmd/ambience",
+      "artifact": "/tmp/ambience",
+      "target": "/var/run/ambience-hot/ambience",
+      "health_path": "/healthz",
+      "restart_command": ["/ambience-supervisor", "signal"]
+    }
+  }
+}
+```
+
+Keep image rollout for edge binary changes, dependency changes, chart changes,
+and any edit that changes the shared runtime image inputs.
+
 The recommended feature-iteration loop is:
 
 1. Start a fresh session by re-checking the open issues and open PRs so

@@ -27,9 +27,21 @@ spec:
         - name: {{ include "ambience.name" . }}
           image: "{{ include "ambience.authorityImage" . }}"
           imagePullPolicy: {{ include "ambience.authorityImagePullPolicy" . }}
+          {{- if and .Values.testEnv.enabled .Values.authority.hotSwapBackend.enabled }}
+          command:
+            - /ambience-supervisor
+          {{- end }}
           env:
             - name: AMBIENCE_ROLE
               value: authority
+            {{- if and .Values.testEnv.enabled .Values.authority.hotSwapBackend.enabled }}
+            - name: GLIMMUNG_SUPERVISOR_CHILD
+              value: {{ .Values.authority.hotSwapBackend.childCommand | quote }}
+            - name: GLIMMUNG_SUPERVISOR_HOT_ARTIFACT
+              value: {{ .Values.authority.hotSwapBackend.target | quote }}
+            - name: GLIMMUNG_SUPERVISOR_RESTART_ENABLED
+              value: "true"
+            {{- end }}
             - name: AMBIENCE_PERSIST_PATH
               value: {{ .Values.authority.persistPath | quote }}
             - name: AMBIENCE_PERSIST_INTERVAL
@@ -84,9 +96,17 @@ spec:
           resources:
             {{- toYaml .Values.authority.resources | nindent 12 }}
           volumeMounts:
+            {{- if and .Values.testEnv.enabled .Values.authority.hotSwapBackend.enabled }}
+            - name: hot-backend
+              mountPath: {{ .Values.authority.hotSwapBackend.mountPath | quote }}
+            {{- end }}
             - name: ambience-state
               mountPath: /data
       volumes:
+        {{- if and .Values.testEnv.enabled .Values.authority.hotSwapBackend.enabled }}
+        - name: hot-backend
+          emptyDir: {}
+        {{- end }}
         - name: ambience-state
           persistentVolumeClaim:
             claimName: {{ .Values.authority.storage.existingClaim }}

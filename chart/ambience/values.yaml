@@ -153,6 +153,11 @@ authority:
   storage:
     existingClaim: ambience-state
     size: 1Gi
+  hotSwapBackend:
+    enabled: true
+    mountPath: /var/run/ambience-hot
+    target: /var/run/ambience-hot/ambience
+    childCommand: /ambience
 
 pdb:
   enabled: true
