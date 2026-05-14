@@ -61,7 +61,6 @@ spec:
           volumeMounts:
             - name: web-override
               mountPath: {{ .Values.edge.webOverride.mountPath | quote }}
-              readOnly: true
           {{- end }}
         {{- if .Values.edge.webOverride.enabled }}
         - name: {{ .Values.edge.webOverride.containerName }}
