@@ -159,7 +159,7 @@ func renderEffectPage(effect string, meta socialPageMeta) string {
 
 func newDevSession(effectType string) (*devSession, error) {
 	effectType = normalizeDevEffect(effectType)
-	seed := time.Now().UnixNano()
+	seed := freshSeed()
 	effect, err := newEffectRuntime(effectType, gridW, gridH, seed, nil)
 	if err != nil {
 		return nil, err
@@ -474,7 +474,7 @@ func serveDevSessionRandomize(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	cfg, err := s.randomizeConfig(time.Now().UnixNano())
+	cfg, err := s.randomizeConfig(freshSeed())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

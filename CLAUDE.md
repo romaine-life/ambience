@@ -96,12 +96,15 @@ tools/conpty-capture/  Python/pywinpty ConPTY capture tool — records full
                        Closes the diagnostic gap PowerSession leaves
                        (PowerSession doesn't capture CONOUT$ writes).
 
-chart/ambience/  Helm chart used by ArgoCD for both environments.
-                 `values-prod.yaml` drives the live app at
-                 `ambience.romaine.life`; `values-dev.yaml` drives the
-                 flexible dev environment at `ambience.dev.romaine.life`.
-                 ArgoCD Applications live in
-                 `infra-bootstrap/k8s/apps/{ambience,ambience-dev}.yaml`.
+chart/ambience/  Helm chart used by ArgoCD for prod and held in reserve
+                 for dev. `values-prod.yaml` drives the live app at
+                 `ambience.romaine.life`; `values-dev.yaml` is the
+                 declared state for `ambience.dev.romaine.life` but is
+                 not currently wired to an ArgoCD app — restore by
+                 adding a sibling `infra-bootstrap/k8s/apps/ambience-dev.yaml`
+                 if continuous dev hosting becomes useful again. The live
+                 ArgoCD Application is at
+                 `infra-bootstrap/k8s/apps/ambience.yaml`.
                  CI is manual / session-driven:
                  `.github/workflows/build-and-deploy.yml` has no automatic
                  triggers and only builds + pushes

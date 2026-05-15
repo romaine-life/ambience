@@ -12,3 +12,9 @@ variable "key_vault_name" {
   type    = string
   default = "romaine-kv"
 }
+
+variable "preview_slot_count" {
+  description = "Number of Glimmung-managed ambience preview slot namespaces (ambience-slot-1..N) to federate to ambience-identity. Match Glimmung's slot pool size for this project; raise this and re-apply when the pool grows."
+  type        = number
+  default     = 5
+}
