@@ -30,10 +30,11 @@ resource "azurerm_cosmosdb_sql_role_assignment" "ambience_cosmos" {
 }
 
 # Federated to the default ServiceAccount in the prod ambience namespace.
-# The authority StatefulSet runs under `default` today; the chart will add
-# the workload-identity annotations + pod labels in stage 1. Preview slots
-# in ambience-slot-* namespaces do not get persistence, so their default
-# SAs are intentionally NOT federated here.
+# Per-slot fed creds (system:serviceaccount:ambience-slot-N:default) are
+# NOT declared here — Glimmung's NativeWorkloadIdentityService reconciles
+# them dynamically from the ambience project's `native_standby_workload_identity`
+# metadata, matched to slot count and slot prefix. See
+# glimmung/internal/server/native_workload_identities.go.
 resource "azurerm_federated_identity_credential" "ambience" {
   name                = "aks-ambience"
   resource_group_name = azurerm_resource_group.ambience.name
@@ -43,22 +44,6 @@ resource "azurerm_federated_identity_credential" "ambience" {
   subject             = "system:serviceaccount:ambience:default"
 }
 
-# Per-slot federated credentials so any preview slot can opt into Cosmos
-# persistence by setting authority.cosmos.endpoint + serviceAccountClientId
-# at deploy time. All slots share the same ambience-identity UAI and the
-# same dbs/ambience role assignment; isolation between slot writes and the
-# prod `shared` document is via per-slot documentId (e.g. "slot-1"), not
-# via per-slot identity. Bump preview_slot_count when Glimmung grows the
-# pool and re-apply.
-resource "azurerm_federated_identity_credential" "ambience_slot" {
-  for_each            = toset([for i in range(1, var.preview_slot_count + 1) : tostring(i)])
-  name                = "aks-ambience-slot-${each.key}"
-  resource_group_name = azurerm_resource_group.ambience.name
-  parent_id           = azurerm_user_assigned_identity.ambience.id
-  audience            = ["api://AzureADTokenExchange"]
-  issuer              = local.aks_oidc_issuer_url
-  subject             = "system:serviceaccount:ambience-slot-${each.key}:default"
-}
 
 output "ambience_identity_client_id" {
   value       = azurerm_user_assigned_identity.ambience.client_id
