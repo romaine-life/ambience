@@ -123,8 +123,24 @@ authority:
     runAsGroup: 65532
     fsGroup: 65532
     fsGroupChangePolicy: OnRootMismatch
-  persistPath: /data/shared-atmosphere.json
-  persistInterval: 30s
+  # Cosmos-backed shared atmosphere persistence. The authority writes one
+  # document keyed by `documentId` to the configured container every
+  # `interval` and reads it back on startup so pod restarts resume the
+  # live world. Wiring is per-deployment: set `serviceAccountClientId` on
+  # the ambience-identity managed identity (provisioned in tofu) and
+  # endpoint/database/container point at infra-cosmos-serverless. Leaving
+  # endpoint empty disables persistence (used by preview slots that are
+  # explicitly ephemeral).
+  cosmos:
+    endpoint: ""
+    database: ambience
+    container: atmosphere
+    documentId: shared
+    interval: 30s
+    # ambience-identity client_id from tofu output. Annotated onto the
+    # default ServiceAccount in the release namespace so the workload-
+    # identity webhook projects a federated token into the authority pod.
+    serviceAccountClientId: ""
   # Cross-effect rotation policy. The shared atmosphere periodically
   # swaps to a different effect type so the live broadcast monitor at /
   # cycles on its own. Cadence is the duration each effect runs before
@@ -150,9 +166,6 @@ authority:
     limits:
       cpu: 200m
       memory: 128Mi
-  storage:
-    existingClaim: ambience-state
-    size: 1Gi
   hotSwapBackend:
     enabled: true
     mountPath: /var/run/ambience-hot

@@ -192,7 +192,6 @@ def deploy_preview(
         "image.repository": image_repository,
         "image.tag": image_tag,
         "image.pullPolicy": "Always",
-        "authority.storage.size": "256Mi",
         "edge.shutdownDrain": "1s",
         "edge.terminationGracePeriodSeconds": "3",
         "authority.terminationGracePeriodSeconds": "5",

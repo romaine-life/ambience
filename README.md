@@ -412,10 +412,14 @@ demand.
 
 The shipped Kubernetes manifests now split the app into one internal
 `authority` StatefulSet and a public `edge` Deployment. The authority
-snapshots the shared atmosphere every 30s to
-`AMBIENCE_PERSIST_PATH`; the manifests mount a PVC at `/data` and persist
-to `/data/shared-atmosphere.json`, so authority restarts resume the live
-world instead of resetting it.
+upserts the shared atmosphere document every 30s into the `ambience`
+Cosmos database (container `atmosphere`, document id `shared`) and
+reads it back on startup, so pod restarts resume the live world. Auth
+is via Azure workload identity: the `ambience-identity` user-assigned
+identity (provisioned in `tofu/`) is federated to the prod namespace's
+`default` ServiceAccount, scoped at the Cosmos data plane to
+`dbs/ambience` only. Preview slots leave `authority.cosmos.endpoint`
+unset and run without persistence.
 
 ## Status
 

@@ -3,11 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/nelsong6/ambience/rngutil"
@@ -19,10 +17,6 @@ const defaultPersistInterval = 30 * time.Second
 type persistenceStore interface {
 	Load(context.Context) (*persistedAtmosphere, error)
 	Save(context.Context, persistedAtmosphere) error
-}
-
-type fileStore struct {
-	path string
 }
 
 type persistedTransition struct {
@@ -55,58 +49,25 @@ type persistedAtmosphere struct {
 }
 
 func newPersistenceStoreFromEnv() (persistenceStore, time.Duration, error) {
-	path := os.Getenv("AMBIENCE_PERSIST_PATH")
-	if path == "" {
+	store, err := newCosmosStoreFromEnv()
+	if err != nil {
+		return nil, 0, err
+	}
+	if store == nil {
 		return nil, 0, nil
 	}
 	interval := defaultPersistInterval
-	if raw := os.Getenv("AMBIENCE_PERSIST_INTERVAL"); raw != "" {
+	if raw := os.Getenv("AMBIENCE_COSMOS_INTERVAL"); raw != "" {
 		d, err := time.ParseDuration(raw)
 		if err != nil {
-			return nil, 0, fmt.Errorf("parse AMBIENCE_PERSIST_INTERVAL: %w", err)
+			return nil, 0, fmt.Errorf("parse AMBIENCE_COSMOS_INTERVAL: %w", err)
 		}
 		if d <= 0 {
-			return nil, 0, fmt.Errorf("AMBIENCE_PERSIST_INTERVAL must be > 0")
+			return nil, 0, fmt.Errorf("AMBIENCE_COSMOS_INTERVAL must be > 0")
 		}
 		interval = d
 	}
-	return &fileStore{path: path}, interval, nil
-}
-
-func (f *fileStore) Load(_ context.Context) (*persistedAtmosphere, error) {
-	data, err := os.ReadFile(f.path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var state persistedAtmosphere
-	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, err
-	}
-	if state.Version != 1 {
-		return nil, fmt.Errorf("unsupported persisted state version %d", state.Version)
-	}
-	return &state, nil
-}
-
-func (f *fileStore) Save(_ context.Context, state persistedAtmosphere) error {
-	if err := os.MkdirAll(filepath.Dir(f.path), 0o755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := f.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	if err := os.Remove(f.path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return os.Rename(tmp, f.path)
+	return store, interval, nil
 }
 
 func persistLoop(ctx context.Context, interval time.Duration, store persistenceStore, a *atmosphere) {

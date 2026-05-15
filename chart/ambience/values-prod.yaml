@@ -12,6 +12,11 @@ authority:
   controlAuth:
     microsoft:
       enabled: true
+  cosmos:
+    # Shared infra-cosmos-serverless account; ambience identity is scoped to
+    # the `ambience` database only (see ambience/tofu/identity.tf).
+    endpoint: https://infra-cosmos-serverless.documents.azure.com:443/
+    serviceAccountClientId: 36ffd945-f01c-4de5-84e2-951399902b06
 
 oauth:
   externalSecret:

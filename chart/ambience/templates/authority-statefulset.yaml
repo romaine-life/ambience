@@ -19,6 +19,9 @@ spec:
       labels:
         {{- include "ambience.authoritySelectorLabels" . | nindent 8 }}
         {{- include "ambience.labels" . | nindent 8 }}
+        {{- if .Values.authority.cosmos.serviceAccountClientId }}
+        azure.workload.identity/use: "true"
+        {{- end }}
     spec:
       terminationGracePeriodSeconds: {{ .Values.authority.terminationGracePeriodSeconds }}
       securityContext:
@@ -42,10 +45,18 @@ spec:
             - name: GLIMMUNG_SUPERVISOR_RESTART_ENABLED
               value: "true"
             {{- end }}
-            - name: AMBIENCE_PERSIST_PATH
-              value: {{ .Values.authority.persistPath | quote }}
-            - name: AMBIENCE_PERSIST_INTERVAL
-              value: {{ .Values.authority.persistInterval | quote }}
+            {{- if .Values.authority.cosmos.endpoint }}
+            - name: AMBIENCE_COSMOS_ENDPOINT
+              value: {{ .Values.authority.cosmos.endpoint | quote }}
+            - name: AMBIENCE_COSMOS_DATABASE
+              value: {{ .Values.authority.cosmos.database | quote }}
+            - name: AMBIENCE_COSMOS_CONTAINER
+              value: {{ .Values.authority.cosmos.container | quote }}
+            - name: AMBIENCE_COSMOS_DOCUMENT_ID
+              value: {{ .Values.authority.cosmos.documentId | quote }}
+            - name: AMBIENCE_COSMOS_INTERVAL
+              value: {{ .Values.authority.cosmos.interval | quote }}
+            {{- end }}
             {{- with .Values.authority.rotation }}
             - name: AMBIENCE_ROTATION_ENABLED
               value: {{ .enabled | quote }}
@@ -95,13 +106,11 @@ spec:
             failureThreshold: {{ .Values.authority.probes.liveness.failureThreshold }}
           resources:
             {{- toYaml .Values.authority.resources | nindent 12 }}
+          {{- if and .Values.testEnv.enabled .Values.authority.hotSwapBackend.enabled }}
           volumeMounts:
-            {{- if and .Values.testEnv.enabled .Values.authority.hotSwapBackend.enabled }}
             - name: hot-backend
               mountPath: {{ .Values.authority.hotSwapBackend.mountPath | quote }}
-            {{- end }}
-            - name: ambience-state
-              mountPath: /data
+          {{- end }}
         {{- if and .Values.testEnv.enabled .Values.authority.hotSwapBackend.enabled }}
         - name: {{ .Values.authority.hotSwapBackend.writerContainerName }}
           image: {{ .Values.authority.hotSwapBackend.writerImage | quote }}
@@ -116,12 +125,9 @@ spec:
             - name: hot-backend
               mountPath: {{ .Values.authority.hotSwapBackend.mountPath | quote }}
         {{- end }}
+      {{- if and .Values.testEnv.enabled .Values.authority.hotSwapBackend.enabled }}
       volumes:
-        {{- if and .Values.testEnv.enabled .Values.authority.hotSwapBackend.enabled }}
         - name: hot-backend
           emptyDir: {}
-        {{- end }}
-        - name: ambience-state
-          persistentVolumeClaim:
-            claimName: {{ .Values.authority.storage.existingClaim }}
+      {{- end }}
 {{- end }}
