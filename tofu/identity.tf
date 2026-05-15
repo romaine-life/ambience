@@ -44,17 +44,6 @@ resource "azurerm_federated_identity_credential" "ambience" {
   subject             = "system:serviceaccount:ambience:default"
 }
 
-# The slot fed creds (aks-ambience-slot-1..5) were briefly managed here
-# before ambience's project metadata declared native_standby_workload_identity
-# in Glimmung. Glimmung's reconciler now owns them. Hand state ownership
-# over without destroying the Azure resources — Glimmung's next reconcile
-# adopts them by template match (same identity, name, subject, audiences).
-removed {
-  from = azurerm_federated_identity_credential.ambience_slot
-  lifecycle {
-    destroy = false
-  }
-}
 
 output "ambience_identity_client_id" {
   value       = azurerm_user_assigned_identity.ambience.client_id
