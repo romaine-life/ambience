@@ -312,14 +312,16 @@ The intended production deploy loop is:
 5. Let ArgoCD reconcile the committed chart change, or manually refresh/sync
    it if you want a faster rollout.
 
-The dev environment is also declared through ArgoCD at
-`infra-bootstrap/k8s/apps/ambience-dev.yaml`, but that app intentionally
-leaves automated sync off. That keeps Argo as the owner of the base dev
-environment without immediately reverting fast live image swaps during a
-session.
+A dev environment under `ambience.dev.romaine.life` shares the wildcard
+listener at `*.ambience.dev.romaine.life` with per-PR preview slots.
+`chart/ambience/values-dev.yaml` holds its values, but it is not
+currently wired to an ArgoCD app — restore by adding a sibling
+`infra-bootstrap/k8s/apps/ambience-dev.yaml` if continuous dev hosting
+becomes useful again.
 
 Unless a task explicitly calls for localhost, the default test target
-should be `https://ambience.dev.romaine.life`, not a local runtime.
+should be a preview slot URL or `https://ambience.dev.romaine.life`,
+not a local runtime.
 
 Use the dev helpers like this:
 
@@ -401,14 +403,14 @@ The recommended feature-iteration loop is:
    promoting it.
 
 When a dev image should become declared state again, update
-`chart/ambience/values-dev.yaml` to that image tag, commit the bump, and
-manually sync the `ambience-dev` Argo app.
+`chart/ambience/values-dev.yaml` to that image tag and commit the bump.
+If/when an `ambience-dev` ArgoCD app is wired up, it will sync from
+`chart/ambience/` using that values file.
 
-The ArgoCD Applications at
-`infra-bootstrap/k8s/apps/{ambience,ambience-dev}.yaml`
-watch this repo's `chart/ambience/` path on `main`; committed Helm values
-changes feed the desired state, with prod autosyncing and dev syncing on
-demand.
+The ArgoCD Application at
+`infra-bootstrap/k8s/apps/ambience.yaml`
+watches this repo's `chart/ambience/` path on `main`; committed Helm
+values changes feed the desired state, and prod autosyncs.
 
 The shipped Kubernetes manifests now split the app into one internal
 `authority` StatefulSet and a public `edge` Deployment. The authority

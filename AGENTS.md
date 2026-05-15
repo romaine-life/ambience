@@ -95,15 +95,15 @@ tools/conpty-capture/  Python/pywinpty ConPTY capture tool — records full
                        Closes the diagnostic gap PowerSession leaves
                        (PowerSession doesn't capture CONOUT$ writes).
 
-chart/ambience/  Helm chart used by ArgoCD for both environments.
-                 `values-prod.yaml` drives the live app at
-                 `ambience.romaine.life`; `values-dev.yaml` drives the
-                 flexible dev environment at `ambience.dev.romaine.life`.
-                 ArgoCD Applications live in
-                 `infra-bootstrap/k8s/apps/{ambience,ambience-dev}.yaml`.
-                 The dev app intentionally leaves autosync off so
-                 session-driven image swaps are not immediately
-                 reconciled away.
+chart/ambience/  Helm chart used by ArgoCD for prod and held in reserve
+                 for dev. `values-prod.yaml` drives the live app at
+                 `ambience.romaine.life`; `values-dev.yaml` is the
+                 declared state for `ambience.dev.romaine.life` but is
+                 not currently wired to an ArgoCD app — restore by
+                 adding a sibling `infra-bootstrap/k8s/apps/ambience-dev.yaml`
+                 if continuous dev hosting becomes useful again. The live
+                 ArgoCD Application is at
+                 `infra-bootstrap/k8s/apps/ambience.yaml`.
                  CI is manual / session-driven:
                  `.github/workflows/build-and-deploy.yml` has no automatic
                  triggers and only builds + pushes
@@ -347,9 +347,9 @@ Consumers:
 
 Rain MVP live at `ambience.romaine.life` with scene rotation + smooth
 drift transitions + live monitor panel at `/`. The dev environment at
-`ambience.dev.romaine.life` is also live, Argo-owned, and intentionally
-manual-sync so sessions can hot-swap images without immediate
-reconciliation. `/dev` now supports effect switching across Rain,
+`ambience.dev.romaine.life` is not currently deployed — its values file
+(`chart/ambience/values-dev.yaml`) and wildcard listener remain in
+reserve. `/dev` now supports effect switching across Rain,
 Fireflies, Waterfall, and Dust, including randomized per-session starting
 stats, a `randomize` button, and a bottom-anchored event log that behaves
 like a live tail instead of pinning the newest entry off-screen. The web

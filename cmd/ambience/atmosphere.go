@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"math/rand/v2"
 	"strconv"
 	"sync"
 	"time"
@@ -123,8 +124,17 @@ func newAtmosphere(_ sim.Config) *atmosphere {
 	return newAtmosphereWithEffect("rain")
 }
 
+// freshSeed returns a non-deterministic 64-bit seed for fresh atmosphere /
+// dev-session RNG initialization. math/rand/v2's package generator is
+// auto-seeded from runtime entropy (ChaCha8), so successive calls return
+// distinct values — unlike time.Now().UnixNano(), which can repeat within a
+// single nanosecond when two atmospheres are constructed in quick succession.
+func freshSeed() int64 {
+	return int64(rand.Uint64())
+}
+
 func newAtmosphereWithEffect(effectType string) *atmosphere {
-	return newAtmosphereWithEffectAndSeed(effectType, time.Now().UnixNano())
+	return newAtmosphereWithEffectAndSeed(effectType, freshSeed())
 }
 
 func newAtmosphereWithEffectAndSeed(effectType string, seed int64) *atmosphere {
