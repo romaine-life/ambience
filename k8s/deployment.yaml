@@ -32,10 +32,6 @@ spec:
           env:
             - name: AMBIENCE_ROLE
               value: authority
-            - name: AMBIENCE_PERSIST_PATH
-              value: /data/shared-atmosphere.json
-            - name: AMBIENCE_PERSIST_INTERVAL
-              value: 30s
           ports:
             - containerPort: 8080
               name: http
@@ -47,9 +43,6 @@ spec:
             httpGet:
               path: /healthz
               port: http
-          volumeMounts:
-            - name: ambience-state
-              mountPath: /data
           resources:
             requests:
               cpu: 10m
@@ -57,7 +50,3 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
-      volumes:
-        - name: ambience-state
-          persistentVolumeClaim:
-            claimName: ambience-state

@@ -3,14 +3,77 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
+	"net/http"
 	"testing"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 
 	"github.com/nelsong6/ambience/sim"
 )
 
-func TestFileStoreRoundTrip(t *testing.T) {
-	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
+// memoryStore is the in-memory persistenceStore used by tests that exercise
+// the atmosphere round-trip without needing a real Cosmos client.
+type memoryStore struct {
+	saved *persistedAtmosphere
+}
+
+func (m *memoryStore) Load(_ context.Context) (*persistedAtmosphere, error) {
+	if m.saved == nil {
+		return nil, nil
+	}
+	clone := *m.saved
+	return &clone, nil
+}
+
+func (m *memoryStore) Save(_ context.Context, state persistedAtmosphere) error {
+	clone := state
+	m.saved = &clone
+	return nil
+}
+
+// fakeCosmosContainer fakes *azcosmos.ContainerClient at the cosmosContainer
+// interface boundary. Tests use it to exercise cosmosStore without a real
+// Cosmos account.
+type fakeCosmosContainer struct {
+	items map[string][]byte
+}
+
+func (f *fakeCosmosContainer) ReadItem(_ context.Context, _ azcosmos.PartitionKey, id string, _ *azcosmos.ItemOptions) (azcosmos.ItemResponse, error) {
+	data, ok := f.items[id]
+	if !ok {
+		return azcosmos.ItemResponse{}, &azcore.ResponseError{StatusCode: http.StatusNotFound}
+	}
+	return azcosmos.ItemResponse{Value: data}, nil
+}
+
+func (f *fakeCosmosContainer) UpsertItem(_ context.Context, _ azcosmos.PartitionKey, item []byte, _ *azcosmos.ItemOptions) (azcosmos.ItemResponse, error) {
+	var meta struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(item, &meta); err != nil {
+		return azcosmos.ItemResponse{}, err
+	}
+	if f.items == nil {
+		f.items = map[string][]byte{}
+	}
+	f.items[meta.ID] = item
+	return azcosmos.ItemResponse{}, nil
+}
+
+func TestCosmosStoreLoadMissingReturnsNil(t *testing.T) {
+	store := &cosmosStore{container: &fakeCosmosContainer{}, docID: "shared"}
+	got, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatalf("load empty: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected nil from empty store, got %+v", got)
+	}
+}
+
+func TestCosmosStoreRoundTrip(t *testing.T) {
+	store := &cosmosStore{container: &fakeCosmosContainer{}, docID: "shared"}
 	want := persistedAtmosphere{
 		Version:       1,
 		Type:          "rain",
@@ -42,6 +105,21 @@ func TestFileStoreRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCosmosStoreLoadRejectsUnknownVersion(t *testing.T) {
+	fake := &fakeCosmosContainer{}
+	store := &cosmosStore{container: fake, docID: "shared"}
+	bad, err := json.Marshal(cosmosDoc{ID: "shared", State: persistedAtmosphere{Version: 999}})
+	if err != nil {
+		t.Fatalf("marshal bad doc: %v", err)
+	}
+	if _, err := fake.UpsertItem(context.Background(), azcosmos.NewPartitionKeyString("shared"), bad, nil); err != nil {
+		t.Fatalf("seed fake: %v", err)
+	}
+	if _, err := store.Load(context.Background()); err == nil {
+		t.Fatal("expected error loading unknown version, got nil")
+	}
+}
+
 func TestSharedAtmospherePersistenceRoundTrip(t *testing.T) {
 	a := newAtmosphere(sim.Config{})
 	a.broadcast(Command{Kind: "metric", Tick: 1})
@@ -52,7 +130,7 @@ func TestSharedAtmospherePersistenceRoundTrip(t *testing.T) {
 	a.rotateScene(a.effect.CurrentTick())
 	a.applyTransition(a.effect.CurrentTick())
 
-	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
+	store := &memoryStore{}
 	if err := store.Save(context.Background(), a.persistedState()); err != nil {
 		t.Fatalf("save: %v", err)
 	}

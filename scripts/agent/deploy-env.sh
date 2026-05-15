@@ -29,7 +29,6 @@ helm upgrade --install "$release" "$chart_path" \
   --set "image.pullPolicy=Always" \
   --set "edge.replicas=1" \
   --set "authority.replicas=1" \
-  --set "authority.storage.size=256Mi" \
   --set "pdb.enabled=false" \
   --set "edge.shutdownDrain=1s" \
   --set "edge.terminationGracePeriodSeconds=3" \

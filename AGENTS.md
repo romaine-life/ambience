@@ -358,7 +358,7 @@ not `.html` paths, and unknown static routes now 404. Consumers:
 fzt-showcase + my-homepage integrated via shared client (unaffected by
 scene/metric commands — client.js ignores unknown kinds). Entropy intake
 wired, visible on the `/` panel. Shared atmosphere state now persists
-across authority restarts via the mounted PVC and persisted snapshot
-file. Terminal integration tabled, see
-`docs/terminal-integration-status.md`. Future effects ready to plug in via
-the registry.
+across authority restarts via Cosmos DB (database `ambience`, container
+`atmosphere`, document id `shared`) using workload-identity auth.
+Terminal integration tabled, see `docs/terminal-integration-status.md`.
+Future effects ready to plug in via the registry.

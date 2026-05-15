@@ -290,6 +290,11 @@ drift transitions + live monitor panel at `/`. Consumers: fzt-showcase +
 my-homepage integrated via shared client (unaffected by scene/metric
 commands — client.js ignores unknown kinds). Entropy intake wired,
 visible on the `/` panel. Terminal integration tabled, see
-`docs/terminal-integration-status.md`. Persistence of shared atmosphere
-state across pod restarts is tracked in Glimmung. Future effects are ready
-to plug in via the registry.
+`docs/terminal-integration-status.md`. Shared atmosphere state persists
+across authority restarts via Cosmos DB (database `ambience`, container
+`atmosphere`, document id `shared`) using workload-identity auth — the
+`ambience-identity` user-assigned identity is federated to the prod
+namespace's `default` ServiceAccount with data-plane scope narrowed to
+`dbs/ambience`. Preview slots leave `authority.cosmos.endpoint` unset and
+run without persistence. Future effects are ready to plug in via the
+registry.

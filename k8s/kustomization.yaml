@@ -16,6 +16,5 @@ resources:
 - edge-deployment.yaml
 - httproute.yaml
 - poddisruptionbudgets.yaml
-- pvc.yaml
 - service.yaml
 - xlistenerset.yaml

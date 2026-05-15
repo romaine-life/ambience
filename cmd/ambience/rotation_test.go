@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -314,7 +313,7 @@ func TestRotationStateSurvivesPersistRoundTrip(t *testing.T) {
 	want := a.rotationStartTick
 	a.mu.Unlock()
 
-	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
+	store := &memoryStore{}
 	if err := store.Save(context.Background(), a.persistedState()); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -336,7 +335,7 @@ func TestRestoreOldStateAnchorsRotationAtRestoredTick(t *testing.T) {
 	state := a.persistedState()
 	state.RotationStartTick = nil
 
-	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
+	store := &memoryStore{}
 	if err := store.Save(context.Background(), state); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -358,7 +357,7 @@ func TestRestoreOldStateAnchorsRotationAtRestoredTick(t *testing.T) {
 
 func TestRestoreWithPolicyStillPrefersSavedEffect(t *testing.T) {
 	a := newAtmosphereWithEffectAndSeed("campfire", 123)
-	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
+	store := &memoryStore{}
 	if err := store.Save(context.Background(), a.persistedState()); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -380,7 +379,7 @@ func TestRestoreReplacesLegacyRawNonRainSceneNames(t *testing.T) {
 	state.NextScene.Name = "aurora"
 	state.NextScene.DurationTicks = 0
 
-	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
+	store := &memoryStore{}
 	if err := store.Save(context.Background(), state); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -401,7 +400,7 @@ func TestRestoreReplacesLegacyRawNonRainSceneNames(t *testing.T) {
 func TestPersistedScenesRestoreWithConfigs(t *testing.T) {
 	a := newAtmosphereWithEffectAndSeed("aurora", 123)
 	before := a.snapshot()
-	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
+	store := &memoryStore{}
 	if err := store.Save(context.Background(), a.persistedState()); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -422,7 +421,7 @@ func TestLegacySceneRestoreFillsMissingConfigs(t *testing.T) {
 	state.CurrentScene.Config = nil
 	state.NextScene.Config = nil
 
-	store := &fileStore{path: filepath.Join(t.TempDir(), "state.json")}
+	store := &memoryStore{}
 	if err := store.Save(context.Background(), state); err != nil {
 		t.Fatalf("save: %v", err)
 	}
