@@ -177,9 +177,16 @@ authority:
 
 pdb:
   enabled: true
+  # authority is a single-replica StatefulSet; a PDB on it blocks every
+  # AKS node drain (the eviction API can't satisfy minAvailable:1 with
+  # only one pod total, so kubelet eviction returns 429 forever). Until
+  # authority is HA, keep this off and accept the brief unavailability
+  # during planned cluster maintenance.
   authority:
+    enabled: false
     minAvailable: 1
   edge:
+    enabled: true
     minAvailable: 1
 
 certificate:

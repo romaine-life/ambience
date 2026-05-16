@@ -1,4 +1,18 @@
-{{- if and .Values.pdb.enabled (not .Values.testEnv.enabled) }}
+{{- /*
+PDBs are split per-component so each can be toggled independently.
+A PDB on a single-replica StatefulSet (authority) makes voluntary
+disruption impossible — the eviction API refuses to evict the only
+pod under a minAvailable:1 constraint, which blocks every AKS node
+drain until someone manually intervenes. The right semantic for a
+1-replica workload is either no PDB (accept brief disruption during
+maintenance) or maxUnavailable:1; pdb.authority.enabled defaults to
+false until authority is HA.
+
+testEnv mode skips both PDBs (test slots don't need disruption
+protection and the singleton replicas would cause the same eviction
+deadlock during cluster maintenance).
+*/}}
+{{- if and .Values.pdb.enabled .Values.pdb.authority.enabled (not .Values.testEnv.enabled) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
@@ -12,6 +26,8 @@ spec:
     matchLabels:
       {{- include "ambience.authoritySelectorLabels" . | nindent 6 }}
 ---
+{{- end }}
+{{- if and .Values.pdb.enabled .Values.pdb.edge.enabled (not .Values.testEnv.enabled) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
