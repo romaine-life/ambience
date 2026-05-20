@@ -17,6 +17,9 @@ gateway:
 wildcardCertificate:
   enabled: true
 
+testEnv:
+  wildcardListenerSetNamespace: ambience-dev
+
 route:
   attachListenerSet:
     name: ambience-wildcard
