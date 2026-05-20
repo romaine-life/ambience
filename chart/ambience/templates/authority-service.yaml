@@ -1,3 +1,4 @@
+{{- if eq (include "ambience.renderHot" .) "true" }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -28,3 +29,4 @@ spec:
     - name: http
       port: {{ .Values.service.port }}
       targetPort: {{ .Values.service.targetPort }}
+{{- end }}

@@ -1,4 +1,4 @@
-{{- if .Values.authority.enabled }}
+{{- if and .Values.authority.enabled (eq (include "ambience.renderHot" .) "true") }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -30,14 +30,14 @@ spec:
         - name: {{ include "ambience.name" . }}
           image: "{{ include "ambience.authorityImage" . }}"
           imagePullPolicy: {{ include "ambience.authorityImagePullPolicy" . }}
-          {{- if and .Values.testEnv.enabled .Values.authority.hotSwapBackend.enabled }}
+          {{- if and (eq (include "ambience.isTestEnv" .) "true") .Values.authority.hotSwapBackend.enabled }}
           command:
             - /ambience-supervisor
           {{- end }}
           env:
             - name: AMBIENCE_ROLE
               value: authority
-            {{- if and .Values.testEnv.enabled .Values.authority.hotSwapBackend.enabled }}
+            {{- if and (eq (include "ambience.isTestEnv" .) "true") .Values.authority.hotSwapBackend.enabled }}
             - name: GLIMMUNG_SUPERVISOR_CHILD
               value: {{ .Values.authority.hotSwapBackend.childCommand | quote }}
             - name: GLIMMUNG_SUPERVISOR_HOT_ARTIFACT
@@ -106,12 +106,12 @@ spec:
             failureThreshold: {{ .Values.authority.probes.liveness.failureThreshold }}
           resources:
             {{- toYaml .Values.authority.resources | nindent 12 }}
-          {{- if and .Values.testEnv.enabled .Values.authority.hotSwapBackend.enabled }}
+          {{- if and (eq (include "ambience.isTestEnv" .) "true") .Values.authority.hotSwapBackend.enabled }}
           volumeMounts:
             - name: hot-backend
               mountPath: {{ .Values.authority.hotSwapBackend.mountPath | quote }}
           {{- end }}
-        {{- if and .Values.testEnv.enabled .Values.authority.hotSwapBackend.enabled }}
+        {{- if and (eq (include "ambience.isTestEnv" .) "true") .Values.authority.hotSwapBackend.enabled }}
         - name: {{ .Values.authority.hotSwapBackend.writerContainerName }}
           image: {{ .Values.authority.hotSwapBackend.writerImage | quote }}
           imagePullPolicy: {{ .Values.authority.hotSwapBackend.writerImagePullPolicy }}
@@ -125,7 +125,7 @@ spec:
             - name: hot-backend
               mountPath: {{ .Values.authority.hotSwapBackend.mountPath | quote }}
         {{- end }}
-      {{- if and .Values.testEnv.enabled .Values.authority.hotSwapBackend.enabled }}
+      {{- if and (eq (include "ambience.isTestEnv" .) "true") .Values.authority.hotSwapBackend.enabled }}
       volumes:
         - name: hot-backend
           emptyDir: {}

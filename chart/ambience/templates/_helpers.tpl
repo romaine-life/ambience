@@ -13,6 +13,33 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 app: {{ include "ambience.name" . }}
 {{- end -}}
 
+{{- define "ambience.renderMode" -}}
+{{- $mode := .Values.renderMode | default "normal" -}}
+{{- if not (has $mode (list "normal" "warm" "hot")) -}}
+{{- fail (printf "renderMode must be one of: normal, warm, hot; got %q" $mode) -}}
+{{- end -}}
+{{- $mode -}}
+{{- end -}}
+
+{{- define "ambience.isTestEnv" -}}
+{{- $mode := include "ambience.renderMode" . -}}
+{{- if or (eq $mode "warm") (eq $mode "hot") -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- define "ambience.renderWarm" -}}
+{{- $mode := include "ambience.renderMode" . -}}
+{{- if or (eq $mode "normal") (eq $mode "warm") -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- define "ambience.renderHot" -}}
+{{- $mode := include "ambience.renderMode" . -}}
+{{- if or (eq $mode "normal") (eq $mode "hot") -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- define "ambience.slotName" -}}
+{{- if eq (include "ambience.isTestEnv" .) "true" -}}{{ required "testEnv.slotName is required when renderMode is warm or hot" .Values.testEnv.slotName }}{{- else -}}{{ .Release.Name }}{{- end -}}
+{{- end -}}
+
 {{- define "ambience.edgeSelectorLabels" -}}
 app: {{ include "ambience.name" . }}
 component: edge
@@ -44,21 +71,21 @@ component: authority
 {{- end -}}
 
 {{- define "ambience.domainHost" -}}
-{{- if .Values.testEnv.enabled -}}{{ printf "%s.%s" .Release.Name .Values.testEnv.recordBase }}{{- else -}}{{ .Values.domain.host }}{{- end -}}
+{{- if eq (include "ambience.isTestEnv" .) "true" -}}{{ printf "%s.%s" (include "ambience.slotName" .) .Values.testEnv.recordBase }}{{- else -}}{{ .Values.domain.host }}{{- end -}}
 {{- end -}}
 
 {{- define "ambience.routeListenerSetName" -}}
-{{- if .Values.testEnv.enabled -}}{{ .Values.testEnv.wildcardListenerSetName }}{{- else -}}{{ default .Values.gateway.listenerSetName .Values.route.attachListenerSet.name }}{{- end -}}
+{{- if eq (include "ambience.isTestEnv" .) "true" -}}{{ .Values.testEnv.wildcardListenerSetName }}{{- else -}}{{ default .Values.gateway.listenerSetName .Values.route.attachListenerSet.name }}{{- end -}}
 {{- end -}}
 
 {{- define "ambience.routeListenerSetNamespace" -}}
-{{- if .Values.testEnv.enabled -}}{{ .Values.testEnv.wildcardListenerSetNamespace }}{{- else -}}{{ default .Release.Namespace .Values.route.attachListenerSet.namespace }}{{- end -}}
+{{- if eq (include "ambience.isTestEnv" .) "true" -}}{{ .Values.testEnv.wildcardListenerSetNamespace }}{{- else -}}{{ default .Release.Namespace .Values.route.attachListenerSet.namespace }}{{- end -}}
 {{- end -}}
 
 {{- define "ambience.edgeReplicas" -}}
-{{- if .Values.testEnv.enabled -}}1{{- else -}}{{ .Values.edge.replicas }}{{- end -}}
+{{- if eq (include "ambience.isTestEnv" .) "true" -}}1{{- else -}}{{ .Values.edge.replicas }}{{- end -}}
 {{- end -}}
 
 {{- define "ambience.authorityReplicas" -}}
-{{- if .Values.testEnv.enabled -}}1{{- else -}}{{ .Values.authority.replicas }}{{- end -}}
+{{- if eq (include "ambience.isTestEnv" .) "true" -}}1{{- else -}}{{ .Values.authority.replicas }}{{- end -}}
 {{- end -}}
