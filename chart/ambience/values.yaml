@@ -1,10 +1,12 @@
 nameOverride: ambience
 
+renderMode: normal
+
 testEnv:
-  # Generic Glimmung/native validation mode. Glimmung should only need
-  # `--set testEnv.enabled=true`; this chart derives the public hostname and
-  # wildcard listener attachment from the Helm release name.
-  enabled: false
+  # Stable slot identity for warm/hot Glimmung native validation slots.
+  # Required when renderMode is warm or hot because split Helm releases use
+  # different release names while rendering the same slot-local hostnames.
+  slotName: ""
   recordBase: ambience.dev.romaine.life
   wildcardListenerSetName: ambience-wildcard
   wildcardListenerSetNamespace: ambience-dev
