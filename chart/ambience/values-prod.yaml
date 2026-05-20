@@ -22,5 +22,8 @@ oauth:
   externalSecret:
     enabled: true
 
+wildcardCertificate:
+  enabled: true
+
 pdb:
   enabled: true

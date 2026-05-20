@@ -313,10 +313,10 @@ The intended production deploy loop is:
    it if you want a faster rollout.
 
 A dev environment under `ambience.dev.romaine.life` shares the wildcard
-listener at `*.ambience.dev.romaine.life` with per-PR preview slots.
-`chart/ambience/values-dev.yaml` holds its values, but it is not
-currently wired to an ArgoCD app — restore by adding a sibling
-`infra-bootstrap/k8s/apps/ambience-dev.yaml` if continuous dev hosting
+listener at `*.ambience.dev.romaine.life` with Glimmung test slots. The
+continuously synced prod release owns that shared listener and certificate
+so slot HTTPS works without per-slot certificate requests. `values-dev.yaml`
+still supports a standalone `ambience-dev` install if continuous dev hosting
 becomes useful again.
 
 Unless a task explicitly calls for localhost, the default test target

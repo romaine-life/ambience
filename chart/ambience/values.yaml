@@ -9,7 +9,7 @@ testEnv:
   slotName: ""
   recordBase: ambience.dev.romaine.life
   wildcardListenerSetName: ambience-wildcard
-  wildcardListenerSetNamespace: ambience-dev
+  wildcardListenerSetNamespace: ambience
 
 image:
   repository: romainecr.azurecr.io/ambience
@@ -32,9 +32,9 @@ gateway:
   listenerSetName: ambience
   listenerName: https
 
-# Shared wildcard infrastructure. Provisioned once in the dev base namespace
-# (ambience-dev). The cert covers the dev base host AND any subdomain via
-# DNS-01 (HTTP-01 cannot issue wildcards). Per-issue and per-PR ephemeral
+# Shared wildcard infrastructure. Provisioned once by the continuously synced
+# app release. The cert covers the dev base host AND any subdomain via DNS-01
+# (HTTP-01 cannot issue wildcards). Per-issue and per-PR ephemeral
 # environments attach HTTPRoutes to the resulting XListenerSet so they don't
 # each provision their own cert and listener.
 wildcardCertificate:
