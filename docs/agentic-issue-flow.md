@@ -43,6 +43,9 @@ re-fetching it from GitHub Issues.
   creation, screenshot selection, and verification semantics.
 - Steps are observational boundaries emitted by Ambience scripts. Glimmung
   records them but does not orchestrate inside a step.
+- Native job success and failure both terminate through Glimmung's
+  `/native/completed` callback. Ambience runner images must not require the
+  retired `GLIMMUNG_FAILED_URL` environment variable.
 
 ## Workflow Registration
 

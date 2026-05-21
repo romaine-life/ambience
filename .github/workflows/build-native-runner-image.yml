@@ -9,6 +9,7 @@ on:
       - ".github/workflows/build-native-runner-image.yml"
       - "mcp/**"
       - "scripts/glimmung-native/**"
+      - "scripts/test-glimmung-native-contract.sh"
   workflow_dispatch:
     inputs:
       git_ref:
@@ -55,6 +56,13 @@ jobs:
 
           git checkout --detach "$full_sha"
           echo "resolved ${target_ref} -> ${full_sha}"
+
+      - name: Check native runner contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/test-glimmung-native-contract.sh
+          bash -n scripts/glimmung-native/*.sh scripts/test-glimmung-native-contract.sh
 
       - name: Azure Login (OIDC)
         uses: azure/login@v3
