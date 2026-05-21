@@ -38,6 +38,12 @@ func (c *Campfire) GridCopy() [][]Pixel {
 	return renderProceduralGrid("campfire", c.W, c.H, c.tick, c.cfg, c.timers, c.values, c.rng.State())
 }
 
+func (d *DistantStorm) GridCopy() [][]Pixel {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return renderProceduralGrid("distant-storm", d.W, d.H, d.tick, d.cfg, d.timers, d.values, d.rng.State())
+}
+
 func (d *Dust) GridCopy() [][]Pixel {
 	d.mu.Lock()
 	defer d.mu.Unlock()

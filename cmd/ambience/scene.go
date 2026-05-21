@@ -206,6 +206,7 @@ var effectSceneSubjects = map[string][]string{
 	"burning-trees":  {"burning-trees", "forest-fire", "ember-woods"},
 	"campfire":       {"campfire", "firelight", "embers", "hearth"},
 	"cave-crystals":  {"cave-crystals", "geode", "crystal-grove", "shard-grove"},
+	"distant-storm":  {"distant-storm", "horizon-storm", "quiet-horizon", "stormfront"},
 	"dust":           {"dust", "motes", "haze"},
 	"fireflies":      {"fireflies", "glowflies", "lantern-bugs"},
 	"lighthouse":     {"lighthouse", "beacon", "harbor-light"},
