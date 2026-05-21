@@ -36,6 +36,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Annotate the validation HTTPRoute so external-dns leaves pre-provisioned host records alone.",
     )
+    deploy_validation.add_argument(
+        "--render-mode",
+        default="",
+        choices=["", "normal", "warm", "hot"],
+        help="Optional chart renderMode override for split warm/hot test slots.",
+    )
+    deploy_validation.add_argument(
+        "--test-env-slot-name",
+        default="",
+        help="Stable chart testEnv.slotName for split warm/hot test slots.",
+    )
 
     screenshot = subparsers.add_parser("capture-validation-screenshot")
     screenshot.add_argument("--page-path", required=True)
@@ -130,6 +141,8 @@ def main() -> int:
                     public_host=public_host,
                     create_namespace=args.create_namespace,
                     external_dns=not args.skip_external_dns,
+                    render_mode=args.render_mode or None,
+                    test_env_slot_name=args.test_env_slot_name or None,
                 )
             )
         elif args.command == "capture-validation-screenshot":

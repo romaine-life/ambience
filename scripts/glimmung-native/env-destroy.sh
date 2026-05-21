@@ -20,7 +20,16 @@ native_init
 native_require_env GLIMMUNG_VALIDATION_NAMESPACE GLIMMUNG_RUN_ID
 
 NAMESPACE="${GLIMMUNG_VALIDATION_NAMESPACE}"
-RELEASE_NAME="${AMBIENCE_VALIDATION_RELEASE:-ambience-agent}"
+VALIDATION_SLOT_INDEX="${GLIMMUNG_NATIVE_SLOT_INDEX:-}"
+PREPROVISIONED_SLOT=""
+if [ -n "$VALIDATION_SLOT_INDEX" ]; then
+  PREPROVISIONED_SLOT="1"
+fi
+if [ -n "$PREPROVISIONED_SLOT" ]; then
+  RELEASE_NAME="${AMBIENCE_VALIDATION_RELEASE:-${NAMESPACE}-hot}"
+else
+  RELEASE_NAME="${AMBIENCE_VALIDATION_RELEASE:-ambience-agent}"
+fi
 
 describe_pre_teardown() {
   echo "namespace: ${NAMESPACE}"
@@ -49,6 +58,10 @@ uninstall_helm_release() {
 }
 
 delete_namespace() {
+  if [ -n "$PREPROVISIONED_SLOT" ]; then
+    echo "pre-provisioned slot namespace ${NAMESPACE}; leaving warm resources in place"
+    return 0
+  fi
   kubectl delete namespace "$NAMESPACE" --ignore-not-found=true --wait=false
 }
 

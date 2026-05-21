@@ -168,6 +168,8 @@ def deploy_preview(
     public_host: str | None = None,
     create_namespace: bool = True,
     external_dns: bool = True,
+    render_mode: str | None = None,
+    test_env_slot_name: str | None = None,
     tls_secret_name: str | None = None,
     timeout: str = "10m",
     rollout_timeout: str = "180s",
@@ -196,6 +198,10 @@ def deploy_preview(
         "edge.terminationGracePeriodSeconds": "3",
         "authority.terminationGracePeriodSeconds": "5",
     }
+    if render_mode:
+        string_values["renderMode"] = render_mode
+    if test_env_slot_name:
+        string_values["testEnv.slotName"] = test_env_slot_name
     bool_values = {
         "edge.replicas": True,
         "authority.replicas": True,
