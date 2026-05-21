@@ -37,6 +37,20 @@ printf '%s\n' "$data" >"${NATIVE_CONTRACT_CURL_CAPTURE}.body"
 SH
 chmod +x "${TMP_DIR}/curl"
 
+cat >"${TMP_DIR}/python3" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+: "${NATIVE_CONTRACT_PYTHON_CAPTURE:?set NATIVE_CONTRACT_PYTHON_CAPTURE}"
+
+if [ "${1:-}" = "-c" ]; then
+  exit 1
+fi
+
+printf '%s\n' "$*" >>"$NATIVE_CONTRACT_PYTHON_CAPTURE"
+SH
+chmod +x "${TMP_DIR}/python3"
+
 unset GLIMMUNG_FAILED_URL
 export GLIMMUNG_ATTEMPT_TOKEN="contract-token"
 export GLIMMUNG_EVENTS_URL="http://glimmung.test/v1/run-callbacks/cb/native/events"
@@ -45,10 +59,16 @@ export GLIMMUNG_GITHUB_TOKEN_URL="http://glimmung.test/v1/run-callbacks/cb/nativ
 export GLIMMUNG_JOB_ID="env-prep"
 export GLIMMUNG_RUN_ID="run-1"
 export NATIVE_CONTRACT_CURL_CAPTURE="${TMP_DIR}/native-failed"
+export NATIVE_CONTRACT_PYTHON_CAPTURE="${TMP_DIR}/python.calls"
 export PATH="${TMP_DIR}:${PATH}"
 
 # shellcheck source=glimmung-native/lib.sh
 source "${SCRIPT_DIR}/glimmung-native/lib.sh"
+
+mkdir -p "${TMP_DIR}/repo/mcp"
+native_install_preview_package "${TMP_DIR}/repo/mcp"
+grep -Fx -- "-m pip install --user --upgrade pip" "$NATIVE_CONTRACT_PYTHON_CAPTURE" >/dev/null
+grep -Fx -- "-m pip install --user ${TMP_DIR}/repo/mcp" "$NATIVE_CONTRACT_PYTHON_CAPTURE" >/dev/null
 
 native_init
 native_failed "contract failure"

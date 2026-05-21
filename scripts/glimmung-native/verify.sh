@@ -94,6 +94,7 @@ copy_claude_ca() {
 
 prepare_context() {
   native_azure_login
+  native_install_preview_package "${REPO_DIR}/mcp"
   copy_claude_ca
 
   PROXY_IP="$(kubectl -n "$CLAUDE_NAMESPACE" get svc claude-api-proxy -o jsonpath='{.spec.clusterIP}')"
