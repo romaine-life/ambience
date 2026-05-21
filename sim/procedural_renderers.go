@@ -1624,11 +1624,11 @@ func (r *proceduralRenderState) starSpeckles(density float64, c color.RGBA, maxY
 
 func (r *proceduralRenderState) stormLevelDistantStorm() float64 {
 	level := 1.0
-	if r.timer("squall") > 0 {
-		level *= r.value("squall_gain", r.cfgFloat("squall_mult", 1.7))
+	if r.timer("distant-thunder") > 0 {
+		level *= r.value("distant_thunder_gain", r.cfgFloat("distant_thunder_mult", 1.45))
 	}
-	if r.timer("calm") > 0 {
-		level *= r.cfgFloat("calm_mult", 0.45)
+	if r.timer("quiet-horizon") > 0 {
+		level *= r.cfgFloat("quiet_horizon_mult", 0.58)
 	}
 	if r.timer("intro") > 0 {
 		total := int(math.Round(r.value("intro_total", r.cfgFloat("intro_dur", 55))))
@@ -1652,10 +1652,22 @@ func (r *proceduralRenderState) renderDistantStorm() {
 	if r.timer("lightning") > 0 {
 		flashGain = r.value("lightning_gain", r.cfgFloat("lightning_mult", 2.4))
 	}
+	afterglowGain := 1.0
+	if r.timer("afterglow") > 0 {
+		total := int(math.Round(r.value("afterglow_total", r.cfgFloat("afterglow_dur", 34))))
+		fade := 1 - proceduralPhaseProgress(total, r.timer("afterglow"))
+		afterglowGain = 1 + (r.value("afterglow_gain", r.cfgFloat("afterglow_mult", 1.35))-1)*clamp01(fade)
+	}
+	thunderPulse := 0.0
+	if r.timer("distant-thunder") > 0 {
+		total := int(math.Round(r.value("distant_thunder_total", r.cfgFloat("distant_thunder_dur", 48))))
+		progress := proceduralPhaseProgress(total, r.timer("distant-thunder"))
+		thunderPulse = math.Sin(progress*math.Pi) * (r.value("distant_thunder_gain", r.cfgFloat("distant_thunder_mult", 1.45)) - 1)
+	}
 	// Sky gradient: lighter overhead, deeper near horizon, then horizon glow band.
 	skyTop := r.hsl(hue+10, sat*0.4, lmin+(lmax-lmin)*0.32)
 	skyMid := r.hsl(hue, sat*0.55, lmin+(lmax-lmin)*0.18)
-	horizon := max(8, min(r.h-8, int(math.Floor(float64(r.h)*r.cfgFloat("horizon", 0.58)))))
+	horizon := max(8, min(r.h-8, int(math.Floor(float64(r.h)*r.cfgFloat("horizon", 0.72)))))
 	for y := 0; y < horizon; y++ {
 		t := float64(y) / math.Max(1, float64(horizon-1))
 		r.fillRect(0, y, r.w, 1, mixColor(skyTop, skyMid, t))
@@ -1675,7 +1687,13 @@ func (r *proceduralRenderState) renderDistantStorm() {
 	// Cloud bank: a band of dim cells with internal noise above the horizon.
 	cloudH := max(4, int(math.Round(float64(r.h)*r.cfgFloat("cloud_height", 0.34))))
 	cloudTop := max(0, horizon-cloudH)
-	drift := r.cfgFloat("cloud_drift", 0.06) * float64(r.tick)
+	driftMult := 1.0
+	if r.timer("cloud-drift") > 0 {
+		total := int(math.Round(r.value("cloud_drift_total", r.cfgFloat("cloud_drift_dur", 90))))
+		progress := proceduralPhaseProgress(total, r.timer("cloud-drift"))
+		driftMult = 1 + (r.cfgFloat("cloud_drift_mult", 2.15)-1)*math.Sin(progress*math.Pi)
+	}
+	drift := r.cfgFloat("cloud_drift", 0.06)*driftMult*float64(r.tick) + r.value("cloud_drift_bias", 0)
 	density := clamp01(r.cfgFloat("cloud_density", 0.62)) * storm
 	cloudBase := r.hsl(hue+hueSp*0.3, sat*0.5, lmin+(lmax-lmin)*0.08)
 	cloudCore := r.hsl(hue+hueSp*0.5, sat*0.7, lmin*0.85)
@@ -1705,6 +1723,14 @@ func (r *proceduralRenderState) renderDistantStorm() {
 			}
 		}
 	}
+	if afterglowGain > 1 || thunderPulse > 0 {
+		glowColor := r.hsl(hue-hueSp*0.5, sat*0.22, lmax*0.86)
+		glowAlpha := clamp01((afterglowGain-1)*0.42 + thunderPulse*0.22)
+		for y := cloudTop; y < horizon; y++ {
+			depth := float64(y-cloudTop) / math.Max(1, float64(horizon-1-cloudTop))
+			r.fillRectAlpha(0, y, r.w, 1, glowColor, glowAlpha*(0.18+depth*0.44))
+		}
+	}
 	// Lightning flash: bright fork inside the cloud bank, washing the cloud lighter.
 	if flashGain > 1 && r.timer("lightning") > 0 {
 		flashAlpha := clamp01(math.Min(0.9, (flashGain-1)*0.45))
@@ -1730,33 +1756,6 @@ func (r *proceduralRenderState) renderDistantStorm() {
 				jitter = -1
 			}
 			curr += jitter
-		}
-	}
-	// Rain shafts — slanted streaks from cloud base down to the sea, dimmed by storm level.
-	rainStrength := clamp01(r.cfgFloat("rain_shaft", 0.45)) * storm
-	if rainStrength > 0 {
-		wind := r.cfgFloat("wind", 0.18)
-		shaftColor := r.hsl(hue-hueSp*0.4, sat*0.35, lmin+(lmax-lmin)*0.36)
-		shaftCount := max(8, int(math.Round(float64(r.w)*0.18*rainStrength)))
-		shaftTop := max(0, horizon-int(float64(cloudH)*0.6))
-		shaftBottom := horizon + max(1, int(math.Round(float64(r.h-horizon)*0.18)))
-		if shaftBottom >= r.h {
-			shaftBottom = r.h - 1
-		}
-		for i := 0; i < shaftCount; i++ {
-			baseX := positiveModFloat(r.hash(40600+i)*float64(r.w)-drift*0.6, float64(r.w))
-			length := shaftBottom - shaftTop
-			if length <= 0 {
-				continue
-			}
-			alpha := clamp01((0.16 + r.hash(40700+i)*0.3) * rainStrength)
-			for y := shaftTop; y < shaftBottom; y++ {
-				p := float64(y-shaftTop) / math.Max(1, float64(length))
-				x := int(math.Round(baseX + wind*float64(length)*p))
-				if (y+i+r.tick)%2 == 0 {
-					r.paintAlpha(x, y, shaftColor, alpha*(0.4+0.6*(1-p)))
-				}
-			}
 		}
 	}
 	// Sea: deep teal under horizon, with long slow swells.
