@@ -11,7 +11,6 @@ native_require_env GLIMMUNG_VALIDATION_NAMESPACE GLIMMUNG_RUN_ID
 
 REPO_SLUG="${AMBIENCE_REPO_SLUG:-nelsong6/ambience}"
 REPO_DIR="${AMBIENCE_REPO_DIR:-/workspace/ambience}"
-RELEASE_NAME="${AMBIENCE_VALIDATION_RELEASE:-ambience-agent}"
 CLAUDE_NAMESPACE="${CLAUDE_NAMESPACE:-tank-operator}"
 CLAUDE_CA_NAMESPACE="${CLAUDE_CA_NAMESPACE:-tank-operator-sessions}"
 
@@ -23,6 +22,11 @@ if [ -n "$VALIDATION_SLOT_INDEX" ]; then
   PREPROVISIONED_PUBLIC_HOST="1"
 else
   VALIDATION_HOST="${NAMESPACE}.ambience.dev.romaine.life"
+fi
+if [ -n "$PREPROVISIONED_PUBLIC_HOST" ]; then
+  RELEASE_NAME="${AMBIENCE_VALIDATION_RELEASE:-${NAMESPACE}-hot}"
+else
+  RELEASE_NAME="${AMBIENCE_VALIDATION_RELEASE:-ambience-agent}"
 fi
 VALIDATION_URL="https://${VALIDATION_HOST}"
 IMAGE_TAG="${NAMESPACE}"
@@ -120,6 +124,7 @@ deploy_validation_env() {
   )
   if [ -n "$PREPROVISIONED_PUBLIC_HOST" ]; then
     args+=(--skip-external-dns)
+    args+=(--render-mode hot --test-env-slot-name "$NAMESPACE")
   fi
   (
     cd "$REPO_DIR"
