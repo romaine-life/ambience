@@ -334,6 +334,19 @@ native_azure_login() {
   fi
 }
 
+native_install_preview_package() {
+  local package_dir="${1:-${REPO_DIR:-}/mcp}"
+  if python3 -c 'import ambience_preview.cli' >/dev/null 2>&1; then
+    return 0
+  fi
+  if [ -z "$package_dir" ] || [ ! -d "$package_dir" ]; then
+    echo "ambience preview package directory not found: ${package_dir}" >&2
+    return 1
+  fi
+  python3 -m pip install --user --upgrade pip
+  python3 -m pip install --user "$package_dir"
+}
+
 native_github_token() {
   curl -fsS \
     --retry 5 \

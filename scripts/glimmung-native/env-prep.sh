@@ -38,8 +38,7 @@ clone_repo() {
 }
 
 install_preview_package() {
-  python3 -m pip install --user --upgrade pip
-  python3 -m pip install --user "${REPO_DIR}/mcp"
+  native_install_preview_package "${REPO_DIR}/mcp"
 }
 
 build_validation_image() {
