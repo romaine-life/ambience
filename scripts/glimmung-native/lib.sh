@@ -19,6 +19,49 @@ native_managed_runner() {
   [ "${GLIMMUNG_MANAGED_RUNNER:-}" = "1" ]
 }
 
+native_selected_step() {
+  native_managed_runner && [ -n "${GLIMMUNG_STEP_SLUG:-}" ]
+}
+
+native_run_selected_step() {
+  local selected="${GLIMMUNG_STEP_SLUG:-}"
+  while [ "$#" -gt 0 ]; do
+    local slug="$1"
+    local fn="$2"
+    shift 2
+    if [ "$selected" = "$slug" ]; then
+      "$fn"
+      return $?
+    fi
+  done
+  echo "unknown managed step: ${selected}" >&2
+  return 2
+}
+
+native_record_exit_code() {
+  local file="$1"
+  shift
+  local rc
+  set +e
+  "$@"
+  rc=$?
+  set -e
+  printf '%s\n' "$rc" >"$file"
+  return 0
+}
+
+native_read_exit_code() {
+  local file="$1"
+  local value="0"
+  if [ -s "$file" ]; then
+    value="$(cat "$file" 2>/dev/null || printf '0')"
+  fi
+  case "$value" in
+    ''|*[!0-9]*) printf '0' ;;
+    *) printf '%s' "$value" ;;
+  esac
+}
+
 native_init() {
   native_require_env \
     GLIMMUNG_ATTEMPT_TOKEN \

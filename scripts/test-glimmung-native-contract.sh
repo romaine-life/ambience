@@ -109,3 +109,24 @@ fi
 
 native_failed "managed failure"
 jq -e '.summary_markdown == "managed failure"' "$GLIMMUNG_COMPLETION_FILE" >/dev/null
+
+export GLIMMUNG_STEP_SLUG="selected"
+SELECTED_MARKER="${TMP_DIR}/selected-marker"
+unselected_step() {
+  echo "unselected step should not run" >&2
+  exit 1
+}
+selected_step() {
+  printf 'ran\n' >"$SELECTED_MARKER"
+}
+native_run_selected_step \
+  "unselected" unselected_step \
+  "selected" selected_step
+grep -Fx "ran" "$SELECTED_MARKER" >/dev/null
+
+EXIT_CODE_FILE="${TMP_DIR}/exit-code"
+failing_step() {
+  return 7
+}
+native_record_exit_code "$EXIT_CODE_FILE" failing_step
+[ "$(native_read_exit_code "$EXIT_CODE_FILE")" = "7" ]

@@ -52,6 +52,8 @@ SUMMARY_MD="/tmp/summary.md"
 EVENTS_LOG="/tmp/agent-events.jsonl"
 EVIDENCE_DIR="/tmp/evidence"
 POD_LOG="/tmp/agent-pod.log"
+PLAN_EXIT_CODE_FILE="/tmp/test-plan-exit-code"
+PROXY_IP_FILE="/tmp/test-plan-proxy-ip"
 : >"$SUMMARY_MD"
 : >"$EVENTS_LOG"
 mkdir -p "$EVIDENCE_DIR/screenshots"
@@ -87,6 +89,7 @@ prepare_context() {
     return 1
   fi
   export PROXY_IP
+  printf '%s\n' "$PROXY_IP" >"$PROXY_IP_FILE"
 
   write_prompt_context() {
     local dest="/tmp/agent-prompt-context.md"
@@ -121,7 +124,24 @@ prepare_context() {
     --dry-run=client -o yaml | kubectl apply -f -
 }
 
+ensure_proxy_ip() {
+  if [ -z "${PROXY_IP:-}" ] && [ -s "$PROXY_IP_FILE" ]; then
+    PROXY_IP="$(cat "$PROXY_IP_FILE")"
+    export PROXY_IP
+  fi
+  if [ -z "${PROXY_IP:-}" ]; then
+    PROXY_IP="$(kubectl -n "$CLAUDE_NAMESPACE" get svc claude-api-proxy -o jsonpath='{.spec.clusterIP}')"
+    if [ -z "$PROXY_IP" ]; then
+      echo "claude-api-proxy Service not found in ${CLAUDE_NAMESPACE}" >&2
+      return 1
+    fi
+    export PROXY_IP
+    printf '%s\n' "$PROXY_IP" >"$PROXY_IP_FILE"
+  fi
+}
+
 run_llm() {
+  ensure_proxy_ip
   (
     cd "$REPO_DIR"
     python3 -m ambience_preview.cli apply-agent-job \
@@ -143,6 +163,15 @@ run_llm() {
       --job-name "$JOB_NAME" \
       --timeout-seconds "${AGENT_TEST_PLAN_TIMEOUT_SECONDS:-900}"
   )
+}
+
+run_llm_record() {
+  native_record_exit_code "$PLAN_EXIT_CODE_FILE" run_llm
+  PLAN_EXIT_CODE="$(native_read_exit_code "$PLAN_EXIT_CODE_FILE")"
+}
+
+plan_exit_code() {
+  native_read_exit_code "$PLAN_EXIT_CODE_FILE"
 }
 
 collect_evidence() {
@@ -181,8 +210,10 @@ finalize() {
     cp "$TEST_PLAN_MD" "$SUMMARY_MD"
   fi
   if [ ! -s "$TEST_PLAN_JSON" ]; then
-    if [ "$PLAN_EXIT_CODE" -ne 0 ]; then
-      jq -n --arg reason "test-plan pod exited with ${PLAN_EXIT_CODE}" \
+    local exit_code
+    exit_code="$(plan_exit_code)"
+    if [ "$exit_code" -ne 0 ]; then
+      jq -n --arg reason "test-plan pod exited with ${exit_code}" \
         '{schema_version:1,status:"fail",abort_reason:$reason}' >"$TEST_PLAN_JSON"
     else
       jq -n '{schema_version:1,status:"fail",abort_reason:"test-plan pod produced no output"}' \
@@ -199,13 +230,31 @@ emit() {
   local summary
   summary="$(cat "$SUMMARY_MD" 2>/dev/null || true)"
   native_completed "$outputs" "null" "" "$summary"
+  local exit_code
+  exit_code="$(plan_exit_code)"
+  if native_selected_step && [ "$exit_code" -ne 0 ]; then
+    native_failed "test-plan pod exited with ${exit_code}"
+    return "$exit_code"
+  fi
 }
+
+if native_selected_step; then
+  native_run_selected_step \
+    "clone" clone_repo \
+    "prepare" prepare_context \
+    "run-test-plan" run_llm_record \
+    "collect" collect_evidence \
+    "finalize" finalize \
+    "emit" emit
+  exit $?
+fi
 
 native_step "clone" clone_repo
 native_step "prepare" prepare_context
-native_step_allow_failure "llm" run_llm || PLAN_EXIT_CODE=$?
+native_step "run-test-plan" run_llm_record
 native_step "collect" collect_evidence
 native_step "finalize" finalize
+PLAN_EXIT_CODE="$(plan_exit_code)"
 if [ "$PLAN_EXIT_CODE" -ne 0 ]; then
   native_failed "test-plan pod exited with ${PLAN_EXIT_CODE}"
   exit "$PLAN_EXIT_CODE"

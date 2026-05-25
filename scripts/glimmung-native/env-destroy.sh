@@ -65,9 +65,30 @@ delete_namespace() {
   kubectl delete namespace "$NAMESPACE" --ignore-not-found=true --wait=false
 }
 
+uninstall_helm_release_allow_failure() {
+  uninstall_helm_release || true
+}
+
+delete_namespace_allow_failure() {
+  delete_namespace || true
+}
+
+emit() {
+  native_completed "{}"
+}
+
+if native_selected_step; then
+  native_run_selected_step \
+    "describe-pre-teardown" describe_pre_teardown \
+    "uninstall-helm-release" uninstall_helm_release_allow_failure \
+    "delete-namespace" delete_namespace_allow_failure \
+    "emit" emit
+  exit $?
+fi
+
 native_step "describe-pre-teardown" describe_pre_teardown
 native_step_allow_failure "uninstall-helm-release" uninstall_helm_release
 native_step_allow_failure "delete-namespace" delete_namespace
 native_assert_resume_satisfied
 
-native_completed "{}"
+emit
