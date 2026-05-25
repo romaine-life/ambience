@@ -45,5 +45,5 @@ resource "azuread_service_principal" "oauth" {
 resource "azurerm_key_vault_secret" "oauth_client_id" {
   name         = "ambience-oauth-client-id"
   value        = azuread_application.oauth.client_id
-  key_vault_id = data.azurerm_key_vault.main.id
+  key_vault_id = azurerm_key_vault.main.id
 }

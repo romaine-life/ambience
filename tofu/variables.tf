@@ -9,6 +9,7 @@ variable "hostnames" {
 }
 
 variable "key_vault_name" {
-  type    = string
-  default = "romaine-kv"
+  description = "Ambience-owned Key Vault for app secrets projected into Kubernetes."
+  type        = string
+  default     = "ng6-ambience"
 }
