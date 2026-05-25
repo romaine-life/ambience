@@ -8,8 +8,8 @@ infrastructure still lives in `nelsong6/infra-bootstrap`.
 Ambience provisions `ng6-ambience` in this stack and writes
 `ambience-oauth-client-id` there. The chart defines the matching
 `ClusterSecretStore` so External Secrets can project the client ID into
-Kubernetes without using the platform/shared `romaine-kv`. Ambience CI's
-Key Vault data-plane access comes from the subscription-scope
+Kubernetes from the app-owned vault. Ambience CI's Key Vault data-plane access
+comes from the subscription-scope
 `Key Vault Administrator` grant assigned by `infra-bootstrap`; this stack only
 grants runtime read access to External Secrets.
 
