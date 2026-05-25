@@ -3,6 +3,16 @@
 This directory owns Ambience-specific Azure resources. Shared cluster
 infrastructure still lives in `nelsong6/infra-bootstrap`.
 
+## App-Owned Key Vault
+
+Ambience provisions `ng6-ambience` in this stack and writes
+`ambience-oauth-client-id` there. The chart defines the matching
+`ClusterSecretStore` so External Secrets can project the client ID into
+Kubernetes without using the platform/shared `romaine-kv`. Ambience CI's
+Key Vault data-plane access comes from the subscription-scope
+`Key Vault Administrator` grant assigned by `infra-bootstrap`; this stack only
+grants runtime read access to External Secrets.
+
 ## Existing OAuth Registration Migration
 
 `ambience-oauth` was originally declared in `infra-bootstrap`. Apply the
@@ -13,7 +23,6 @@ Ambience tofu apply:
 ```sh
 tofu import azuread_application.oauth <ambience-oauth application object id>
 tofu import azuread_service_principal.oauth <ambience-oauth service principal object id>
-tofu import azurerm_key_vault_secret.oauth_client_id https://romaine-kv.vault.azure.net/secrets/ambience-oauth-client-id/<version>
 ```
 
 After import, `tofu plan` should show no replacement for the Entra application.
