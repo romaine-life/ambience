@@ -1,5 +1,4 @@
-# Ambience-owned Key Vault. The platform/shared `romaine-kv` remains for
-# platform secrets only; app-owned OAuth material is written here.
+# Ambience-owned Key Vault for app OAuth material.
 
 resource "azurerm_key_vault" "main" {
   name                       = var.key_vault_name
