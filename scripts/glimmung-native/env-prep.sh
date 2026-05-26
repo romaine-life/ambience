@@ -157,6 +157,11 @@ emit_env_outputs() {
   cat /tmp/ambience-env-outputs.json
 }
 
+emit_env_outputs_managed() {
+  emit_env_outputs
+  native_completed "$(cat /tmp/ambience-env-outputs.json)"
+}
+
 if native_selected_step; then
   native_run_selected_step \
     "clone-repo" clone_repo \
@@ -165,7 +170,7 @@ if native_selected_step; then
     "reap-slot-conflicts" reap_conflicting_slot \
     "deploy-validation-env" deploy_validation_env \
     "check-validation-env" check_validation_env \
-    "emit-env-outputs" emit_env_outputs
+    "emit-env-outputs" emit_env_outputs_managed
   exit $?
 fi
 
