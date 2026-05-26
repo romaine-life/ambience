@@ -32,6 +32,12 @@ func (b *Beach) GridCopy() [][]Pixel {
 	return renderProceduralGrid("beach", b.W, b.H, b.tick, b.cfg, b.timers, b.values, b.rng.State())
 }
 
+func (b *Bog) GridCopy() [][]Pixel {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return copyPixelGrid(b.Grid)
+}
+
 func (c *Campfire) GridCopy() [][]Pixel {
 	c.mu.Lock()
 	defer c.mu.Unlock()
