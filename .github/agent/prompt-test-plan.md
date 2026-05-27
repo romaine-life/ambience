@@ -22,6 +22,9 @@ environment and reconciles them.
 1. Read the issue context (provided below) and re-read the project's
    `AGENTS.md`, `CLAUDE.md`, `docs/effects-cookbook.md`, and
    `docs/dev-endpoints.md` so your plan matches project conventions.
+   If the issue context includes a `Run evidence requirements` JSON
+   block, treat it as a required input from Glimmung and mirror every
+   non-optional item in your `required_evidence`.
 2. Identify a **single bounded slice** that addresses the issue. Bias
    toward the smallest change that resolves the stated request.
 3. Decide which kind of evidence would prove the change works (see
@@ -38,7 +41,14 @@ environment and reconciles them.
 will need to capture. Each entry has an `id`, a `kind`, and shape-
 specific fields:
 
-- **`screenshot`**: pages whose rendering should be inspected.
+- **`video`**: browser-visible behavior, animation, transitions, or
+  interaction flow that should be reviewed over time. Required fields:
+  `id`, `url_path` (the path under `$VALIDATION_URL` to record),
+  `must_show` (one-sentence human description of the behavior the
+  video must demonstrate). Optional: `duration_seconds` (default 5),
+  `trigger_event` (event to POST to `/dev/trigger/<session>/<event>`
+  before recording), `expected_text`.
+- **`screenshot`**: pages whose final/static rendering should be inspected.
   Required fields: `id`, `url_path` (the path under `$VALIDATION_URL`
   to capture, e.g. `/dev/distant-storm`), `must_show` (one-sentence
   human description of what the picture should show). Optional:
@@ -52,10 +62,13 @@ specific fields:
   for refactor-only or non-visible changes). Required fields: `id`,
   `must_show` (what the note should explain).
 
-For new visual effects: at minimum capture the default render and
-each lifecycle event (intro, ending, key triggers). For refactors
-or backend-only changes: a `note` plus relevant `go-test` items is
-usually enough — don't blindly screenshot if there's nothing visual.
+For browser-visible work, use `video` as the baseline evidence because
+it tells the reviewer what happened over time; add screenshots only
+when a still frame needs separate inspection. For new visual effects:
+at minimum record the default render and each lifecycle event (intro,
+ending, key triggers). For refactors or backend-only changes: a `note`
+plus relevant `go-test` items is usually enough unless Glimmung's run
+requirements explicitly require browser evidence.
 
 ## Output JSON schema
 

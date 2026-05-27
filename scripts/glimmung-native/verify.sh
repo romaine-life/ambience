@@ -54,6 +54,7 @@ VERIFY_EXIT_CODE=0
 VERIFICATION_JSON="/tmp/verification.json"
 VERIFICATION_REASONS="/tmp/verification-reasons.txt"
 EVIDENCE_REFS="/tmp/evidence-refs.txt"
+EVIDENCE_ARTIFACTS="/tmp/evidence-artifacts.json"
 SCREENSHOTS_MD="/tmp/screenshots.md"
 SUMMARY_MD="/tmp/summary.md"
 EVENTS_LOG="/tmp/agent-events.jsonl"
@@ -63,10 +64,11 @@ VERIFY_EXIT_CODE_FILE="/tmp/verification-exit-code"
 PROXY_IP_FILE="/tmp/verification-proxy-ip"
 : >"$VERIFICATION_REASONS"
 : >"$EVIDENCE_REFS"
+printf '[]\n' >"$EVIDENCE_ARTIFACTS"
 : >"$SCREENSHOTS_MD"
 : >"$SUMMARY_MD"
 : >"$EVENTS_LOG"
-mkdir -p "$EVIDENCE_DIR/screenshots"
+mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/videos"
 
 # Stage handoff files — written by prepare_context from glimmung inputs.
 TEST_PLAN_FILE="${EVIDENCE_DIR}/issue-agent-test-plan.json"
@@ -264,6 +266,12 @@ enforce_evidence_contract() {
       --slurpfile plan "$plan" \
       --slurpfile verify "$verify" \
       '
+        def kind($value):
+          ($value // "" | ascii_downcase) as $k
+          | if $k == "animation" or $k == "webm" or $k == "movie" or $k == "recording" then "video"
+            elif $k == "image" or $k == "still" then "screenshot"
+            else $k
+            end;
         ($plan[0].required_evidence // []) as $req
         | ($verify[0].evidence_results // []) as $res
         | $req[]
@@ -271,10 +279,39 @@ enforce_evidence_contract() {
         | ($res | map(select(.id == $r.id))) as $match
         | if ($match | length) == 0 then "missing:" + ($r.id // "")
           elif $match[0].status != "pass" then "not_pass:" + ($r.id // "")
+          elif kind($r.kind) == "video" and (($match[0].video // "") == "") then "missing_video:" + ($r.id // "")
+          elif kind($r.kind) == "screenshot" and (($match[0].screenshot // "") == "") then "missing_screenshot:" + ($r.id // "")
           else empty
           end
       ' || true
   )"
+  local missing_files
+  missing_files="$(
+    jq -r '
+      .evidence_results[]?
+      | select(.status == "pass")
+      | (.video?, .screenshot?)
+      | select(type == "string" and length > 0)
+    ' "$verify" 2>/dev/null \
+      | while IFS= read -r ref; do
+          case "$ref" in
+            http://*|https://*|blob://*|/v1/artifacts/*) ;;
+            *)
+              if [ ! -f "${EVIDENCE_DIR}/${ref}" ]; then
+                printf 'missing_file:%s\n' "$ref"
+              fi
+              ;;
+          esac
+        done
+  )"
+  if [ -n "$missing_files" ]; then
+    if [ -n "$missing" ]; then
+      missing="${missing}
+${missing_files}"
+    else
+      missing="$missing_files"
+    fi
+  fi
   if [ -n "$missing" ]; then
     while IFS= read -r line; do
       [ -z "$line" ] && continue
@@ -285,16 +322,106 @@ enforce_evidence_contract() {
   return 0
 }
 
+write_evidence_artifacts() {
+  local artifacts_out="$1"
+  local refs_out="$2"
+  local file_artifacts="/tmp/evidence-files.jsonl"
+  local verifier="${EVIDENCE_DIR}/issue-agent-verification.json"
+  local empty_verifier="/tmp/empty-verifier.json"
+  : >"$file_artifacts"
+  printf '{}\n' >"$empty_verifier"
+
+  if compgen -G "${EVIDENCE_DIR}/screenshots/*.png" >/dev/null; then
+    while IFS= read -r file; do
+      local base size
+      base="$(basename "$file")"
+      size="$(wc -c <"$file" | tr -d ' ')"
+      jq -nc \
+        --arg ref "screenshots/$base" \
+        --arg label "${base%.png}" \
+        --argjson size "${size:-0}" \
+        '{kind:"screenshot", ref:$ref, label:$label, content_type:"image/png", size_bytes:$size}' \
+        >>"$file_artifacts"
+    done < <(find "${EVIDENCE_DIR}/screenshots" -maxdepth 1 -type f -name '*.png' | sort)
+  fi
+
+  if compgen -G "${EVIDENCE_DIR}/videos/*" >/dev/null; then
+    while IFS= read -r file; do
+      local base ext size content_type
+      base="$(basename "$file")"
+      ext="${base##*.}"
+      size="$(wc -c <"$file" | tr -d ' ')"
+      case "$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')" in
+        webm) content_type="video/webm" ;;
+        mp4) content_type="video/mp4" ;;
+        mov) content_type="video/quicktime" ;;
+        *) content_type="video/webm" ;;
+      esac
+      jq -nc \
+        --arg ref "videos/$base" \
+        --arg label "${base%.*}" \
+        --arg content_type "$content_type" \
+        --argjson size "${size:-0}" \
+        '{kind:"video", ref:$ref, label:$label, content_type:$content_type, size_bytes:$size}' \
+        >>"$file_artifacts"
+    done < <(find "${EVIDENCE_DIR}/videos" -maxdepth 1 -type f \( -name '*.webm' -o -name '*.mp4' -o -name '*.mov' \) | sort)
+  fi
+
+  if [ ! -s "$verifier" ]; then
+    verifier="$empty_verifier"
+  fi
+
+  jq -s --slurpfile verifier "$verifier" '
+    def normalize_ref($ref): ($ref | tostring | sub("^/workspace/evidence/"; "") | sub("^/tmp/evidence/"; ""));
+    def first_ref($item): normalize_ref($item.ref // $item.artifact_path // $item.url // "");
+    def norm_kind($kind; $ref):
+      ($kind // "" | ascii_downcase) as $k
+      | ($ref // "" | ascii_downcase) as $r
+      | if $k == "screenshot" or $k == "image" or $k == "still" then "screenshot"
+        elif $k == "video" or $k == "animation" or $k == "webm" or $k == "movie" or $k == "recording" then "video"
+        elif ($r | test("\\.(webm|mp4|mov|m4v)([?#].*)?$")) then "video"
+        elif ($r | test("\\.(png|jpg|jpeg|webp|gif)([?#].*)?$")) then "screenshot"
+        else "artifact"
+        end;
+    def clean:
+      first_ref(.) as $ref
+      | norm_kind(.kind; $ref) as $kind
+      | {
+          kind: $kind,
+          ref: ($ref | tostring),
+          label: ((.label // .id // ($ref | split("/")[-1] // "")) | tostring),
+          content_type: ((.content_type // (if $kind == "video" then "video/webm" elif $kind == "screenshot" then "image/png" else "" end)) | tostring),
+          size_bytes: ((.size_bytes // 0) | tonumber? // 0),
+          duration_ms: ((.duration_ms // 0) | tonumber? // 0)
+        }
+      | with_entries(select(.value != "" and .value != 0));
+    ($verifier[0] // {}) as $v
+    | (
+        [
+          ($v.evidence // [])[]?,
+          ($v.evidence_artifacts // [])[]?,
+          (($v.evidence_results // [])[]? | select((.video // "") != "") | {kind:"video", ref:.video, label:(.label // .id // ""), content_type:"video/webm", duration_ms:(.duration_ms // 0)}),
+          (($v.evidence_results // [])[]? | select((.screenshot // "") != "") | {kind:"screenshot", ref:.screenshot, label:(.label // .id // ""), content_type:"image/png"})
+        ] + .
+      )
+    | map(clean)
+    | map(select(.ref != ""))
+    | unique_by(.kind + "\u0000" + .ref)
+  ' "$file_artifacts" >"$artifacts_out"
+
+  jq -r '.[].ref' "$artifacts_out" >"$refs_out"
+}
+
 write_verification() {
   local status="$1"
   local cost
   cost="$(verification_cost)"
-  find "${EVIDENCE_DIR}/screenshots" -maxdepth 1 -type f -name '*.png' \
-    -printf 'screenshots/%f\n' 2>/dev/null | sort >"$EVIDENCE_REFS" || true
+  write_evidence_artifacts "$EVIDENCE_ARTIFACTS" "$EVIDENCE_REFS"
   jq -n \
     --arg status "$status" \
     --argjson reasons "$(jq -Rs 'split("\n")[:-1]' "$VERIFICATION_REASONS")" \
     --argjson evidence_refs "$(jq -Rs 'split("\n")[:-1]' "$EVIDENCE_REFS")" \
+    --argjson evidence "$(cat "$EVIDENCE_ARTIFACTS")" \
     --argjson cost_usd "${cost:-0}" \
     --arg run_id "$GLIMMUNG_RUN_ID" \
     --arg branch "$BRANCH_NAME" \
@@ -304,6 +431,7 @@ write_verification() {
       status: $status,
       reasons: $reasons,
       evidence_refs: $evidence_refs,
+      evidence: $evidence,
       cost_usd: $cost_usd,
       prompt_version: "ambience-native-staged-v1",
       metadata: {
@@ -344,63 +472,123 @@ finalize() {
   write_summary
 }
 
-upload_screenshots() {
+upload_evidence() {
   local storage_account="${AGENT_SCREENSHOT_STORAGE_ACCOUNT:-romaineglimmungartifacts}"
   local container="${AGENT_SCREENSHOT_CONTAINER:-artifacts}"
   local container_url="${AGENT_SCREENSHOT_CONTAINER_URL:-https://glimmung.romaine.life/v1/artifacts}"
   local max_screenshots="${MAX_SCREENSHOTS:-20}"
+  local max_videos="${MAX_VIDEOS:-10}"
+  local screenshot_prefix video_prefix screenshot_staging video_staging screenshot_total screenshot_taken video_total video_taken upload_ok
+  screenshot_prefix="runs/${GLIMMUNG_PROJECT}/${GLIMMUNG_RUN_ID}/screenshots"
+  video_prefix="runs/${GLIMMUNG_PROJECT}/${GLIMMUNG_RUN_ID}/videos"
+  screenshot_staging="$(mktemp -d)"
+  video_staging="$(mktemp -d)"
+  screenshot_total=0
+  screenshot_taken=0
+  video_total=0
+  video_taken=0
+  upload_ok=true
 
-  if ! compgen -G "${EVIDENCE_DIR}/screenshots/*.png" >/dev/null; then
+  if compgen -G "${EVIDENCE_DIR}/screenshots/*.png" >/dev/null; then
+    while IFS= read -r file; do
+      screenshot_total=$((screenshot_total + 1))
+      if [ "$screenshot_taken" -lt "$max_screenshots" ]; then
+        cp "$file" "$screenshot_staging/"
+        screenshot_taken=$((screenshot_taken + 1))
+      fi
+    done < <(find "${EVIDENCE_DIR}/screenshots" -maxdepth 1 -type f -name '*.png' | sort)
+
+    if ! az storage blob upload-batch \
+        --account-name "$storage_account" \
+        --destination "$container" \
+        --destination-path "$screenshot_prefix" \
+        --source "$screenshot_staging" \
+        --auth-mode login \
+        --overwrite true; then
+      upload_ok=false
+      echo "screenshot upload failed; report body will point at native logs"
+    fi
+  fi
+
+  if compgen -G "${EVIDENCE_DIR}/videos/*" >/dev/null; then
+    while IFS= read -r file; do
+      video_total=$((video_total + 1))
+      if [ "$video_taken" -lt "$max_videos" ]; then
+        cp "$file" "$video_staging/"
+        video_taken=$((video_taken + 1))
+      fi
+    done < <(find "${EVIDENCE_DIR}/videos" -maxdepth 1 -type f \( -name '*.webm' -o -name '*.mp4' -o -name '*.mov' \) | sort)
+
+    while IFS= read -r file; do
+      local base content_type
+      [ -e "$file" ] || continue
+      base="$(basename "$file")"
+      case "$(printf '%s' "${base##*.}" | tr '[:upper:]' '[:lower:]')" in
+        webm) content_type="video/webm" ;;
+        mp4) content_type="video/mp4" ;;
+        mov) content_type="video/quicktime" ;;
+        *) content_type="video/webm" ;;
+      esac
+      if ! az storage blob upload \
+          --account-name "$storage_account" \
+          --container-name "$container" \
+          --name "${video_prefix}/${base}" \
+          --file "$file" \
+          --auth-mode login \
+          --overwrite true \
+          --content-type "$content_type"; then
+        upload_ok=false
+        echo "video upload failed for ${base}; report body will point at native logs"
+      fi
+    done < <(find "$video_staging" -maxdepth 1 -type f | sort)
+  fi
+
+  if [ "$screenshot_total" -eq 0 ] && [ "$video_total" -eq 0 ]; then
+    rm -rf "$screenshot_staging" "$video_staging"
     return 0
   fi
 
-  local prefix staging total taken upload_ok
-  prefix="runs/${GLIMMUNG_PROJECT}/${GLIMMUNG_RUN_ID}/screenshots"
-  staging="$(mktemp -d)"
-  total=0
-  taken=0
-  while IFS= read -r file; do
-    total=$((total + 1))
-    if [ "$taken" -lt "$max_screenshots" ]; then
-      cp "$file" "$staging/"
-      taken=$((taken + 1))
-    fi
-  done < <(find "${EVIDENCE_DIR}/screenshots" -maxdepth 1 -type f -name '*.png' | sort)
-
-  upload_ok=true
-  if ! az storage blob upload-batch \
-      --account-name "$storage_account" \
-      --destination "$container" \
-      --destination-path "$prefix" \
-      --source "$staging" \
-      --auth-mode login \
-      --overwrite true; then
-    upload_ok=false
-    echo "screenshot upload failed; report body will point at native logs"
-  fi
-
   {
-    echo "## Screenshots"
+    echo "## Evidence"
     echo ""
     if [ "$upload_ok" = "false" ]; then
-      echo "_Screenshot upload failed; see the Glimmung native run logs._"
+      echo "_Evidence upload failed; see the Glimmung native run logs._"
       echo ""
-    else
-      if [ "$total" -gt "$taken" ]; then
-        echo "_Showing first ${taken} of ${total} screenshots._"
+    fi
+
+    if [ "$video_taken" -gt 0 ]; then
+      echo "### Videos"
+      echo ""
+      if [ "$video_total" -gt "$video_taken" ]; then
+        echo "_Showing first ${video_taken} of ${video_total} videos._"
         echo ""
       fi
-      for file in "$staging"/*.png; do
+      for file in "$video_staging"/*; do
         [ -e "$file" ] || continue
         base="$(basename "$file")"
-        echo "### ${base%.png}"
+        echo "- [${base}](${container_url}/${video_prefix}/${base})"
+      done
+      echo ""
+    fi
+
+    if [ "$screenshot_taken" -gt 0 ]; then
+      echo "### Screenshots"
+      echo ""
+      if [ "$screenshot_total" -gt "$screenshot_taken" ]; then
+        echo "_Showing first ${screenshot_taken} of ${screenshot_total} screenshots._"
         echo ""
-        echo "![${base%.png}](${container_url}/${prefix}/${base})"
+      fi
+      for file in "$screenshot_staging"/*.png; do
+        [ -e "$file" ] || continue
+        base="$(basename "$file")"
+        echo "#### ${base%.png}"
+        echo ""
+        echo "![${base%.png}](${container_url}/${screenshot_prefix}/${base})"
         echo ""
       done
     fi
   } >"$SCREENSHOTS_MD"
-  rm -rf "$staging"
+  rm -rf "$screenshot_staging" "$video_staging"
 }
 
 write_summary() {
@@ -430,7 +618,8 @@ emit() {
     "$verification_outputs" \
     "$(cat "$VERIFICATION_JSON")" \
     "$(cat "$SCREENSHOTS_MD")" \
-    "$(cat "$SUMMARY_MD")"
+    "$(cat "$SUMMARY_MD")" \
+    "$(cat "$EVIDENCE_ARTIFACTS")"
 }
 
 if native_selected_step; then
@@ -440,7 +629,7 @@ if native_selected_step; then
     "run-verification" run_llm_record \
     "collect" collect_evidence \
     "finalize" finalize \
-    "upload-screenshots" upload_screenshots \
+    "upload-screenshots" upload_evidence \
     "emit" emit
   exit $?
 fi
@@ -450,6 +639,6 @@ native_step "prepare" prepare_context
 native_step "run-verification" run_llm_record
 native_step "collect" collect_evidence
 native_step "finalize" finalize
-native_step_allow_failure "upload-screenshots" upload_screenshots || true
+native_step_allow_failure "upload-screenshots" upload_evidence || true
 native_step "emit" emit
 native_assert_resume_satisfied

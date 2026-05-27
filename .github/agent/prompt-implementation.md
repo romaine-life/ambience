@@ -82,8 +82,8 @@ Write a short companion `issue-agent-implementation.md` with:
 - **Do not** curl or otherwise touch the validation environment. The
   validation env is rebuilt by the wrapper *after* this stage; the
   next LLM stage validates against it.
-- **Do not** install browsers or run playwright. Screenshot capture is
-  the verification stage's job.
+- **Do not** install browsers or run playwright. Browser evidence
+  capture is the verification stage's job.
 - **Do not** modify `.github/workflows/`, `.github/agent/`, or
   `.mcp.json` — runner-local config, not yours to touch.
 - Keep diffs focused. Add comments only where the WHY is non-obvious.

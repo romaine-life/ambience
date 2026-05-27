@@ -56,7 +56,7 @@ PLAN_EXIT_CODE_FILE="/tmp/test-plan-exit-code"
 PROXY_IP_FILE="/tmp/test-plan-proxy-ip"
 : >"$SUMMARY_MD"
 : >"$EVENTS_LOG"
-mkdir -p "$EVIDENCE_DIR/screenshots"
+mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/videos"
 
 clone_repo() {
   native_clone_repo "$REPO_SLUG" "$REPO_DIR" main

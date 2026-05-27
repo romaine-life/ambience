@@ -495,7 +495,7 @@ def destroy_pr_preview(*, pr_number: int, release: str = DEFAULT_PR_RELEASE_NAME
 
 _AGENT_BOOTSTRAP_BASH = r"""set -euo pipefail
 
-mkdir -p /workspace/evidence/screenshots
+mkdir -p /workspace/evidence/screenshots /workspace/evidence/videos
 
 # Seed claude state — placeholder credentials so claude never tries to
 # refresh, project trust + onboarding flags so it boots straight into the run.
@@ -543,6 +543,16 @@ ${issue_heading}
 URL: ${ISSUE_URL}
 Validation env: ${VALIDATION_URL}
 EOF
+if [ -n "${GLIMMUNG_EVIDENCE_REQUIREMENTS_JSON:-}" ]; then
+  {
+    echo ""
+    echo "## Run evidence requirements"
+    echo ""
+    echo '```json'
+    printf '%s\n' "${GLIMMUNG_EVIDENCE_REQUIREMENTS_JSON}"
+    echo '```'
+  } >> /tmp/issue-context.md
+fi
 """
 
 # Common tail used by both pod scripts. Stages have already written their
@@ -564,7 +574,7 @@ _AGENT_EVIDENCE_TAIL_BASH = r"""
 #      fully redirected, then base64-encode the file in a separate step.
 #
 #   2. Lingering writers from the agent's own bash subprocesses (servers
-#      it spawned, playwright finalizing screenshot writes, etc.) were
+#      it spawned, playwright finalizing evidence writes, etc.) were
 #      still emitting stdout when the EVIDENCE-TAR markers were printed,
 #      so other text could land between them. Fix: `wait` for any bash
 #      jobs and `sync` the filesystem before running tar.
@@ -855,6 +865,12 @@ def _agent_job_spec(
                                 {"name": "BRANCH_NAME", "value": branch_name},
                                 {"name": "REPO_SLUG", "value": repo_slug},
                                 {"name": "AGENT_STAGE", "value": stage},
+                                {
+                                    "name": "GLIMMUNG_EVIDENCE_REQUIREMENTS_JSON",
+                                    "value": os.environ.get(
+                                        "GLIMMUNG_EVIDENCE_REQUIREMENTS_JSON", ""
+                                    ),
+                                },
                                 {
                                     "name": "GH_TOKEN",
                                     "valueFrom": {

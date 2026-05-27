@@ -23,6 +23,12 @@
         "type": "string"
       }
     },
+    "videos": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "screenshots": {
       "type": "array",
       "items": {
@@ -39,6 +45,7 @@
     "change_summary",
     "testing",
     "validation_notes",
+    "videos",
     "screenshots",
     "issue_comment"
   ],

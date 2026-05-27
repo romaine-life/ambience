@@ -26,7 +26,7 @@ the source of issue-run execution for the native Ambience flow.
    `scripts/glimmung-native/agent-execute.sh`.
 7. `agent-execute` clones this repo, prepares the Claude agent Job in the
    validation namespace, collects logs/evidence, rebuilds the validation
-   environment from the pushed agent branch, captures screenshots, posts a
+   environment from the pushed agent branch, captures browser evidence, posts a
    typed verification result, and lets Glimmung drive retry/report decisions.
 
 Glimmung-native issue bodies are passed into the native Kubernetes job as the
@@ -40,7 +40,7 @@ re-fetching it from GitHub Issues.
   callback endpoints, graph state, log archival, retry decisions, and report
   creation.
 - Ambience owns image build, Helm deploy, validation checks, agent prompt/job
-  creation, screenshot selection, and verification semantics.
+  creation, evidence capture, and verification semantics.
 - Steps are observational boundaries emitted by Ambience scripts. Glimmung
   records them but does not orchestrate inside a step.
 - Native job success and failure both terminate through Glimmung's
@@ -54,6 +54,12 @@ Cosmos-backed Workflow row is the runtime source of truth; this repo does not
 keep a `.glimmung/workflows/*.yaml` desired-state file. Ambience contributes
 the per-phase runner scripts under `scripts/glimmung-native/` and the runner
 image they execute in.
+
+Video evidence can be required per issue with Glimmung labels such as
+`evidence:video`, or made the Ambience baseline by registering
+`default_requirements.required_evidence` on the live `ambience.default`
+workflow. Do that live registration change only after the repo version that can
+capture and upload WebM evidence is on the workflow checkout ref.
 
 The terminal review surface is the Glimmung Report primitive. The current
 Glimmung registration schema still exposes that knob as `pr.enabled` until the
@@ -92,13 +98,16 @@ when creating the next native attempt.
 
 ## Evidence
 
-`agent-execute` uploads screenshots to Glimmung-owned private artifact storage
-under `runs/<project>/<run-id>/screenshots/`. PR and Report markdown link
-through `https://glimmung.romaine.life/v1/artifacts/...`; public reviewers do
-not access the storage account directly.
+`llm-verify` uploads WebM videos and optional screenshots to Glimmung-owned
+private artifact storage under `runs/<project>/<run-id>/videos/` and
+`runs/<project>/<run-id>/screenshots/`. It emits typed evidence metadata in the
+completion callback so Glimmung can render videos directly on the Touchpoint;
+the markdown summary still links through
+`https://glimmung.romaine.life/v1/artifacts/...`. Public reviewers do not
+access the storage account directly.
 
 The Glimmung-artifact upload path has been smoke-tested end-to-end through a
-Glimmung-dispatched native run against this repo: `agent-execute` captured a
-screenshot of the validation environment and pushed it to
-`runs/ambience/<run-id>/screenshots/` on `romaineglimmungartifacts`, with the
-proxy link rendering inline in the resulting PR body.
+Glimmung-dispatched native run against this repo: `agent-execute` captured
+browser evidence from the validation environment and pushed it to
+`runs/ambience/<run-id>/...` on `romaineglimmungartifacts`, with the proxy link
+rendering inline in the resulting PR body.
