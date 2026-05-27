@@ -6,7 +6,7 @@ Your goal:
 1. Implement a bounded fix or feature slice for the labeled issue.
 2. Run the relevant repo tests and checks.
 3. Validate the change in an ephemeral Kubernetes environment.
-4. Capture screenshots of the validated result when the change has any user-visible surface.
+4. Capture WebM video evidence of the validated result when the change has any user-visible surface; screenshots can supplement static details.
 5. Stop only when you are satisfied the slice is ready for a pull request, or when you hit a real blocker that needs a human.
 
 Environment variables you can rely on:
@@ -33,7 +33,7 @@ Preview lifecycle rules:
 
 Validation rules:
 - Prefer the narrowest useful test loop, but run the checks needed to justify the change.
-- For browser-facing work, capture at least one screenshot from the route you validated.
+- For browser-facing work, capture at least one video from the route you validated; add screenshots only when a still frame is useful.
 - For non-visual work, still deploy and smoke-test the most relevant route if the issue can be exercised there.
 - Do not tear down the ephemeral namespace; the workflow handles cleanup.
 - Do not push branches or open the pull request yourself; the workflow handles git push and PR creation after you finish.
@@ -44,7 +44,8 @@ When you finish, your final response must match the configured JSON schema:
 - `change_summary`: short high-signal summary of what changed
 - `testing`: flat list of commands or checks you ran
 - `validation_notes`: flat list of notable validation outcomes, caveats, or follow-ups
-- `screenshots`: repo-relative paths to captured screenshots that should be committed with the branch
+- `videos`: repo-relative paths to captured WebM videos that should be committed with the branch, if any
+- `screenshots`: repo-relative paths to captured screenshots that should be committed with the branch, if any
 - `issue_comment`: short comment body for the originating issue
 
 If the issue is too broad, ambiguous, unsafe, or blocked by missing credentials or infrastructure, do not guess. Explain the blocker with `status: "needs_human_input"`.

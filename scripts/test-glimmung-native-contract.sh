@@ -93,13 +93,16 @@ native_completed \
   '{"validation_url":"https://preview.example"}' \
   '{"status":"pass","reasons":["ok"]}' \
   '![screen](https://example.test/screen.png)' \
-  'managed summary'
+  'managed summary' \
+  '[{"kind":"video","ref":"videos/demo.webm","content_type":"video/webm"}]'
 
 jq -e '.validation_url == "https://preview.example"' "$GLIMMUNG_OUTPUT_FILE" >/dev/null
 jq -e '
   .verification.status == "pass"
   and .screenshots_markdown == "![screen](https://example.test/screen.png)"
   and .summary_markdown == "managed summary"
+  and .evidence[0].kind == "video"
+  and .evidence[0].ref == "videos/demo.webm"
 ' "$GLIMMUNG_COMPLETION_FILE" >/dev/null
 
 if [ -e "${NATIVE_CONTRACT_CURL_CAPTURE}.url" ]; then

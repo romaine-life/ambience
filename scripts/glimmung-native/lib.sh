@@ -297,6 +297,7 @@ native_completed() {
   local verification_json="${2:-null}"
   local screenshots_markdown="${3:-}"
   local summary_markdown="${4:-}"
+  local evidence_json="${5:-null}"
   local payload
   if native_managed_runner; then
     if [ "$outputs_json" != "null" ] && [ -n "${GLIMMUNG_OUTPUT_FILE:-}" ]; then
@@ -307,10 +308,12 @@ native_completed() {
         --argjson verification "$verification_json" \
         --arg screenshots "$screenshots_markdown" \
         --arg summary "$summary_markdown" \
+        --argjson evidence "$evidence_json" \
         '{
           verification: $verification,
           screenshots_markdown: $screenshots,
-          summary_markdown: $summary
+          summary_markdown: $summary,
+          evidence: $evidence
         }
         | with_entries(select(.value != null and .value != ""))' \
         >"$GLIMMUNG_COMPLETION_FILE"
@@ -325,6 +328,7 @@ native_completed() {
       --argjson verification "$verification_json" \
       --arg screenshots "$screenshots_markdown" \
       --arg summary "$summary_markdown" \
+      --argjson evidence "$evidence_json" \
       '{
         conclusion: $conclusion,
         job_id: $job_id
@@ -332,7 +336,8 @@ native_completed() {
       + (if $outputs != null then {outputs: $outputs} else {} end)
       + (if $verification != null then {verification: $verification} else {} end)
       + (if $screenshots != "" then {screenshots_markdown: $screenshots} else {} end)
-      + (if $summary != "" then {summary_markdown: $summary} else {} end)'
+      + (if $summary != "" then {summary_markdown: $summary} else {} end)
+      + (if $evidence != null then {evidence: $evidence} else {} end)'
   )"
   native_post_json "$GLIMMUNG_COMPLETED_URL" "$payload"
 }

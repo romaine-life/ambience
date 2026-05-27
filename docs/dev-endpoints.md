@@ -21,24 +21,30 @@ When validating a new effect through the agent flow, the typical
 sequence is:
 
 ```sh
-# 1. Capture default state
-node scripts/agent/capture-screenshot.mjs \
+# 1. Record default behavior
+node scripts/agent/capture-video.mjs \
   --url "$VALIDATION_URL/dev/<effect>" \
-  --output /workspace/evidence/screenshots/dev-<effect>.png \
-  --full-page --wait-ms 5000
+  --output /workspace/evidence/videos/dev-<effect>.webm \
+  --wait-ms 6000
 
-# 2. Trigger a discrete event in a named session and capture
+# 2. Trigger a discrete event in a named session and record it
 SESSION=test1
-curl -s -X POST "$VALIDATION_URL/dev/trigger/$SESSION/lightning-flash"
-node scripts/agent/capture-screenshot.mjs \
+node scripts/agent/capture-video.mjs \
   --url "$VALIDATION_URL/dev/<effect>?session=$SESSION" \
-  --output /workspace/evidence/screenshots/dev-<effect>-flash.png \
-  --full-page --wait-ms 4000
+  --output /workspace/evidence/videos/dev-<effect>-flash.webm \
+  --trigger-url "$VALIDATION_URL/dev/trigger/$SESSION/lightning-flash" \
+  --wait-ms 6000
 
 # 3. Override config to a known good preset
 curl -s -X POST -H 'Content-Type: application/json' \
   --data-binary '@preset.json' \
   "$VALIDATION_URL/dev/config?session=$SESSION"
+
+# 4. Optional still-frame evidence when useful
+node scripts/agent/capture-screenshot.mjs \
+  --url "$VALIDATION_URL/dev/<effect>?session=$SESSION" \
+  --output /workspace/evidence/screenshots/dev-<effect>-flash.png \
+  --full-page --wait-ms 1000
 ```
 
 ## Server readiness

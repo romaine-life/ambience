@@ -57,7 +57,7 @@ IMPL_EXIT_CODE_FILE="/tmp/implementation-exit-code"
 PROXY_IP_FILE="/tmp/implementation-proxy-ip"
 : >"$SUMMARY_MD"
 : >"$EVENTS_LOG"
-mkdir -p "$EVIDENCE_DIR/screenshots"
+mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/videos"
 
 clone_repo() {
   native_clone_repo "$REPO_SLUG" "$REPO_DIR" main "$BRANCH_NAME"

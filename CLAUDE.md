@@ -50,7 +50,7 @@ registered in Glimmung's database.
 When developing a new effect, the relevant references are
 [docs/effects-cookbook.md](docs/effects-cookbook.md) (file pattern +
 touchpoint checklist) and [docs/dev-endpoints.md](docs/dev-endpoints.md)
-(server endpoints used for verification screenshots and event
+(server endpoints used for verification videos/screenshots and event
 triggers).
 
 ## Architecture

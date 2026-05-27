@@ -65,11 +65,12 @@ exposes manual triggers via `/dev/trigger/<session>/<event>` (see
 
 For each new effect, the agent flow's verification stage will:
 
-1. Hit `/dev/<effect>` against the rebuilt validation env to capture
-   a "default" screenshot.
+1. Hit `/dev/<effect>` against the rebuilt validation env to record
+   a default WebM video.
 2. POST to `/dev/trigger/<session>/<event>` for any lifecycle events
-   of interest and re-screenshot.
+   of interest and record another WebM.
 3. Run `go test ./sim/ -run <Effect>`.
 
 These show up as `required_evidence` items in the test-plan stage
-output — see `docs/issue-agent-stage-split.md`.
+output. Screenshots can supplement video when a still frame needs
+separate inspection — see `docs/issue-agent-stage-split.md`.

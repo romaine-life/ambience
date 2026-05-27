@@ -2,7 +2,7 @@
 
 **Status:** draft (2026-05-07)
 **Driver:** Issue 172's run-agent observation — the single LLM phase
-ran ~14 min spanning code + build + screenshot + verify, with the
+ran ~14 min spanning code + build + browser evidence + verify, with the
 last ~5 min lost to playwright environment-fighting that should have
 been a separate, narrower context.
 
@@ -26,7 +26,7 @@ clone-repo → prepare-agent-context → run-agent (single LLM)
 
 `run-agent` is one claude-code invocation given the full
 `.github/agent/prompt.md` + issue body + validation env URL. It
-authors code, builds, captures screenshots, and writes notes.md in
+authors code, builds, captures browser evidence, and writes notes.md in
 one context.
 
 ## Proposed shape
@@ -79,17 +79,19 @@ Write, or Bash-state-mutating tools.
   "required_evidence": [
     {
       "id": "dev-distant-storm-default",
-      "kind": "screenshot",
+      "kind": "video",
       "url_path": "/dev/distant-storm",
       "must_show": "horizon line + cloud bank, no flash",
+      "duration_seconds": 6,
       "expected_text": null
     },
     {
       "id": "dev-distant-storm-flash",
-      "kind": "screenshot",
+      "kind": "video",
       "url_path": "/dev/distant-storm?session=test1",
       "trigger_event": "lightning-flash",
       "must_show": "cloud interior brightened by flash",
+      "duration_seconds": 6,
       "expected_text": null
     },
     {
@@ -148,7 +150,7 @@ tree the run aborts with `implementation_build_failed`.
 
 **Goal:** Validate the change against the rebuilt validation env.
 Capture the evidence the test plan called for. Confirm `must_show`
-language matches what the screenshot actually shows.
+language matches what the captured artifact actually shows.
 
 **Input context:** test-plan JSON, implementation JSON,
 `.github/agent/prompt-verification.md`, the rebuilt validation URL.
@@ -158,30 +160,36 @@ language matches what the screenshot actually shows.
 GitHub-write tools.
 
 **Output:** `/workspace/evidence/issue-agent-verification.json` and
-`.md`, plus PNGs in `/workspace/evidence/screenshots/`. JSON shape:
+`.md`, plus WebMs in `/workspace/evidence/videos/` and optional PNGs
+in `/workspace/evidence/screenshots/`. JSON shape:
 
 ```json
 {
   "schema_version": 1,
   "status": "pass",
   "abort_reason": "",
+  "evidence": [
+    {"kind": "video", "ref": "videos/dev-distant-storm.webm", "content_type": "video/webm", "duration_ms": 6000}
+  ],
   "evidence_results": [
-    {"id": "dev-distant-storm-default", "status": "pass", "screenshot": "screenshots/dev-distant-storm.png", "observed_text": null},
-    {"id": "dev-distant-storm-flash", "status": "pass", "screenshot": "screenshots/dev-distant-storm-flash.png", "observed_text": null},
+    {"id": "dev-distant-storm-default", "status": "pass", "video": "videos/dev-distant-storm.webm", "observed_text": null},
+    {"id": "dev-distant-storm-flash", "status": "pass", "video": "videos/dev-distant-storm-flash.webm", "observed_text": null},
     {"id": "tests-distant-storm", "status": "pass", "stdout_excerpt": "PASS: TestDistantStormFlashFlow"}
   ]
 }
 ```
 
-Allowed `abort_reason` values: `screenshot_missing`,
+Allowed `abort_reason` values: `video_missing`, `screenshot_missing`,
 `claimed_result_not_observed`, `target_evidence_missing`,
 `validation_env_unreachable`, `unit_tests_failed`.
 
 The wrapper recomputes pass/fail by walking the test-plan's
 `required_evidence` list and confirming every required item has a
-matching `evidence_results` entry with `status: pass`. A verifier-
-claimed pass with a missing required item flips to `fail` with
-`abort_reason: target_evidence_missing`.
+matching `evidence_results` entry with `status: pass` and the expected
+artifact path (`video` for video requirements, `screenshot` for
+screenshot requirements). A verifier-claimed pass with a missing
+required item flips to `fail` with `abort_reason:
+target_evidence_missing`.
 
 ## Wrapper changes
 
@@ -228,8 +236,9 @@ The glimmung workflow registration grows three new step slugs in the
 - Should the test-plan stage have read access to the validation env
   (already-deployed `main` build) so it can sanity-check `must_show`
   language against what already renders? Probably yes — read-only
-  curl + screenshot of the *baseline* gives the planner a real
-  reference, and the implementation stage still can't reach it.
+  curl + video or screenshot evidence of the *baseline* gives the
+  planner a real reference, and the implementation stage still can't
+  reach it.
 - How do we surface per-stage cost in the run summary? The current
   `verification_cost` jq filter sums all `result` events; with three
   invocations it should report each separately so cost regressions
