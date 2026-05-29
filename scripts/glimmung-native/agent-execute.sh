@@ -215,6 +215,11 @@ run_stage_pod() {
       --agent-container-tag "$AGENT_CONTAINER_TAG" \
       --repo-slug "$REPO_SLUG" \
       --stage "$stage"
+    local marker_intent="helper"
+    if [ "$stage" = "verify" ]; then
+      marker_intent="verification_agent"
+    fi
+    native_emit_inner_job_marker "$NAMESPACE" "$job_name" "$marker_intent" "${stage}-agent"
     python3 -m ambience_preview.cli wait-agent-job \
       --namespace "$NAMESPACE" \
       --job-name "$job_name" \
