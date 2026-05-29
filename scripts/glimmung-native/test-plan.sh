@@ -158,6 +158,7 @@ run_llm() {
       --repo-slug "$REPO_SLUG" \
       --stage "test-plan" \
       --config-map-name "$CONFIG_MAP_NAME"
+    native_emit_inner_job_marker "$NAMESPACE" "$JOB_NAME" helper test-plan-agent
     python3 -m ambience_preview.cli wait-agent-job \
       --namespace "$NAMESPACE" \
       --job-name "$JOB_NAME" \

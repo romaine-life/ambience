@@ -38,6 +38,38 @@ native_run_selected_step() {
   return 2
 }
 
+# native_emit_inner_job_marker prints the inner-Job registration line
+# the outer glimmung-native-runner parses (per nelsong6/glimmung's
+# docs/inner-job-observation.md). Stage scripts that spawn a child k8s
+# Job in the slot namespace call this immediately after apply-agent-job
+# succeeds so glimmung records the child alongside the outer phase Job.
+#
+# Args: namespace, job_name, intent, label
+# Intent is the closed enum {verification_agent | helper | tooling |
+# unknown}; out-of-enum values collapse to unknown on the runner side.
+native_emit_inner_job_marker() {
+  local namespace="$1"
+  local job_name="$2"
+  local intent="${3:-unknown}"
+  local label="${4:-}"
+  local payload
+  if [ -n "$label" ]; then
+    payload="$(jq -nc \
+      --arg ns "$namespace" \
+      --arg j "$job_name" \
+      --arg intent "$intent" \
+      --arg label "$label" \
+      '{namespace:$ns, job_name:$j, intent:$intent, label:$label}')"
+  else
+    payload="$(jq -nc \
+      --arg ns "$namespace" \
+      --arg j "$job_name" \
+      --arg intent "$intent" \
+      '{namespace:$ns, job_name:$j, intent:$intent}')"
+  fi
+  printf '===GLIMMUNG-INNER-JOB=== %s\n' "$payload"
+}
+
 native_record_exit_code() {
   local file="$1"
   shift
