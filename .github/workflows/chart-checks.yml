@@ -1,0 +1,22 @@
+name: chart checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  image-tag-sync:
+    name: Chart image.tag lockstep contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Guard against base/prod chart image.tag drift
+        run: node scripts/check-chart-image-tag-sync.mjs
