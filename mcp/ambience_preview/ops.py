@@ -804,6 +804,7 @@ def _agent_job_spec(
             "namespace": namespace,
             "labels": {
                 "app.kubernetes.io/name": "ambience-agent",
+                "app.kubernetes.io/managed-by": "glimmung-inner",
                 "ambience.io/issue": str(issue_number),
             },
         },
@@ -814,6 +815,7 @@ def _agent_job_spec(
                 "metadata": {
                     "labels": {
                         "app.kubernetes.io/name": "ambience-agent",
+                        "app.kubernetes.io/managed-by": "glimmung-inner",
                         "ambience.io/issue": str(issue_number),
                     },
                 },
