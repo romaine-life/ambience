@@ -6,6 +6,7 @@ on:
       - main
     paths-ignore:
       - chart/ambience/values-prod.yaml
+      - chart/ambience/values.yaml
   workflow_dispatch:
     inputs:
       git_ref:
@@ -113,38 +114,45 @@ jobs:
           cache-from: type=registry,ref=romainecr.azurecr.io/ambience-build-cache:app
           cache-to: type=registry,ref=romainecr.azurecr.io/ambience-build-cache:app,mode=max
 
-      - name: Bump production image tag
+      - name: Bump chart image tag
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           set -euo pipefail
+          # Bump the SHA-pinned image.tag in BOTH the prod values file and
+          # the base values file. The base file is what Glimmung-managed
+          # warm test slots pin to (they install the chart with default
+          # values only); without this sync, slots drift behind prod and
+          # surface bugs already fixed upstream.
           python - <<'PY'
           from pathlib import Path
 
-          path = Path("chart/ambience/values-prod.yaml")
           tag = "${{ env.ALIAS_TAG }}"
-          lines = path.read_text().splitlines()
-          in_image = False
-          changed = False
-          out = []
-          for line in lines:
-              stripped = line.strip()
-              if stripped and not line.startswith(" ") and line.endswith(":"):
-                  in_image = stripped == "image:"
-              if in_image and line.startswith("  tag:"):
-                  new_line = f"  tag: \"{tag}\""
-                  changed = changed or line != new_line
-                  out.append(new_line)
-              else:
-                  out.append(line)
-          if changed:
-              path.write_text("\n".join(out) + "\n")
+          paths = [Path("chart/ambience/values-prod.yaml"), Path("chart/ambience/values.yaml")]
+          for path in paths:
+              lines = path.read_text().splitlines()
+              in_image = False
+              changed = False
+              out = []
+              for line in lines:
+                  stripped = line.strip()
+                  if stripped and not line.startswith(" ") and line.endswith(":"):
+                      in_image = stripped == "image:"
+                  if in_image and line.startswith("  tag:"):
+                      new_line = f"  tag: \"{tag}\""
+                      changed = changed or line != new_line
+                      out.append(new_line)
+                  else:
+                      out.append(line)
+              if changed:
+                  path.write_text("\n".join(out) + "\n")
           PY
-          if git diff --quiet -- chart/ambience/values-prod.yaml; then
-            echo "Production image tag already ${ALIAS_TAG}"
+          files=(chart/ambience/values-prod.yaml chart/ambience/values.yaml)
+          if git diff --quiet -- "${files[@]}"; then
+            echo "Chart image tag already ${ALIAS_TAG}"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add chart/ambience/values-prod.yaml
+          git add "${files[@]}"
           git commit -m "chore: bump ambience image to ${ALIAS_TAG} [skip ci]"
           git push origin HEAD:main

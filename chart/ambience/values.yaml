@@ -13,7 +13,14 @@ testEnv:
 
 image:
   repository: romainecr.azurecr.io/ambience
-  tag: 700c1d0
+  # SHA-pinned, kept in lockstep with chart/ambience/values-prod.yaml.
+  # The build workflow rewrites BOTH files on every push to main via a
+  # `[skip ci]` follow-up commit (see .github/workflows/build-and-deploy.yml),
+  # so consumers that install this chart with only the default values —
+  # notably Glimmung-managed test slots — always default to the same
+  # image prod is running. Quote so all-digit short SHAs aren't
+  # reformatted as scientific notation by YAML.
+  tag: "app-0f7d8613ea756e4c6437d7507a32bca1a0d9fc5f151926f5c3983a8bbaf75b3b"
   pullPolicy: Always
 
 domain:
