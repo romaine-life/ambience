@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import ssl
 import subprocess
 import time
@@ -16,6 +17,9 @@ DEFAULT_RELEASE_NAME = "ambience-agent"
 DEFAULT_PR_RELEASE_NAME = "ambience-pr"
 DEFAULT_SERVICE_NAME = "ambience"
 DEFAULT_HOST_SUFFIX = "ambience.dev.romaine.life"
+GIT_IMAGE_TAG_PREFIX = "git-"
+GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+MUTABLE_VALIDATION_TAG_RE = re.compile(r"^ambience-slot-\d+(?:-r\d+)?$")
 
 
 class CommandError(RuntimeError):
@@ -69,6 +73,33 @@ def run_command(command: list[str], *, cwd: Path | None = None) -> str:
     return result.stdout.strip()
 
 
+def canonical_git_revision(source_revision: str) -> str:
+    revision = source_revision.strip().lower()
+    if not GIT_SHA_RE.fullmatch(revision):
+        raise ValueError("source_revision must be a 40-character git SHA")
+    return revision
+
+
+def image_tag_for_revision(source_revision: str) -> str:
+    return f"{GIT_IMAGE_TAG_PREFIX}{canonical_git_revision(source_revision)}"
+
+
+def reject_mutable_validation_tag(image_tag: str) -> None:
+    if MUTABLE_VALIDATION_TAG_RE.fullmatch(image_tag.strip()):
+        raise ValueError(
+            "mutable slot-scoped validation image tags are retired; use git-<40-character-sha>"
+        )
+
+
+def validate_revision_image_tag(image_tag: str, source_revision: str | None) -> None:
+    reject_mutable_validation_tag(image_tag)
+    if source_revision is None or source_revision.strip() == "":
+        return
+    expected = image_tag_for_revision(source_revision)
+    if image_tag != expected:
+        raise ValueError(f"image_tag must be {expected} for source_revision {source_revision}")
+
+
 def image_parts(image: str) -> tuple[str, str]:
     repository, tag = image.rsplit(":", 1)
     return repository, tag
@@ -115,9 +146,11 @@ def preview_url(pr_number: int, host_suffix: str = DEFAULT_HOST_SUFFIX) -> str:
 def build_preview_image(
     *,
     image_tag: str,
+    source_revision: str | None = None,
     registry_name: str = DEFAULT_REGISTRY_NAME,
     image_repository: str = DEFAULT_IMAGE_REPOSITORY,
 ) -> dict:
+    validate_revision_image_tag(image_tag, source_revision)
     registry_server = os.environ.get("REGISTRY_SERVER", f"{registry_name}.azurecr.io")
     image = f"{registry_server}/{image_repository}:{image_tag}"
 
@@ -157,6 +190,7 @@ def build_preview_image(
         "registry_name": registry_name,
         "registry_server": registry_server,
         "skipped_build": existing_tag == image_tag,
+        **({"source_revision": canonical_git_revision(source_revision)} if source_revision else {}),
     }
 
 
@@ -345,6 +379,7 @@ def rebuild_validation_image(
     namespace: str,
     branch: str,
     image_tag: str,
+    source_revision: str,
     registry_name: str = DEFAULT_REGISTRY_NAME,
     image_repository: str = DEFAULT_IMAGE_REPOSITORY,
     repo_slug: str = "nelsong6/ambience",
@@ -357,10 +392,13 @@ def rebuild_validation_image(
     The validation env was deployed up-front (before the agent ran) so the
     agent has a URL to reference while it works. Once the agent pushes its
     commit, that env is stale relative to the diff that's about to be
-    proposed in the PR. We rebuild from the branch ref directly (`az acr
-    build https://...#branch`) instead of re-cloning locally, then `kubectl
-    set image` flips the workloads onto the new tag without redeploying the
-    chart (avoids re-running route/cert plumbing)."""
+    proposed in the PR. We resolve the pushed branch to a concrete commit
+    and rebuild from that immutable ref (`az acr build https://...#<sha>`)
+    instead of re-cloning locally, then `kubectl set image` flips the
+    workloads onto the new tag without redeploying the chart (avoids
+    re-running route/cert plumbing)."""
+    revision = canonical_git_revision(source_revision)
+    validate_revision_image_tag(image_tag, revision)
     registry_server = os.environ.get("REGISTRY_SERVER", f"{registry_name}.azurecr.io")
     image = f"{registry_server}/{image_repository}:{image_tag}"
 
@@ -380,7 +418,7 @@ def rebuild_validation_image(
                 registry_name,
                 "--image",
                 f"{image_repository}:{image_tag}",
-                f"https://github.com/{repo_slug}.git#{branch}",
+                f"https://github.com/{repo_slug}.git#{revision}",
             ]
         )
 
@@ -414,6 +452,7 @@ def rebuild_validation_image(
     return {
         "namespace": namespace,
         "branch": branch,
+        "source_revision": revision,
         "image": image,
         "image_tag": image_tag,
         "skipped_build": existing_tag == image_tag,

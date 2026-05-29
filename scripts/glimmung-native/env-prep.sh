@@ -29,12 +29,25 @@ else
   RELEASE_NAME="${AMBIENCE_VALIDATION_RELEASE:-ambience-agent}"
 fi
 VALIDATION_URL="https://${VALIDATION_HOST}"
-IMAGE_TAG="${NAMESPACE}"
+BASE_REVISION=""
+IMAGE_TAG=""
 IMAGE_JSON="/tmp/ambience-preview-image.json"
 IMAGE_FILE="/tmp/ambience-preview-image.txt"
 
 clone_repo() {
   native_clone_repo "$REPO_SLUG" "$REPO_DIR" main
+}
+
+resolve_base_image_identity() {
+  if [ -n "$IMAGE_TAG" ] && [ -n "$BASE_REVISION" ]; then
+    return 0
+  fi
+  if [ ! -d "${REPO_DIR}/.git" ]; then
+    clone_repo
+  fi
+  BASE_REVISION="$(git -C "$REPO_DIR" rev-parse HEAD)"
+  IMAGE_TAG="$(native_image_tag_for_revision "$BASE_REVISION")"
+  export BASE_REVISION IMAGE_TAG
 }
 
 install_preview_package() {
@@ -44,15 +57,21 @@ install_preview_package() {
 build_validation_image() {
   native_azure_login
   install_preview_package
+  resolve_base_image_identity
   (
     cd "$REPO_DIR"
-    python3 -m ambience_preview.cli build-preview-image --image-tag "$IMAGE_TAG" >"$IMAGE_JSON"
+    python3 -m ambience_preview.cli build-preview-image \
+      --image-tag "$IMAGE_TAG" \
+      --source-revision "$BASE_REVISION" \
+      >"$IMAGE_JSON"
   )
   jq -r '.image' "$IMAGE_JSON" >"$IMAGE_FILE"
 }
 
 push_validation_image() {
   local tag
+  native_azure_login
+  resolve_base_image_identity
   tag="$(
     az acr repository show-tags \
       --name romainecr \
@@ -65,6 +84,13 @@ push_validation_image() {
     return 1
   fi
   echo "verified romainecr.azurecr.io/ambience:${IMAGE_TAG}"
+}
+
+ensure_image_file() {
+  resolve_base_image_identity
+  if [ ! -s "$IMAGE_FILE" ]; then
+    printf 'romainecr.azurecr.io/ambience:%s\n' "$IMAGE_TAG" >"$IMAGE_FILE"
+  fi
 }
 
 # Older aborted runs could leak their glim-run-* namespace before teardown
@@ -112,6 +138,9 @@ reap_conflicting_slot() {
 deploy_validation_env() {
   local image
   local -a args
+  install_preview_package
+  push_validation_image
+  ensure_image_file
   image="$(cat "$IMAGE_FILE")"
   args=(
     deploy-validation-preview
@@ -132,6 +161,7 @@ deploy_validation_env() {
 }
 
 check_validation_env() {
+  install_preview_package
   (
     cd "$REPO_DIR"
     python3 -m ambience_preview.cli wait-public-preview --url "$VALIDATION_URL"
@@ -139,11 +169,13 @@ check_validation_env() {
 }
 
 emit_env_outputs() {
+  resolve_base_image_identity
   jq -nc \
     --arg validation_url "$VALIDATION_URL" \
     --arg validation_slot_index "$VALIDATION_SLOT_INDEX" \
     --arg namespace "$NAMESPACE" \
     --arg image_tag "$IMAGE_TAG" \
+    --arg base_revision "$BASE_REVISION" \
     --arg claude_namespace "$CLAUDE_NAMESPACE" \
     --arg claude_ca_namespace "$CLAUDE_CA_NAMESPACE" \
     '{
@@ -151,6 +183,7 @@ emit_env_outputs() {
       validation_slot_index: $validation_slot_index,
       namespace: $namespace,
       image_tag: $image_tag,
+      base_revision: $base_revision,
       claude_namespace: $claude_namespace,
       claude_ca_namespace: $claude_ca_namespace
     }' >/tmp/ambience-env-outputs.json

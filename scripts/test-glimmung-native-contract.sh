@@ -65,6 +65,13 @@ export PATH="${TMP_DIR}:${PATH}"
 # shellcheck source=glimmung-native/lib.sh
 source "${SCRIPT_DIR}/glimmung-native/lib.sh"
 
+REVISION="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+[ "$(native_image_tag_for_revision "$REVISION")" = "git-${REVISION}" ]
+if native_image_tag_for_revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" >/dev/null 2>&1; then
+  echo "native_image_tag_for_revision must reject non-40-character revisions" >&2
+  exit 1
+fi
+
 mkdir -p "${TMP_DIR}/repo/mcp"
 native_install_preview_package "${TMP_DIR}/repo/mcp"
 grep -Fx -- "-m pip install --user --upgrade pip" "$NATIVE_CONTRACT_PYTHON_CAPTURE" >/dev/null

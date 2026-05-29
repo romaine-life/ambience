@@ -158,13 +158,17 @@ collect_pod_evidence() {
 }
 
 rebuild_validation_env() {
-  local rebuild_tag="${IMAGE_TAG}-r2"
+  local branch_revision rebuild_tag
+  branch_revision="$(native_remote_branch_revision "$REPO_SLUG" "$BRANCH_NAME")"
+  rebuild_tag="$(native_image_tag_for_revision "$branch_revision")"
+  echo "rebuilding validation image from ${BRANCH_NAME}@${branch_revision}"
   (
     cd "$REPO_DIR"
     python3 -m ambience_preview.cli rebuild-validation-image \
       --namespace "$NAMESPACE" \
       --branch "$BRANCH_NAME" \
       --image-tag "$rebuild_tag" \
+      --source-revision "$branch_revision" \
       --repo-slug "$REPO_SLUG"
     python3 -m ambience_preview.cli wait-public-preview --url "$VALIDATION_URL"
   )

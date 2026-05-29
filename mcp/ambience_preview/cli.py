@@ -14,6 +14,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     build = subparsers.add_parser("build-preview-image")
     build.add_argument("--image-tag", required=True)
+    build.add_argument(
+        "--source-revision",
+        default="",
+        help="Optional 40-character git SHA expected to match immutable git-<sha> image tags.",
+    )
 
     deploy_validation = subparsers.add_parser("deploy-validation-preview")
     deploy_validation.add_argument("--image", required=True)
@@ -62,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
     rebuild_validation.add_argument("--namespace", required=True)
     rebuild_validation.add_argument("--branch", required=True)
     rebuild_validation.add_argument("--image-tag", required=True)
+    rebuild_validation.add_argument(
+        "--source-revision",
+        required=True,
+        help="40-character git SHA at the branch ref being built. The image tag must be git-<sha>.",
+    )
     rebuild_validation.add_argument("--repo-slug", default="nelsong6/ambience")
 
     upsert_pr = subparsers.add_parser("upsert-pr-preview")
@@ -128,7 +138,12 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.command == "build-preview-image":
-            dump(ops.build_preview_image(image_tag=args.image_tag))
+            dump(
+                ops.build_preview_image(
+                    image_tag=args.image_tag,
+                    source_revision=args.source_revision or None,
+                )
+            )
         elif args.command == "deploy-validation-preview":
             namespace = args.namespace or str(get_required_env("EPHEMERAL_NAMESPACE"))
             release = args.release or get_optional_env("EPHEMERAL_RELEASE", ops.DEFAULT_RELEASE_NAME)
@@ -161,6 +176,7 @@ def main() -> int:
                     namespace=args.namespace,
                     branch=args.branch,
                     image_tag=args.image_tag,
+                    source_revision=args.source_revision,
                     repo_slug=args.repo_slug,
                 )
             )

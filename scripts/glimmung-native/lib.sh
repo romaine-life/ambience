@@ -445,6 +445,41 @@ native_git_auth_header() {
   printf 'Authorization: Basic %s' "$encoded"
 }
 
+native_image_tag_for_revision() {
+  local revision
+  revision="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  case "$revision" in
+    *[!0-9a-f]*|'')
+      echo "source revision must be a 40-character git SHA: ${1}" >&2
+      return 2
+      ;;
+  esac
+  if [ "${#revision}" -ne 40 ]; then
+    echo "source revision must be a 40-character git SHA: ${1}" >&2
+    return 2
+  fi
+  printf 'git-%s' "$revision"
+}
+
+native_remote_branch_revision() {
+  local repo_slug="$1"
+  local branch_name="$2"
+  local token auth_header revision
+  token="$(native_github_token)"
+  auth_header="$(native_git_auth_header "$token")"
+  revision="$(
+    git -c "http.extraHeader=${auth_header}" \
+      ls-remote "https://github.com/${repo_slug}.git" "refs/heads/${branch_name}" \
+      | awk '{print $1}' \
+      | head -n1
+  )"
+  if [ -z "$revision" ]; then
+    echo "branch ${branch_name} is absent on ${repo_slug}" >&2
+    return 1
+  fi
+  printf '%s' "$revision"
+}
+
 native_clone_repo() {
   local repo_slug="$1"
   local repo_dir="$2"
