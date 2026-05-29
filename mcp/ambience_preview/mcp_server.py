@@ -25,7 +25,11 @@ async def list_tools() -> list[types.Tool]:
                     "image_tag": {
                         "type": "string",
                         "description": "Optional image tag. Defaults to the IMAGE_TAG environment variable.",
-                    }
+                    },
+                    "source_revision": {
+                        "type": "string",
+                        "description": "Optional 40-character git SHA expected to match immutable git-<sha> image tags.",
+                    },
                 },
             },
         ),
@@ -108,7 +112,11 @@ def handle_tool(name: str, arguments: dict) -> dict:
         image_tag = arguments.get("image_tag") or os.environ.get("IMAGE_TAG", "")
         if not image_tag:
             raise ValueError("image_tag is required when IMAGE_TAG is not set")
-        return ops.build_preview_image(image_tag=image_tag)
+        source_revision = arguments.get("source_revision") or os.environ.get("SOURCE_REVISION", "")
+        return ops.build_preview_image(
+            image_tag=image_tag,
+            source_revision=source_revision or None,
+        )
 
     if name == "deploy_validation_preview":
         namespace = arguments.get("namespace") or os.environ.get("EPHEMERAL_NAMESPACE", "")
