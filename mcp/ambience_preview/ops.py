@@ -956,17 +956,70 @@ def wait_agent_job(
     timeout_seconds: int = 1800,
     poll_interval_seconds: int = 3,
 ) -> dict:
-    """Two-stage wait, status-field driven (no `kubectl wait` for `Complete`).
+    """Wait for an agent Job to reach a Job-level terminal condition.
 
-      1. Poll the Pod until it reaches Running | Succeeded | Failed.
-      2. Stream its logs (`kubectl logs -f`) — blocks until pod terminates.
-      3. Poll Job `.status.succeeded` / `.status.failed` until one is non-empty
-         (the Job controller can race the Pod-finished transition).
+    Authoritative signal: the Job's status.conditions[].type == Complete
+    (or Failed) — set atomically by the Job controller. We do NOT rely on
+    `.status.succeeded` / `.status.failed` counts as the sole signal: those
+    can be 0/0 transiently after pod termination and a previous version of
+    this function misread that window as a job failure (ambience#170 root
+    cause). Pod phase Succeeded is honoured as a final fallback for the
+    case where the controller is slow to stamp the condition.
 
-    Raises CommandError on Job failure (non-zero `failed` count or pod-never-
-    appeared timeout). Returns on success."""
+    Log streaming is a UX optimisation, not a correctness signal. We run
+    `kubectl logs -f` as a background subprocess so that an apiserver-side
+    stream hang (which has been observed at >29 min) cannot block the
+    wait. The streamer is unconditionally torn down on exit.
+
+    Raises CommandError on:
+      - pod never appeared before the deadline,
+      - Job condition Failed=True,
+      - deadline reached without a terminal condition,
+      - pod phase Failed without a Job-level condition (defensive).
+
+    Returns on success."""
     deadline = time.time() + timeout_seconds
 
+    pod_name = _wait_for_agent_pod(
+        namespace=namespace,
+        job_name=job_name,
+        deadline=deadline,
+        poll_interval_seconds=poll_interval_seconds,
+    )
+
+    print(f"agent pod {pod_name} — streaming logs", flush=True)
+    log_proc = subprocess.Popen(
+        ["kubectl", "-n", namespace, "logs", "-f", pod_name],
+    )
+    try:
+        terminal_phase = _wait_for_agent_terminal(
+            namespace=namespace,
+            job_name=job_name,
+            pod_name=pod_name,
+            deadline=deadline,
+            poll_interval_seconds=poll_interval_seconds,
+        )
+    finally:
+        _tear_down_streamer(log_proc)
+
+    return {
+        "namespace": namespace,
+        "job": job_name,
+        "pod": pod_name,
+        "pod_phase": terminal_phase,
+    }
+
+
+def _wait_for_agent_pod(
+    *,
+    namespace: str,
+    job_name: str,
+    deadline: float,
+    poll_interval_seconds: int,
+) -> str:
+    """Poll until the agent Job's pod appears and reaches a non-Pending
+    phase. Returns the pod name. Raises if the deadline expires before
+    the pod can be observed."""
     pod_name = ""
     phase = ""
     while time.time() < deadline:
@@ -997,60 +1050,137 @@ def wait_agent_job(
                 ],
             )
             if phase in ("Running", "Succeeded", "Failed"):
-                break
+                return pod_name
         time.sleep(poll_interval_seconds)
-
     if not pod_name:
         raise CommandError(f"agent pod for Job {job_name!r} never appeared")
-
-    print(f"agent pod {pod_name} (phase={phase}) — streaming logs", flush=True)
-    # Stream logs directly to our stdout. Subprocess inherits FDs.
-    subprocess.run(
-        ["kubectl", "-n", namespace, "logs", "-f", pod_name],
-        check=False,
-    )
-
-    # Logs ended (pod terminated). Poll Job status to terminal.
-    succeeded = ""
-    failed = ""
-    while time.time() < deadline:
-        succeeded = run_command(
-            [
-                "kubectl",
-                "-n",
-                namespace,
-                "get",
-                "job",
-                job_name,
-                "-o",
-                "jsonpath={.status.succeeded}",
-            ],
-        )
-        failed = run_command(
-            [
-                "kubectl",
-                "-n",
-                namespace,
-                "get",
-                "job",
-                job_name,
-                "-o",
-                "jsonpath={.status.failed}",
-            ],
-        )
-        if succeeded or failed:
-            break
-        time.sleep(2)
-
-    if (int(succeeded) if succeeded else 0) >= 1:
-        return {
-            "namespace": namespace,
-            "job": job_name,
-            "pod": pod_name,
-            "succeeded": int(succeeded),
-            "failed": int(failed) if failed else 0,
-        }
-
     raise CommandError(
-        f"agent Job {job_name!r} failed (succeeded={succeeded or 0}, failed={failed or 0})"
+        f"agent pod {pod_name} for Job {job_name!r} stayed in phase={phase!r}"
+        f" past timeout"
     )
+
+
+def _wait_for_agent_terminal(
+    *,
+    namespace: str,
+    job_name: str,
+    pod_name: str,
+    deadline: float,
+    poll_interval_seconds: int,
+) -> str:
+    """Poll Job conditions and pod phase until a terminal state is
+    observed. Returns the pod's final phase on success ("Succeeded").
+    Raises CommandError on Failed condition / Failed pod / deadline."""
+    while time.time() < deadline:
+        # Job conditions are the authoritative completion signal. We
+        # query both Complete and Failed in the same poll so a race
+        # between them is impossible from our side.
+        complete = run_command(
+            [
+                "kubectl",
+                "-n",
+                namespace,
+                "get",
+                "job",
+                job_name,
+                "-o",
+                'jsonpath={.status.conditions[?(@.type=="Complete")].status}',
+            ],
+        )
+        if complete == "True":
+            return _final_pod_phase(namespace=namespace, pod_name=pod_name)
+        failed_cond = run_command(
+            [
+                "kubectl",
+                "-n",
+                namespace,
+                "get",
+                "job",
+                job_name,
+                "-o",
+                'jsonpath={.status.conditions[?(@.type=="Failed")].status}',
+            ],
+        )
+        if failed_cond == "True":
+            reason = run_command(
+                [
+                    "kubectl",
+                    "-n",
+                    namespace,
+                    "get",
+                    "job",
+                    job_name,
+                    "-o",
+                    'jsonpath={.status.conditions[?(@.type=="Failed")].reason}',
+                ],
+            )
+            raise CommandError(
+                f"agent Job {job_name!r} condition Failed=True reason={reason!r}"
+            )
+        # Fallback: if the Job controller is slow stamping a condition
+        # but the pod itself has reached terminal phase, honour that.
+        # With the Job spec we ship (backoffLimit=0), pod terminal phase
+        # determines Job outcome unambiguously.
+        pod_phase = run_command(
+            [
+                "kubectl",
+                "-n",
+                namespace,
+                "get",
+                "pod",
+                pod_name,
+                "-o",
+                "jsonpath={.status.phase}",
+            ],
+        )
+        if pod_phase == "Succeeded":
+            return pod_phase
+        if pod_phase == "Failed":
+            raise CommandError(
+                f"agent pod {pod_name} phase=Failed without Job-level Failed condition"
+            )
+        time.sleep(poll_interval_seconds)
+    raise CommandError(
+        f"agent Job {job_name!r} did not reach a terminal Job condition"
+        f" before timeout"
+    )
+
+
+def _final_pod_phase(*, namespace: str, pod_name: str) -> str:
+    """Best-effort read of the pod's final phase after Job Complete.
+    Returns "Succeeded" as the optimistic default if the pod is gone
+    (TTL or upstream cleanup) since Complete=True already implies the
+    pod ran to success."""
+    try:
+        phase = run_command(
+            [
+                "kubectl",
+                "-n",
+                namespace,
+                "get",
+                "pod",
+                pod_name,
+                "-o",
+                "jsonpath={.status.phase}",
+            ],
+        )
+        return phase or "Succeeded"
+    except CommandError:
+        return "Succeeded"
+
+
+def _tear_down_streamer(proc: "subprocess.Popen[bytes]") -> None:
+    """Terminate the background `kubectl logs -f` cleanly. The streamer
+    is purely a UX hook; we never let it influence the wait outcome and
+    never let it survive past wait_agent_job's return."""
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
