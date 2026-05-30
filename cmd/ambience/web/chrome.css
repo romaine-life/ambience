@@ -394,7 +394,7 @@
 /* rest affordance when the chrome is dismissed — an extremely minimal "esc →"
    that fades in on mouse movement and auto-hides when the pointer goes idle.
    chrome.js makes it clickable / keyboard-activatable to summon the monitor. */
-.summon { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 55;
+.summon { position: fixed; top: 16px; right: 16px; z-index: 55;
 	display: inline-flex; align-items: center; gap: 7px; font-size: 11px; color: var(--fg-faint);
 	background: rgba(13,13,13,.6); border: 1px solid var(--border-subtle); border-radius: var(--radius-pill);
 	padding: 4px 10px; cursor: pointer; user-select: none; font-family: var(--font-primary);
