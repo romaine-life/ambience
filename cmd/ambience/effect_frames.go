@@ -18,6 +18,7 @@ func (r *mysteriousManRuntime) Frame() [][]sim.Pixel { return r.sim.GridCopy() }
 func (r *pondRuntime) Frame() [][]sim.Pixel          { return r.sim.GridCopy() }
 func (r *rowboatRuntime) Frame() [][]sim.Pixel       { return r.sim.GridCopy() }
 func (r *sandRuntime) Frame() [][]sim.Pixel          { return r.sim.GridCopy() }
+func (r *slimesRuntime) Frame() [][]sim.Pixel        { return r.sim.GridCopy() }
 func (r *snowRuntime) Frame() [][]sim.Pixel          { return r.sim.GridCopy() }
 func (r *starfieldRuntime) Frame() [][]sim.Pixel     { return r.sim.GridCopy() }
 func (r *tetrisRuntime) Frame() [][]sim.Pixel        { return r.sim.GridCopy() }

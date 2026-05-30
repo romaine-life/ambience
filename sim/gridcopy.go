@@ -92,6 +92,181 @@ func (s *Sand) GridCopy() [][]Pixel {
 	return copyPixelGrid(s.Grid)
 }
 
+func (s *Slimes) GridCopy() [][]Pixel {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	grid := make([][]Pixel, s.H)
+	for y := range grid {
+		grid[y] = make([]Pixel, s.W)
+	}
+	if s.W <= 0 || s.H <= 0 {
+		return grid
+	}
+	baseline := s.baselineRowLocked()
+	cfg := s.cfg
+
+	// Sky gradient — darker at top, brightening toward the meadow line.
+	if baseline > 0 {
+		skyHue := math.Mod(cfg.SkyHue+360, 360)
+		skySat := clamp01(cfg.Saturation * 0.6)
+		for y := 0; y < baseline && y < s.H; y++ {
+			t := 1.0
+			if baseline > 1 {
+				t = float64(y) / float64(baseline-1)
+			}
+			light := clamp01(cfg.LightMax*0.95 - (cfg.LightMax-cfg.LightMin)*0.35*(1-t))
+			c := hslToRGB(skyHue, skySat, light)
+			for x := 0; x < s.W; x++ {
+				grid[y][x] = Pixel{Filled: true, C: c}
+			}
+		}
+	}
+
+	// Meadow ground — green at the surface, dimming with depth.
+	if baseline < s.H {
+		meadowHue := math.Mod(cfg.MeadowHue+360, 360)
+		meadowSat := clamp01(cfg.Saturation)
+		depth := math.Max(1, float64(s.H-1-baseline))
+		for y := baseline; y < s.H; y++ {
+			d := float64(y-baseline) / depth
+			light := clamp01(cfg.LightMin + (cfg.LightMax-cfg.LightMin)*0.45*(1-d))
+			soilHue := math.Mod(meadowHue+12*d+360, 360)
+			c := hslToRGB(soilHue, meadowSat, light)
+			for x := 0; x < s.W; x++ {
+				grid[y][x] = Pixel{Filled: true, C: c}
+			}
+		}
+	}
+
+	// Grass tufts — deterministic per-column blade heights so the meadow
+	// reads as still grass instead of flickering noise.
+	if baseline > 0 && baseline < s.H {
+		grassHue := math.Mod(cfg.MeadowHue+8+360, 360)
+		grassSat := clamp01(cfg.Saturation * 0.85)
+		tipLight := clamp01(cfg.LightMax * 0.92)
+		bladeLight := clamp01(cfg.LightMin + (cfg.LightMax-cfg.LightMin)*0.55)
+		tipC := hslToRGB(grassHue, grassSat, tipLight)
+		bladeC := hslToRGB(grassHue, grassSat, bladeLight)
+		maxH := int(math.Round(cfg.GrassHeight))
+		if maxH < 1 {
+			maxH = 1
+		}
+		for x := 0; x < s.W; x++ {
+			seed := uint32(x)*2654435761 + 0x9e3779b1
+			if float64(seed%1000)/1000.0 > cfg.GrassDens {
+				continue
+			}
+			h := 1 + int(seed%uint32(maxH))
+			for k := 0; k < h; k++ {
+				y := baseline - 1 - k
+				if y < 0 || y >= s.H {
+					break
+				}
+				c := bladeC
+				if k == h-1 {
+					c = tipC
+				}
+				grid[y][x] = Pixel{Filled: true, C: c}
+			}
+		}
+	}
+
+	// Slimes — squash/hop deformations, intro grow-in, ending fade-out.
+	for _, sl := range s.slimes {
+		scale := 1.0
+		if s.introTicks > 0 && s.introTotal > 0 {
+			progress := 1 - float64(s.introTicks)/float64(s.introTotal)
+			scale = cfg.IntroGrowth + (1-cfg.IntroGrowth)*progress
+		}
+		if s.endingTicks > 0 && s.endingFade > 0 {
+			fadeLeft := s.endingTicks - (s.endingTotal - s.endingFade)
+			if fadeLeft <= 0 {
+				continue
+			}
+			scale = math.Min(scale, float64(fadeLeft)/float64(s.endingFade))
+		}
+		if scale <= 0 {
+			continue
+		}
+		size := sl.Size * scale
+		if size < 1 {
+			size = 1
+		}
+		halfW := size
+		halfH := size * 0.7
+		if sl.State == SlimeStateSquashing && sl.PhaseT > 0 {
+			// progress runs 0 (just landed, flat) → 1 (about to sit, full)
+			p := phaseProgress(sl.PhaseT, sl.Phase)
+			squash := 0.5 + 0.5*p
+			halfH *= squash
+			halfW *= 2 - squash
+		}
+		if sl.State == SlimeStateHopping {
+			halfH *= 1.15
+			halfW *= 0.9
+		}
+		if halfH < 0.5 {
+			halfH = 0.5
+		}
+		if halfW < 0.5 {
+			halfW = 0.5
+		}
+		centerX := sl.Col
+		centerY := sl.Row - halfH
+		bodyHue := math.Mod(sl.Hue+360, 360)
+		bodyLight := clamp01(cfg.LightMin + (cfg.LightMax-cfg.LightMin)*0.5)
+		rimLight := clamp01(cfg.LightMax * 0.92)
+		body := hslToRGB(bodyHue, clamp01(cfg.Saturation), bodyLight)
+		rim := hslToRGB(bodyHue, clamp01(cfg.Saturation*0.7), rimLight)
+		if sl.State == SlimeStateHopping {
+			// landing shadow stays at the home column on the meadow line so
+			// the eye reads the slime as being airborne above its perch.
+			shadowHue := math.Mod(cfg.MeadowHue+360, 360)
+			shadowLight := clamp01(cfg.LightMin * 0.85)
+			shadowC := hslToRGB(shadowHue, clamp01(cfg.Saturation*0.6), shadowLight)
+			shadowR := int(math.Max(1, math.Round(halfW*0.7)))
+			shadowCol := int(math.Round(sl.HomeCol))
+			for dx := -shadowR; dx <= shadowR; dx++ {
+				x := shadowCol + dx
+				if x < 0 || x >= s.W {
+					continue
+				}
+				if baseline >= 0 && baseline < s.H {
+					paintPixel(grid, x, baseline, shadowC)
+				}
+			}
+		}
+		minX := int(math.Floor(centerX - halfW))
+		maxX := int(math.Ceil(centerX + halfW))
+		minY := int(math.Floor(centerY - halfH))
+		maxY := int(math.Ceil(centerY + halfH))
+		for y := minY; y <= maxY; y++ {
+			if y < 0 || y >= s.H {
+				continue
+			}
+			for x := minX; x <= maxX; x++ {
+				if x < 0 || x >= s.W {
+					continue
+				}
+				nx := (float64(x) - centerX) / halfW
+				ny := (float64(y) - centerY) / halfH
+				d2 := nx*nx + ny*ny
+				if d2 > 1.05 {
+					continue
+				}
+				c := body
+				if d2 > 0.78 {
+					c = rim
+				} else if y == minY && x >= int(math.Round(centerX-halfW*0.55)) && x <= int(math.Round(centerX-halfW*0.1)) {
+					c = rim
+				}
+				paintPixel(grid, x, y, c)
+			}
+		}
+	}
+	return grid
+}
+
 func (s *Snow) GridCopy() [][]Pixel {
 	s.mu.Lock()
 	defer s.mu.Unlock()
