@@ -20,11 +20,8 @@
 <body>
 <canvas id="c" class="worldview"></canvas>
 <div class="chrome" id="chrome"></div>
-<div class="summon" id="summonHint" style="display:none">
-	<span class="summon__kbd">esc</span>
-	<span>reveal the console</span>
-	<span class="summon__route">dev</span>
-</div>
+<!-- minimal "esc →" summon affordance; content + mouse-reveal behavior owned by chrome.js -->
+<div class="summon" id="summonHint" style="display:none"></div>
 
 <script src="/sim.js"></script>
 <script src="/wasm_runtime.js"></script>

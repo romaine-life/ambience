@@ -245,6 +245,7 @@ window.AmbienceChrome = (function () {
 			isOpen() { return C.summoned; },
 		};
 		C.api = api;
+		setupHint(C);
 		setSummoned(C, C.summoned);
 		return api;
 	}
@@ -482,11 +483,49 @@ window.AmbienceChrome = (function () {
 		wrap.appendChild(bar);
 	}
 
+	// ── summon hint — minimal "esc →", mouse-revealed, auto-hiding ────────
+	// Builds the dismissed-state affordance and wires it: it stays invisible
+	// until the pointer moves, fades back out a couple seconds after the
+	// pointer goes idle, and summons the chrome on click / Enter / Space.
+	const HINT_IDLE_MS = 2000;
+	function setupHint(C) {
+		const hint = C.hint;
+		if (!hint) return;
+		hint.innerHTML = '<span class="summon__kbd">esc</span><span class="summon__arrow">→</span>';
+		hint.setAttribute('role', 'button');
+		hint.setAttribute('tabindex', '0');
+		hint.setAttribute('aria-label', 'reveal the control monitor');
+		hint.title = 'reveal the control monitor';
+		hint.addEventListener('click', () => C.api.setSummoned(true));
+		hint.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); C.api.setSummoned(true); }
+		});
+		// Reveal on any pointer movement; re-arm the idle timer each move so it
+		// lingers while the mouse is active and fades once it settles.
+		window.addEventListener('mousemove', () => revealHint(C), { passive: true });
+	}
+	function revealHint(C) {
+		const hint = C.hint;
+		if (!hint || C.summoned) return;
+		if (!hint.classList.contains('is-visible')) hint.classList.add('is-visible');
+		if (C._hintT) clearTimeout(C._hintT);
+		C._hintT = setTimeout(() => hint.classList.remove('is-visible'), HINT_IDLE_MS);
+	}
+
 	// ── summon / dismiss + cinematic dip ─────────────────────────────────
 	function setSummoned(C, on) {
 		C.summoned = on;
 		C.host.style.display = on ? '' : 'none';
-		if (C.hint) C.hint.style.display = on ? 'none' : '';
+		if (C.hint) {
+			if (on) {
+				if (C._hintT) { clearTimeout(C._hintT); C._hintT = null; }
+				C.hint.classList.remove('is-visible');
+				C.hint.style.display = 'none';
+			} else {
+				// Present but transparent (opacity 0) until mouse movement reveals it.
+				C.hint.style.display = '';
+			}
+		}
 		if (on) {
 			const d5 = C.refs.root;
 			d5.classList.remove('d5--' + C.transition); void d5.offsetWidth; d5.classList.add('d5--' + C.transition);
