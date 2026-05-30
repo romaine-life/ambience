@@ -15,6 +15,14 @@ import (
 
 var defaultStaticMTime = time.Unix(0, 0)
 
+func init() {
+	// Go's built-in MIME table has no .ttf entry, and the distroless runtime
+	// image ships no /etc/mime.types, so serveStaticFile would otherwise rely
+	// on content sniffing for the chrome wordmark font. Register it explicitly
+	// so /fonts/Archivo.ttf always reports a stable font/ttf Content-Type.
+	_ = mime.AddExtensionType(".ttf", "font/ttf")
+}
+
 type staticAssets struct {
 	embedded    fs.FS
 	overrideDir string

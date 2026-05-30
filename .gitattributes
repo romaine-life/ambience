@@ -4,3 +4,6 @@ docs/agentic-issue-flow.md text eol=lf
 k8s/** text eol=lf
 mcp/** text eol=lf
 scripts/agent/** text eol=lf
+
+# Binary chrome assets — never apply text/EOL normalization.
+cmd/ambience/web/fonts/*.ttf binary

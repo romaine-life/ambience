@@ -17,1074 +17,421 @@
 <meta name="twitter:title" content="ambience - live">
 <meta name="twitter:description" content="A shared ambient pixel simulation for browser and terminal surfaces.">
 <meta name="twitter:image" content="__AMBIENCE_OG_IMAGE__">
+<link rel="stylesheet" href="/chrome.css">
 <style>
-  html, body {
-    margin: 0;
-    padding: 0;
-    height: 100%;
-    background: #0a0a0a;
-    color: #eee;
-    font-family: Consolas, "SF Mono", Menlo, monospace;
-    overflow: hidden;
-  }
-  #c {
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    image-rendering: pixelated;
-    width: 100vw;
-    height: 100vh;
-    display: block;
-  }
-  #panel {
-    position: fixed;
-    top: 12px;
-    right: 12px;
-    z-index: 1;
-    width: 360px;
-    max-width: min(360px, calc(100vw - 24px));
-    max-height: calc(100vh - 24px);
-    overflow-y: auto;
-    background: rgba(10, 10, 10, 0.82);
-    backdrop-filter: blur(8px);
-    border: 1px solid #333;
-    border-radius: 4px;
-    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
-  }
-  #panel.collapsed {
-    width: auto;
-  }
-  #panel.collapsed .panel-body {
-    display: none;
-  }
-  #panel h2 {
-    margin: 0;
-    padding: 10px 14px 8px;
-    font-size: 12px;
-    font-weight: normal;
-    color: #9cf;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .panel-body {
-    padding: 0 14px 10px;
-  }
-  .btnbar {
-    display: flex;
-    gap: 4px;
-  }
-  .iconbtn {
-    background: none;
-    border: 1px solid #333;
-    color: #e0e0e0;
-    font-family: inherit;
-    font-size: 10px;
-    padding: 0 6px;
-    cursor: pointer;
-    border-radius: 2px;
-    line-height: 1.5;
-  }
-  .iconbtn:hover {
-    background: #1a1a1a;
-    border-color: #555;
-  }
-  a.iconbtn {
-    color: #e0e0e0;
-    text-decoration: none;
-  }
-  .row {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 2px 0;
-    font-size: 12px;
-    line-height: 1.5;
-  }
-  .row .k {
-    color: #888;
-    text-transform: lowercase;
-  }
-  .row .v {
-    color: #eee;
-    font-variant-numeric: tabular-nums;
-    text-align: right;
-  }
-  .section-lite {
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid #222;
-  }
-  .toggle {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .toggle label {
-    color: #aaa;
-    cursor: pointer;
-    flex: 1;
-    font-size: 11px;
-  }
-  .toggle input[type="checkbox"] {
-    accent-color: #9cf;
-  }
-  .switcher {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .switcher-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .switcher label {
-    width: 52px;
-    opacity: 0.55;
-    font-size: 9px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-  }
-  .switcher select {
-    flex: 1;
-    background: #111;
-    border: 1px solid #333;
-    color: #e0e0e0;
-    font-family: inherit;
-    font-size: 10px;
-    padding: 4px 6px;
-    border-radius: 3px;
-  }
-  .switcher select:disabled {
-    opacity: 0.8;
-    cursor: default;
-  }
-  .lock-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .lock-copy {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-  .lock-copy .eyebrow {
-    opacity: 0.55;
-    font-size: 9px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-  }
-  .lock-copy .lock-state {
-    font-size: 12px;
-    color: #bbb;
-  }
-  .lock-copy .lock-state.unlocked {
-    color: #f7c06a;
-  }
-  .lock-button {
-    min-width: 78px;
-    background: #171717;
-    border: 1px solid #555;
-    color: #eee;
-    font-family: inherit;
-    font-size: 10px;
-    padding: 5px 8px;
-    cursor: pointer;
-    border-radius: 3px;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-  }
-  .lock-button:hover {
-    background: #212121;
-    border-color: #777;
-  }
-  .lock-button.unlocked {
-    background: #33210c;
-    border-color: #a56d20;
-    color: #ffdca7;
-  }
-  .lock-button:disabled {
-    cursor: default;
-    opacity: 0.55;
-  }
-  .lock-actions {
-    display: flex;
-    gap: 6px;
-  }
-  .sign-out-button {
-    display: none;
-    min-width: 70px;
-  }
-  .sign-out-button.visible {
-    display: inline-block;
-  }
-  .hint {
-    margin-top: 6px;
-    font-size: 10px;
-    line-height: 1.45;
-    color: #8b8b8b;
-  }
-  #controlBody {
-    margin-top: 8px;
-  }
-  .section {
-    margin-top: 6px;
-  }
-  .section-head {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 0;
-    cursor: pointer;
-    user-select: none;
-    border-bottom: 1px solid #2a2a2a;
-    font-size: 10px;
-    opacity: 0.78;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-  }
-  .section-head:hover {
-    opacity: 1;
-  }
-  .section-head .chev {
-    display: inline-block;
-    width: 10px;
-    transition: transform 0.15s;
-    opacity: 0.6;
-    font-size: 9px;
-  }
-  .section.closed .section-head .chev {
-    transform: rotate(-90deg);
-  }
-  .section-head .name {
-    flex: 1;
-  }
-  .section-head .count {
-    opacity: 0.4;
-    font-size: 9px;
-  }
-  .section-body {
-    padding: 4px 0 6px;
-  }
-  .section.closed .section-body {
-    display: none;
-  }
-  #controlBody h3 {
-    font-size: 9px;
-    margin: 6px 0 2px;
-    opacity: 0.4;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-weight: normal;
-  }
-  .empty-slot {
-    opacity: 0.3;
-    font-size: 10px;
-    padding: 4px 0;
-    font-style: italic;
-  }
-  .control-row {
-    display: flex;
-    align-items: center;
-    margin: 3px 0;
-    gap: 6px;
-  }
-  .control-row label {
-    opacity: 0.75;
-    min-width: 76px;
-    font-size: 10px;
-  }
-  .control-row input[type="range"] {
-    flex: 1;
-    min-width: 50px;
-  }
-  .control-row .val {
-    opacity: 0.6;
-    min-width: 42px;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    font-size: 10px;
-  }
-  .help {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 13px;
-    height: 13px;
-    min-width: 13px;
-    border: 1px solid #555;
-    border-radius: 50%;
-    font-size: 8px;
-    line-height: 1;
-    color: #888;
-    cursor: help;
-    user-select: none;
-  }
-  .help:hover {
-    border-color: #aaa;
-    color: #e0e0e0;
-    background: #1a1a1a;
-  }
-  .fire {
-    background: #2a2a2a;
-    border: 1px solid #555;
-    color: #e0e0e0;
-    font-family: inherit;
-    font-size: 9px;
-    padding: 1px 5px;
-    cursor: pointer;
-    border-radius: 2px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    flex-shrink: 0;
-  }
-  .fire:hover {
-    background: #3a3a3a;
-    border-color: #888;
-  }
-  .fire:disabled,
-  .control-row input:disabled,
-  .switcher select:disabled {
-    cursor: default;
-  }
-  .subhead {
-    font-size: 10px;
-    opacity: 0.72;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 6px;
-  }
-  #events {
-    max-height: 180px;
-    overflow-y: auto;
-    font-size: 11px;
-    background: #060606;
-    border: 1px solid #1a1a1a;
-    padding: 6px;
-  }
-  #events::-webkit-scrollbar {
-    width: 4px;
-  }
-  #events::-webkit-scrollbar-thumb {
-    background: #333;
-  }
-  .event {
-    color: #999;
-    padding: 1px 0;
-    font-variant-numeric: tabular-nums;
-    line-height: 1.45;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .event .time {
-    color: #555;
-    margin-right: 6px;
-  }
-  .event.trigger {
-    color: #fc9;
-  }
-  .event.scene {
-    color: #9fc;
-  }
-  .event.entropy {
-    color: #c9f;
-  }
-  .event.system {
-    color: #f7b86c;
-  }
-  #devlink {
-    color: #9cf;
-  }
-  .flash {
-    animation: flash 350ms ease-out;
-  }
-  @keyframes flash {
-    from { background: rgba(70, 90, 80, 0.6); }
-    to { background: rgba(10, 10, 10, 0.82); }
-  }
-  .entropy-pulse {
-    animation: pulse 200ms ease-out;
-  }
-  @keyframes pulse {
-    from { color: #c9f; transform: scale(1.08); }
-    to { color: #9cf; transform: scale(1); }
-  }
+	/* Page frame only — all chrome lives in /chrome.css ("Exposed" skin). */
+	html, body { margin: 0; padding: 0; height: 100%; background: #0a0a0a; overflow: hidden;
+		color: var(--fg-body); font-family: var(--font-primary); }
+	#c { position: fixed; inset: 0; z-index: 0; width: 100vw; height: 100vh; image-rendering: pixelated; display: block; }
+	/* page-load fade: the world rises out of black */
+	#pageload { position: fixed; inset: 0; z-index: 30; background: #0a0a0a; pointer-events: none; animation: pageFade 1.2s ease forwards; }
+	@keyframes pageFade { to { opacity: 0; } }
+	@media (prefers-reduced-motion: reduce) { #pageload { display: none; } }
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
-
-<div id="panel">
-  <h2>
-    <span>ambience live broadcast</span>
-    <span class="btnbar">
-      <a class="iconbtn" id="devlink" href="/dev" title="open dev controls">dev -&gt;</a>
-      <button class="iconbtn" id="toggleAll" title="collapse or expand all control sections">[]</button>
-      <button class="iconbtn" id="togglePanel" title="collapse or expand panel (h)">-</button>
-    </span>
-  </h2>
-  <div class="panel-body" id="panelBody">
-    <div class="row"><span class="k">scene</span><span class="v" id="sceneName">-</span></div>
-    <div class="row"><span class="k">remaining</span><span class="v" id="sceneRemaining">-</span></div>
-    <div class="row"><span class="k">up next</span><span class="v" id="nextName">-</span></div>
-    <div class="row"><span class="k">tick</span><span class="v" id="tick">0</span></div>
-
-    <div class="section-lite toggle">
-      <input type="checkbox" id="entropyToggle" checked>
-      <label for="entropyToggle">entropy capture</label>
-      <span class="v" id="entropyCount">0 B</span>
-    </div>
-
-    <div class="section-lite">
-      <div class="lock-row">
-        <div class="lock-copy">
-          <span class="eyebrow">live controls</span>
-          <span class="lock-state locked" id="lockState">view only</span>
-        </div>
-        <div class="lock-actions">
-          <button class="lock-button sign-out-button" id="signOutButton" type="button">sign out</button>
-          <button class="lock-button" id="lockButton" type="button">unlock</button>
-        </div>
-      </div>
-      <div class="hint" id="lockHelp">Controls mirror the shared atmosphere, but slider moves and fire buttons stay inert until you unlock them.</div>
-    </div>
-
-    <div class="section-lite switcher">
-      <div class="switcher-row">
-        <label for="effectSelect">effect</label>
-        <select id="effectSelect" title="shared live effect"></select>
-        <button class="iconbtn" id="nextEffectButton" type="button" title="advance to another effect">next</button>
-      </div>
-      <div class="switcher-row">
-        <label for="presetSelect">preset</label>
-        <select id="presetSelect" title="apply effect preset"></select>
-      </div>
-    </div>
-
-    <div id="controlBody"></div>
-
-    <div class="section-lite">
-      <div class="subhead">event log</div>
-      <div id="events"></div>
-    </div>
-
-  </div>
+<canvas id="c" class="worldview"></canvas>
+<div class="chrome" id="chrome"></div>
+<div class="summon" id="summonHint" style="display:none">
+	<span class="summon__kbd">esc</span>
+	<span>reveal the broadcast monitor</span>
+	<span class="summon__route">live</span>
 </div>
+<div id="pageload"></div>
 
 <script src="/sim.js"></script>
 <script src="/wasm_runtime.js"></script>
-<script src="/controls.js"></script>
+<script src="/chrome.js"></script>
 <script>
 (() => {
-  'use strict';
+	// ── ambience live broadcast monitor ──────────────────────────────────
+	// Subscribes to the shared atmosphere over /events and renders it under the
+	// "Exposed" chrome. Controls mirror the live world; mutations are admin-gated
+	// (/control-auth) and stay read-only until an admin signs in and arms them.
+	'use strict';
 
-  const GRID_W = 160;
-  const GRID_H = 80;
-  const INITIAL_FADE_MS = 1200;
+	const GRID_W = 160, GRID_H = 80;
+	const L = window.AmbienceChrome.effectLabel;
+	const canvas = document.getElementById('c');
+	const ctx = canvas.getContext('2d');
 
-  const canvas = document.getElementById('c');
-  const ctx = canvas.getContext('2d');
+	function resize() {
+		const dpr = window.devicePixelRatio || 1;
+		canvas.width = Math.floor(window.innerWidth * dpr);
+		canvas.height = Math.floor(window.innerHeight * dpr);
+	}
+	resize();
+	window.addEventListener('resize', resize);
 
-  function resize() {
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.floor(window.innerWidth * dpr);
-    canvas.height = Math.floor(window.innerHeight * dpr);
-  }
-  resize();
-  window.addEventListener('resize', resize);
+	function newEffectInstance(name) {
+		const ctor = AmbienceSim.effects[name];
+		if (!ctor) throw new Error('unknown effect: ' + name);
+		return new ctor(GRID_W, GRID_H, {});
+	}
 
-  function newEffectInstance(name) {
-    const ctor = AmbienceSim.effects[name];
-    if (!ctor) throw new Error('unknown effect: ' + name);
-    return new ctor(GRID_W, GRID_H, {});
-  }
+	// world / scene state
+	let effectType = null, effect = null, latestConfig = null, ready = false;
+	let serverTick = 0, lastBeatAt = Date.now(), sceneStartTick = 0, sceneDurationTicks = 0;
+	let currentSceneName = '—', nextSceneName = '—', entropyBytes = 0;
+	let connState = 'acquiring';
 
-  let effectType = null;
-  let effect = null;
-  let latestConfig = null;
-  let ready = false;
-  let initialFadePending = false;
-  let initialFadeStarted = false;
-  let schemaLoadToken = 0;
-  let initialFadeCover = null;
-  let controlAuthenticated = false;
-  let controlAuthRequired = true;
-  let controlAuthProvider = '';
-  let microsoftTenant = '';
-  let microsoftClientId = '';
+	// auth state
+	let authRequired = true, authed = false, armed = false;
+	let authProvider = '', microsoftTenant = '', microsoftClientId = '';
 
-  const el = {
-    panel: document.getElementById('panel'),
-    panelBody: document.getElementById('panelBody'),
-    togglePanel: document.getElementById('togglePanel'),
-    toggleAll: document.getElementById('toggleAll'),
-    sceneName: document.getElementById('sceneName'),
-    sceneRemaining: document.getElementById('sceneRemaining'),
-    nextName: document.getElementById('nextName'),
-    tick: document.getElementById('tick'),
-    entropyToggle: document.getElementById('entropyToggle'),
-    entropyCount: document.getElementById('entropyCount'),
-    events: document.getElementById('events'),
-    lockButton: document.getElementById('lockButton'),
-    signOutButton: document.getElementById('signOutButton'),
-    lockState: document.getElementById('lockState'),
-    lockHelp: document.getElementById('lockHelp'),
-    effectSelect: document.getElementById('effectSelect'),
-    nextEffectButton: document.getElementById('nextEffectButton'),
-    presetSelect: document.getElementById('presetSelect'),
-    controlBody: document.getElementById('controlBody'),
-  };
+	// ── chrome controller ──────────────────────────────────────────────────
+	const chrome = window.AmbienceChrome.mount({
+		host: document.getElementById('chrome'),
+		hint: document.getElementById('summonHint'),
+		canvas, mode: 'live', gridW: GRID_W, gridH: GRID_H, summoned: false, locked: true,
+		line: 'the live broadcast — every screen in step. controls mirror the world; intervening is admin-gated.',
+		routeJump: { label: 'dev →', title: 'open the dev tuning sandbox', onClick: () => { window.location.href = '/dev'; } },
+		ctl: { title: 'control surface', modeLabel: 'live · admin', note: '' },
+		feedLabel: 'broadcast track', showAuth: true, showNext: true,
+		tele: {
+			header: 'authority clock', badge: { tone: 'muted', label: 'acquiring' },
+			rows: [
+				{ k: 'server.tick', v: '—' }, { k: 'scene', v: '—' }, { k: 'remaining', v: '—' },
+				{ k: 'up.next', v: '—' }, { k: 'effect', v: '—' }, { k: 'grid', v: GRID_W + ' × ' + GRID_H }, { k: 'entropy', v: '0 B' },
+			],
+			footer: { tone: 'muted', html: 'acquiring authority…' },
+		},
+		handlers: {
+			onKnob: () => scheduleSharedConfigPush(),
+			onFire: (eventName) => triggerSharedEvent(eventName),
+			onPreset: (val, cfg) => { chrome.setValues(cfg); scheduleSharedConfigPush(); },
+			onNext: () => advanceSharedEffect(),
+			onSignIn: () => signInControls(),
+			onArm: () => { if (authed) { armed = !armed; setAuthUI(); } },
+			onSignOut: () => signOutControls(),
+		},
+	});
 
-  const controls = AmbienceControls.create({
-    root: el.controlBody,
-    effect: 'rain',
-    effectOptions: (current) => [current],
-    effectSelect: el.effectSelect,
-    presetSelect: el.presetSelect,
-    toggleAll: el.toggleAll,
-    storagePrefix: 'ambience.live.section.',
-    locked: true,
-    canSwitchEffect: false,
-    onConfigChange: () => scheduleSharedConfigPush(),
-    onTrigger: (eventName) => triggerSharedEvent(eventName),
-  });
+	// ── formatting ───────────────────────────────────────────────────────
+	function fmtDuration(ticks) {
+		const secs = Math.max(0, Math.round(ticks / 10));
+		const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
+		if (h > 0) return h + 'h ' + String(m).padStart(2, '0') + 'm';
+		if (m > 0) return m + 'm ' + String(s).padStart(2, '0') + 's';
+		return s + 's';
+	}
+	function fmtBytes(n) {
+		if (n < 1024) return n + ' B';
+		if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+		return (n / 1024 / 1024).toFixed(2) + ' MB';
+	}
+	function tickNow() { return serverTick + Math.round((Date.now() - lastBeatAt) / 100); }
+	function remainingTicks() { return Math.max(0, sceneStartTick + sceneDurationTicks - tickNow()); }
 
-  function setControlsLocked(locked) {
-    const nextLocked = locked || !controlAuthenticated;
-    controls.setLocked(nextLocked);
-    el.lockButton.disabled = false;
-    el.signOutButton.disabled = false;
-    el.nextEffectButton.disabled = nextLocked;
-    el.signOutButton.classList.toggle('visible', controlAuthenticated && controlAuthRequired);
-    el.lockButton.classList.toggle('unlocked', !nextLocked && controlAuthenticated);
-    el.lockState.classList.toggle('locked', nextLocked);
-    el.lockState.classList.toggle('unlocked', !nextLocked && controlAuthenticated);
-    if (!controlAuthenticated) {
-      el.lockButton.textContent = controlAuthRequired ? 'sign in' : 'unlock';
-      el.lockState.textContent = controlAuthRequired ? 'read only' : 'view only';
-      el.lockHelp.textContent = controlAuthRequired
-        ? 'Controls mirror the shared atmosphere. Sign in to unlock live mutations.'
-        : 'Controls mirror the shared atmosphere, but slider moves and fire buttons stay inert until you unlock them.';
-      return;
-    }
-    el.lockButton.textContent = nextLocked ? 'unlock' : 'lock';
-    el.lockState.textContent = nextLocked ? 'view only' : 'live mutations armed';
-    el.lockHelp.textContent = nextLocked
-      ? 'Controls mirror the shared atmosphere. You are signed in; unlock to mutate the live scene.'
-      : 'Slider moves, presets, and fire buttons now hit the shared atmosphere immediately.';
-  }
-  setControlsLocked(true);
+	// ── auth UI ────────────────────────────────────────────────────────────
+	function authStateName() {
+		if (authRequired && !authed) return 'readonly';
+		if (authed && armed) return 'armed';
+		return 'viewonly';
+	}
+	function setAuthUI() {
+		const st = authStateName();
+		chrome.setAuth(st, { signInLabel: authRequired ? 'sign in' : 'unlock' });
+		const lockedNow = !(authed && armed);
+		chrome.setControlsLocked(lockedNow);
+		chrome.setNextEnabled(!lockedNow);
+		chrome.refs.note.textContent = st === 'readonly'
+			? 'protected broadcast — sign in as an admin to intervene'
+			: st === 'armed'
+				? 'intervening on the live world — every change broadcasts to all screens'
+				: 'controls mirror the broadcast · arm live mutations to intervene';
+		chrome.refs.note.classList.toggle('is-armed', st === 'armed');
+	}
 
-  async function refreshControlAuth() {
-    try {
-      const resp = await fetch('/control-auth', { credentials: 'same-origin' });
-      if (!resp.ok) throw new Error('auth status returned ' + resp.status);
-      const status = await resp.json();
-      controlAuthRequired = !!status.required;
-      controlAuthenticated = !controlAuthRequired || !!status.authenticated;
-      controlAuthProvider = status.provider || '';
-      microsoftTenant = status.microsoftTenant || '';
-      microsoftClientId = status.microsoftClientId || '';
-    } catch (err) {
-      console.error('control auth', err);
-      controlAuthRequired = true;
-      controlAuthenticated = false;
-    }
-    setControlsLocked(controls.isLocked());
-  }
+	async function refreshControlAuth() {
+		try {
+			const resp = await fetch('/control-auth', { credentials: 'same-origin' });
+			if (!resp.ok) throw new Error('auth status ' + resp.status);
+			const s = await resp.json();
+			authRequired = !!s.required;
+			authed = !authRequired || !!s.authenticated;
+			authProvider = s.provider || '';
+			microsoftTenant = s.microsoftTenant || '';
+			microsoftClientId = s.microsoftClientId || '';
+		} catch (err) {
+			console.error('control auth', err);
+			authRequired = true; authed = false;
+		}
+		if (!authed) armed = false;
+		setAuthUI();
+	}
 
-  async function signOutControls() {
-    el.lockButton.disabled = true;
-    el.signOutButton.disabled = true;
-    try {
-      await fetch('/control-auth', {
-        method: 'DELETE',
-        credentials: 'same-origin',
-      });
-    } catch (err) {
-      console.error('control auth sign out', err);
-    }
-    controlAuthenticated = false;
-    sessionStorage.removeItem('ambience.microsoft.state');
-    sessionStorage.removeItem('ambience.microsoft.nonce');
-    setControlsLocked(true);
-    log('live controls signed out', 'system');
-    el.lockButton.disabled = false;
-    el.signOutButton.disabled = false;
-  }
+	function microsoftAuthURL() {
+		const state = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
+		const nonce = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
+		sessionStorage.setItem('ambience.microsoft.state', state);
+		sessionStorage.setItem('ambience.microsoft.nonce', nonce);
+		const q = new URLSearchParams({
+			client_id: microsoftClientId, response_type: 'id_token', redirect_uri: window.location.origin + '/auth/callback',
+			response_mode: 'fragment', scope: 'openid profile email', state, nonce,
+		});
+		return 'https://login.microsoftonline.com/' + encodeURIComponent(microsoftTenant) + '/oauth2/v2.0/authorize?' + q.toString();
+	}
+	async function completeMicrosoftSignIn(idToken, nonce) {
+		const resp = await fetch('/control-auth', {
+			method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ idToken, nonce }),
+		});
+		if (!resp.ok) throw new Error('auth ' + resp.status);
+		const s = await resp.json();
+		authRequired = !!s.required;
+		authed = !authRequired || !!s.authenticated;
+		chrome.appendLog({ t: now(), kind: 'scene', text: 'live controls signed in' });
+		return authed;
+	}
+	async function handleMicrosoftCallback() {
+		if (!window.location.hash || !window.location.hash.includes('id_token=')) return;
+		const params = new URLSearchParams(window.location.hash.slice(1));
+		const expState = sessionStorage.getItem('ambience.microsoft.state');
+		const expNonce = sessionStorage.getItem('ambience.microsoft.nonce');
+		sessionStorage.removeItem('ambience.microsoft.state');
+		sessionStorage.removeItem('ambience.microsoft.nonce');
+		history.replaceState(null, '', '/');
+		if (!params.get('id_token') || !expState || !expNonce || params.get('state') !== expState) {
+			chrome.appendLog({ t: now(), kind: 'trigger', text: 'live control sign-in failed' });
+			return;
+		}
+		try {
+			const ok = await completeMicrosoftSignIn(params.get('id_token'), expNonce);
+			armed = ok; setAuthUI();
+		} catch (err) {
+			console.error('control auth', err); authed = false; setAuthUI();
+		}
+	}
+	async function signInControls() {
+		if (authProvider === 'microsoft' && microsoftTenant && microsoftClientId) {
+			window.location.assign(microsoftAuthURL());
+			return;
+		}
+		const password = window.prompt('live control password');
+		if (!password) return;
+		try {
+			const resp = await fetch('/control-auth', {
+				method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ password }),
+			});
+			if (!resp.ok) throw new Error('auth ' + resp.status);
+			const s = await resp.json();
+			authRequired = !!s.required;
+			authed = !authRequired || !!s.authenticated;
+			armed = authed;
+			chrome.appendLog({ t: now(), kind: 'scene', text: 'live controls signed in' });
+		} catch (err) {
+			console.error('control auth', err); authed = false;
+			chrome.appendLog({ t: now(), kind: 'trigger', text: 'live control sign-in failed' });
+		}
+		setAuthUI();
+	}
+	async function signOutControls() {
+		try { await fetch('/control-auth', { method: 'DELETE', credentials: 'same-origin' }); }
+		catch (err) { console.error('control auth sign out', err); }
+		authed = false; armed = false;
+		sessionStorage.removeItem('ambience.microsoft.state');
+		sessionStorage.removeItem('ambience.microsoft.nonce');
+		chrome.appendLog({ t: now(), kind: 'scene', text: 'live controls signed out' });
+		setAuthUI();
+	}
 
-  function microsoftAuthURL() {
-    const state = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
-    const nonce = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
-    sessionStorage.setItem('ambience.microsoft.state', state);
-    sessionStorage.setItem('ambience.microsoft.nonce', nonce);
-    const q = new URLSearchParams({
-      client_id: microsoftClientId,
-      response_type: 'id_token',
-      redirect_uri: window.location.origin + '/auth/callback',
-      response_mode: 'fragment',
-      scope: 'openid profile email',
-      state,
-      nonce,
-    });
-    return 'https://login.microsoftonline.com/' + encodeURIComponent(microsoftTenant) + '/oauth2/v2.0/authorize?' + q.toString();
-  }
+	// ── shared-atmosphere control IO ────────────────────────────────────────
+	function currentSharedQuery() {
+		if (!effectType) return '';
+		const vals = chrome.currentValues();
+		const q = new URLSearchParams();
+		q.set('effect', effectType);
+		for (const k of chrome.getKnobs()) {
+			const v = vals[k.key];
+			if (v == null) continue;
+			q.set(k.key, k.type === 'int' ? String(Math.round(v)) : String(v));
+		}
+		return q.toString();
+	}
+	let debounceT = null;
+	function scheduleSharedConfigPush() {
+		if (chrome.isLocked()) return;
+		if (debounceT) clearTimeout(debounceT);
+		debounceT = setTimeout(pushSharedConfig, 150);
+	}
+	async function pushSharedConfig() {
+		if (chrome.isLocked() || !chrome.getSchema() || !effectType) return;
+		try {
+			const resp = await fetch('/config?' + currentSharedQuery(), { method: 'POST', credentials: 'same-origin' });
+			if (resp.status === 401) { authed = false; armed = false; setAuthUI(); }
+			else if (!resp.ok) throw new Error('config ' + resp.status);
+		} catch (err) { console.error('shared config push', err); }
+	}
+	async function triggerSharedEvent(eventName) {
+		if (chrome.isLocked()) return;
+		try {
+			const resp = await fetch('/trigger/' + encodeURIComponent(eventName) + '?effect=' + encodeURIComponent(effectType), { method: 'POST', credentials: 'same-origin' });
+			if (resp.status === 401) { authed = false; armed = false; setAuthUI(); }
+			else if (!resp.ok) throw new Error('trigger ' + resp.status);
+		} catch (err) { console.error('shared trigger', err); }
+	}
+	async function advanceSharedEffect() {
+		if (chrome.isLocked()) return;
+		chrome.setNextEnabled(false);
+		try {
+			const resp = await fetch('/next-effect', { method: 'POST', credentials: 'same-origin' });
+			if (resp.status === 401) { authed = false; armed = false; setAuthUI(); }
+			else if (!resp.ok) throw new Error('next-effect ' + resp.status);
+			else chrome.appendLog({ t: now(), kind: 'scene', text: 'requested next effect' });
+		} catch (err) { console.error('next effect', err); }
+		finally { if (!chrome.isLocked()) chrome.setNextEnabled(true); }
+	}
 
-  async function completeMicrosoftSignIn(idToken, nonce) {
-    const resp = await fetch('/control-auth', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idToken, nonce }),
-    });
-    if (!resp.ok) throw new Error('auth returned ' + resp.status);
-    const status = await resp.json();
-    controlAuthRequired = !!status.required;
-    controlAuthenticated = !controlAuthRequired || !!status.authenticated;
-    controlAuthProvider = status.provider || controlAuthProvider;
-    microsoftTenant = status.microsoftTenant || microsoftTenant;
-    microsoftClientId = status.microsoftClientId || microsoftClientId;
-    log('live controls signed in', 'system');
-    return controlAuthenticated;
-  }
+	function loadSchema(effectName) {
+		fetch('/effects/' + encodeURIComponent(effectName) + '/schema')
+			.then(r => r.json())
+			.then(schema => { chrome.renderControls(schema); chrome.setControlsLocked(!(authed && armed)); if (latestConfig) chrome.setValues(latestConfig); })
+			.catch(err => { console.error('schema', err); });
+	}
 
-  async function handleMicrosoftCallback() {
-    if (!window.location.hash || !window.location.hash.includes('id_token=')) return;
-    const params = new URLSearchParams(window.location.hash.slice(1));
-    const expectedState = sessionStorage.getItem('ambience.microsoft.state');
-    const expectedNonce = sessionStorage.getItem('ambience.microsoft.nonce');
-    sessionStorage.removeItem('ambience.microsoft.state');
-    sessionStorage.removeItem('ambience.microsoft.nonce');
-    history.replaceState(null, '', '/');
-    if (!params.get('id_token') || !expectedState || !expectedNonce || params.get('state') !== expectedState) {
-      log('live control sign-in failed', 'system');
-      return;
-    }
-    try {
-      const signedIn = await completeMicrosoftSignIn(params.get('id_token'), expectedNonce);
-      setControlsLocked(!signedIn);
-    } catch (err) {
-      console.error('control auth', err);
-      controlAuthenticated = false;
-      log('live control sign-in failed', 'system');
-      setControlsLocked(true);
-    }
-  }
+	// ── scene / track / telemetry ───────────────────────────────────────────
+	function setScene(name) { effectType = name; chrome.setScene(name); chrome.setTele('effect', L(name)); renderLiveTrack(); }
+	function renderLiveTrack() {
+		const items = [{ label: L(effectType || '—'), now: true, dur: fmtDuration(remainingTicks()) }];
+		if (nextSceneName && nextSceneName !== '—') items.push({ label: L(nextSceneName), now: false, title: 'up next' });
+		chrome.renderTrack(items);
+	}
 
-  async function signInControls() {
-    if (controlAuthProvider === 'microsoft' && microsoftTenant && microsoftClientId) {
-      window.location.assign(microsoftAuthURL());
-      return;
-    }
-    const password = window.prompt('live control password');
-    if (!password) return;
-    el.lockButton.disabled = true;
-    let signedIn = false;
-    try {
-      const resp = await fetch('/control-auth', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      });
-      if (!resp.ok) throw new Error('auth returned ' + resp.status);
-      const status = await resp.json();
-      controlAuthRequired = !!status.required;
-      controlAuthenticated = !controlAuthRequired || !!status.authenticated;
-      signedIn = controlAuthenticated;
-      log('live controls signed in', 'system');
-    } catch (err) {
-      console.error('control auth', err);
-      controlAuthenticated = false;
-      log('live control sign-in failed', 'system');
-    } finally {
-      el.lockButton.disabled = false;
-      setControlsLocked(!signedIn);
-    }
-  }
+	const CONN = {
+		acquiring: { tone: 'muted', label: 'acquiring', footer: () => 'acquiring authority…' },
+		live: { tone: 'ok', label: 'live', footer: () => 'live · receiving authority stream' },
+		reconnecting: { tone: 'warn', label: 'reconnecting', footer: () => 'reconnecting · last beat ' + staleSecs() + 's ago' },
+		offline: { tone: 'err', label: 'offline', footer: () => 'authority offline · last seen ' + staleSecs() + 's' },
+	};
+	function staleSecs() { return Math.round((Date.now() - lastBeatAt) / 1000); }
+	function setConn(s) { if (connState === s) return; connState = s; updateConnUI(); }
+	function updateConnUI() {
+		const c = CONN[connState] || CONN.acquiring;
+		chrome.setTeleBadge(c.tone, c.label);
+		chrome.setTeleFooter(c.tone, c.footer());
+		const dead = connState === 'offline';
+		chrome.setTeleTone('server.tick', connState === 'reconnecting' ? 'warn' : dead ? 'err' : null);
+	}
 
-  function makeInitialFadeCover() {
-    const cover = document.createElement('div');
-    cover.setAttribute('aria-hidden', 'true');
-    cover.style.position = 'fixed';
-    cover.style.inset = '0';
-    cover.style.pointerEvents = 'none';
-    cover.style.background = getComputedStyle(document.body).backgroundColor || '#0a0a0a';
-    cover.style.opacity = '1';
-    cover.style.zIndex = '0';
-    cover.style.willChange = 'opacity';
-    canvas.insertAdjacentElement('afterend', cover);
-    return cover;
-  }
+	// 1 Hz: extrapolate tick/remaining, refresh track duration + connection health
+	setInterval(() => {
+		if (sceneDurationTicks > 0) {
+			chrome.setTele('remaining', fmtDuration(remainingTicks()));
+			chrome.setTele('server.tick', tickNow().toLocaleString());
+			renderLiveTrack();
+		}
+		const stale = staleSecs();
+		if (connState === 'live' && stale > 4) setConn('reconnecting');
+		if (connState !== 'offline' && stale > 15) setConn('offline');
+		if (connState === 'offline' || connState === 'reconnecting') chrome.setTeleFooter((CONN[connState]).tone, CONN[connState].footer());
+	}, 1000);
 
-  initialFadeCover = makeInitialFadeCover();
+	function now() { return new Date().toTimeString().slice(0, 8); }
 
-  function revealInitialScene() {
-    if (initialFadeStarted) return;
-    initialFadeStarted = true;
-    if (!initialFadeCover || INITIAL_FADE_MS <= 0) {
-      if (initialFadeCover) initialFadeCover.remove();
-      initialFadeCover = null;
-      return;
-    }
-    const cover = initialFadeCover;
-    if (cover.animate) {
-      const fade = cover.animate(
-        [{ opacity: 1 }, { opacity: 0 }],
-        { duration: INITIAL_FADE_MS, easing: 'ease', fill: 'both' },
-      );
-      fade.finished
-        .then(() => { cover.remove(); })
-        .catch(() => { cover.remove(); });
-      initialFadeCover = null;
-      return;
-    }
-    cover.style.transition = 'opacity ' + INITIAL_FADE_MS + 'ms ease';
-    cover.offsetWidth;
-    cover.style.opacity = '0';
-    setTimeout(() => { cover.remove(); }, INITIAL_FADE_MS + 50);
-    initialFadeCover = null;
-  }
+	function applySnapshot(snap) {
+		const nextType = (snap && snap.type) || 'rain';
+		const typeChanged = nextType !== effectType;
+		if (!effect) {
+			effect = newEffectInstance(nextType);
+			try { effect.restoreSnapshot(snap); } catch (err) { console.error('restoreSnapshot', err); }
+			setScene(nextType); loadSchema(nextType);
+			chrome.appendLog({ t: now(), kind: 'scene', text: 'effect → ' + nextType });
+		} else if (typeChanged) {
+			const incoming = newEffectInstance(nextType);
+			try { incoming.restoreSnapshot(snap); } catch (err) { console.error('restoreSnapshot', err); }
+			effect = AmbienceSim.EffectTransition ? new AmbienceSim.EffectTransition(effect, incoming) : incoming;
+			setScene(nextType); loadSchema(nextType);
+			chrome.appendLog({ t: now(), kind: 'scene', text: 'effect → ' + nextType });
+		} else {
+			try { effect.restoreSnapshot(snap); } catch (err) { console.error('restoreSnapshot', err); }
+		}
+		latestConfig = snap.config || null;
+		if (!typeChanged && latestConfig && chrome.getSchema()) chrome.setValues(latestConfig);
+		if (snap.currentScene) { currentSceneName = snap.currentScene.name || '—'; sceneDurationTicks = snap.currentScene.durationTicks || 0; sceneStartTick = snap.currentScene.startedAtTick || 0; chrome.setTele('scene', currentSceneName); }
+		if (snap.nextScene) { nextSceneName = snap.nextScene.name || '—'; chrome.setTele('up.next', L(nextSceneName)); }
+		if (typeof snap.entropyBytes === 'number') { entropyBytes = snap.entropyBytes; chrome.setTele('entropy', fmtBytes(entropyBytes)); }
+		if (typeof snap.sceneRemaining === 'number') chrome.setTele('remaining', fmtDuration(snap.sceneRemaining));
+		renderLiveTrack();
+	}
 
-  el.lockButton.addEventListener('click', () => {
-    if (!controlAuthenticated) {
-      signInControls();
-      return;
-    }
-    setControlsLocked(!controls.isLocked());
-  });
-  el.signOutButton.addEventListener('click', () => {
-    signOutControls();
-  });
-  handleMicrosoftCallback();
-  refreshControlAuth();
+	async function startRuntime() {
+		await AmbienceSim.wasm.ready();
+		const es = new EventSource('/events');
+		es.onmessage = (ev) => {
+			let cmd; try { cmd = JSON.parse(ev.data); } catch (_) { return; }
+			serverTick = cmd.tick || serverTick;
+			lastBeatAt = Date.now();
+			if (connState !== 'live') setConn('live'); else updateConnUI();
+			switch (cmd.kind) {
+				case 'snapshot': applySnapshot(cmd.data); ready = true; break;
+				case 'config':
+					if (!effect) break;
+					try { effect.setConfig(cmd.data); } catch (_) {}
+					latestConfig = cmd.data || null;
+					if (latestConfig && chrome.getSchema()) chrome.setValues(latestConfig);
+					break;
+				case 'trigger':
+					if (effect && effect.triggerEvent) effect.triggerEvent(cmd.event);
+					chrome.appendLog({ t: now(), kind: 'trigger', text: cmd.event + (cmd.desc ? ' · ' + cmd.desc : '') });
+					break;
+				case 'scene':
+					try {
+						const sc = cmd.data;
+						currentSceneName = sc.name || '—'; nextSceneName = sc.nextName || '—';
+						sceneDurationTicks = sc.durationTicks || 0; sceneStartTick = sc.startedAtTick || 0;
+						chrome.setTele('scene', currentSceneName); chrome.setTele('up.next', L(nextSceneName));
+						chrome.appendLog({ t: now(), kind: 'scene', text: 'scene → ' + sc.name + ' · up next ' + sc.nextName });
+						chrome.flashPanel(); renderLiveTrack();
+					} catch (err) { console.error(err); }
+					break;
+				case 'metric':
+					try {
+						const m = cmd.data;
+						if (typeof m.entropyBytes === 'number') { entropyBytes = m.entropyBytes; chrome.setTele('entropy', fmtBytes(entropyBytes)); }
+						if (typeof m.sceneRemaining === 'number') chrome.setTele('remaining', fmtDuration(m.sceneRemaining));
+						if (m.currentName) { currentSceneName = m.currentName; chrome.setTele('scene', currentSceneName); }
+						if (m.nextName) { nextSceneName = m.nextName; chrome.setTele('up.next', L(nextSceneName)); }
+					} catch (_) {}
+					break;
+			}
+		};
+		es.onerror = () => { setConn('reconnecting'); };
 
-  function setPanelCollapsed(on) {
-    el.panel.classList.toggle('collapsed', on);
-    el.togglePanel.textContent = on ? '+' : '-';
-  }
-  setPanelCollapsed(true);
-  el.togglePanel.addEventListener('click', () => {
-    setPanelCollapsed(!el.panel.classList.contains('collapsed'));
-  });
-  window.addEventListener('keydown', (event) => {
-    if (event.target && (event.target.tagName === 'INPUT' || event.target.tagName === 'BUTTON' || event.target.tagName === 'SELECT')) return;
-    if (event.key === 'h') setPanelCollapsed(!el.panel.classList.contains('collapsed'));
-  });
+		setInterval(() => {
+			if (!ready || !effect) return;
+			effect.step();
+			if (effect.isTransition && effect.done()) {
+				if (effect.outgoing && typeof effect.outgoing.destroy === 'function') effect.outgoing.destroy();
+				effect = effect.incoming;
+			}
+		}, 100);
+		(function draw() {
+			if (ready && effect) effect.render(ctx, canvas.width, canvas.height);
+			requestAnimationFrame(draw);
+		})();
+	}
 
-  function fmtDuration(ticks) {
-    const secs = Math.max(0, Math.round(ticks / 10));
-    const h = Math.floor(secs / 3600);
-    const m = Math.floor((secs % 3600) / 60);
-    const s = secs % 60;
-    if (h > 0) return h + 'h ' + String(m).padStart(2, '0') + 'm';
-    if (m > 0) return m + 'm ' + String(s).padStart(2, '0') + 's';
-    return s + 's';
-  }
+	// ── entropy capture (keystrokes fold into the shared RNG) ────────────────
+	let entropyBuf = [];
+	document.addEventListener('keydown', (event) => {
+		const code = (event.key && event.key.length === 1) ? event.key.charCodeAt(0) : 0;
+		if (code === 0) return;
+		entropyBuf.push((code ^ (Date.now() & 0xff)) & 0xff);
+		if (entropyBuf.length > 256) entropyBuf.splice(0, entropyBuf.length - 256);
+	}, { passive: true });
+	setInterval(() => {
+		if (entropyBuf.length === 0) return;
+		const bytes = entropyBuf.splice(0, entropyBuf.length);
+		try { fetch('/entropy', { method: 'POST', body: new Uint8Array(bytes), keepalive: true }).catch(() => {}); } catch (_) {}
+	}, 2000);
 
-  function fmtBytes(n) {
-    if (n < 1024) return n + ' B';
-    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
-    return (n / 1024 / 1024).toFixed(2) + ' MB';
-  }
-
-  function nowTimestamp() {
-    const d = new Date();
-    return d.toTimeString().slice(0, 8);
-  }
-
-  function log(text, kind) {
-    const div = document.createElement('div');
-    div.className = 'event' + (kind ? ' ' + kind : '');
-    const time = document.createElement('span');
-    time.className = 'time';
-    time.textContent = nowTimestamp();
-    const body = document.createElement('span');
-    body.textContent = text;
-    div.append(time, body);
-    el.events.appendChild(div);
-    while (el.events.children.length > 60) el.events.removeChild(el.events.firstChild);
-    el.events.scrollTop = el.events.scrollHeight;
-  }
-
-  let serverTick = 0;
-  let lastBeatAt = Date.now();
-  let sceneStartTick = 0;
-  let sceneDurationTicks = 0;
-
-  function updateRemainingDisplay() {
-    if (sceneDurationTicks <= 0) return;
-    const elapsedSecs = (Date.now() - lastBeatAt) / 1000;
-    const tickNow = serverTick + Math.round(elapsedSecs * 10);
-    const remaining = Math.max(0, sceneStartTick + sceneDurationTicks - tickNow);
-    el.sceneRemaining.textContent = fmtDuration(remaining);
-    el.tick.textContent = tickNow.toLocaleString();
-  }
-  setInterval(updateRemainingDisplay, 1000);
-
-  async function loadSchema(effectName) {
-    const token = ++schemaLoadToken;
-    try {
-      const resp = await fetch('/effects/' + encodeURIComponent(effectName) + '/schema');
-      const schema = await resp.json();
-      if (token !== schemaLoadToken) return;
-      controls.setEffect(effectName);
-      controls.render(schema);
-      if (latestConfig) controls.setValues(latestConfig);
-    } catch (err) {
-      console.error('schema', err);
-      log('schema unavailable for ' + effectName, 'system');
-    }
-  }
-
-  function currentSharedQuery() {
-    if (!effectType) return '';
-    const values = controls.currentValues();
-    const q = new URLSearchParams();
-    q.set('effect', effectType);
-    for (const knob of controls.getKnobs()) {
-      const value = values[knob.key];
-      if (value == null) continue;
-      q.set(knob.key, knob.type === 'int' ? String(Math.round(value)) : String(value));
-    }
-    return q.toString();
-  }
-
-  async function pushSharedConfig() {
-    if (controls.isLocked() || !controls.getSchema() || !effectType) return;
-    try {
-      const resp = await fetch('/config?' + currentSharedQuery(), { method: 'POST', credentials: 'same-origin' });
-      if (resp.status === 401) {
-        controlAuthenticated = false;
-        setControlsLocked(true);
-      }
-      if (!resp.ok) throw new Error('config returned ' + resp.status);
-    } catch (err) {
-      console.error('shared config push', err);
-      log('live config push failed', 'system');
-    }
-  }
-
-  let debounceTimer = null;
-  function scheduleSharedConfigPush() {
-    if (controls.isLocked()) return;
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(pushSharedConfig, 150);
-  }
-
-  async function triggerSharedEvent(eventName) {
-    if (controls.isLocked()) return;
-    try {
-      const resp = await fetch('/trigger/' + encodeURIComponent(eventName) + '?effect=' + encodeURIComponent(effectType), {
-        method: 'POST',
-        credentials: 'same-origin',
-      });
-      if (resp.status === 401) {
-        controlAuthenticated = false;
-        setControlsLocked(true);
-      }
-      if (!resp.ok) throw new Error('trigger returned ' + resp.status);
-    } catch (err) {
-      console.error('shared trigger', err);
-      log('trigger failed: ' + eventName, 'system');
-    }
-  }
-
-  async function advanceSharedEffect() {
-    if (controls.isLocked()) return;
-    el.nextEffectButton.disabled = true;
-    try {
-      const resp = await fetch('/next-effect', {
-        method: 'POST',
-        credentials: 'same-origin',
-      });
-      if (resp.status === 401) {
-        controlAuthenticated = false;
-        setControlsLocked(true);
-      }
-      if (!resp.ok) throw new Error('next-effect returned ' + resp.status);
-      log('requested next effect', 'scene');
-    } catch (err) {
-      console.error('next effect', err);
-      log('next effect failed', 'system');
-    } finally {
-      if (!controls.isLocked()) el.nextEffectButton.disabled = false;
-    }
-  }
-
-  el.nextEffectButton.addEventListener('click', advanceSharedEffect);
-
-  function applySnapshot(snap) {
-    const nextType = (snap && snap.type) || 'rain';
-    const typeChanged = nextType !== effectType;
-    if (!effect) {
-      effect = newEffectInstance(nextType);
-      try { effect.restoreSnapshot(snap); } catch (err) { console.error('restoreSnapshot failed', err); }
-      effectType = nextType;
-      controls.setEffect(effectType);
-      loadSchema(effectType);
-      initialFadePending = true;
-      log('effect -> ' + effectType, 'scene');
-    } else if (typeChanged) {
-      // Crossfade from the previous effect into the new one. The outgoing
-      // sim keeps stepping during the fade so neither layer freezes.
-      const incoming = newEffectInstance(nextType);
-      try { incoming.restoreSnapshot(snap); } catch (err) { console.error('restoreSnapshot failed', err); }
-      effect = AmbienceSim.EffectTransition
-        ? new AmbienceSim.EffectTransition(effect, incoming)
-        : incoming;
-      effectType = nextType;
-      controls.setEffect(effectType);
-      loadSchema(effectType);
-      log('effect -> ' + effectType, 'scene');
-    } else {
-      try {
-        effect.restoreSnapshot(snap);
-      } catch (err) {
-        console.error('restoreSnapshot failed', err);
-      }
-    }
-    latestConfig = snap.config || null;
-    if (!typeChanged && latestConfig && controls.getSchema()) controls.setValues(latestConfig);
-    if (snap.currentScene) {
-      el.sceneName.textContent = snap.currentScene.name || '-';
-      sceneDurationTicks = snap.currentScene.durationTicks || 0;
-      sceneStartTick = snap.currentScene.startedAtTick || 0;
-    }
-    if (snap.nextScene) el.nextName.textContent = snap.nextScene.name || '-';
-    if (typeof snap.entropyBytes === 'number') el.entropyCount.textContent = fmtBytes(snap.entropyBytes);
-    if (typeof snap.sceneRemaining === 'number') el.sceneRemaining.textContent = fmtDuration(snap.sceneRemaining);
-    log('snapshot applied - tick ' + snap.tick, 'scene');
-  }
-
-  async function startRuntime() {
-    await AmbienceSim.wasm.ready();
-    const es = new EventSource('/events');
-    es.onmessage = (ev) => {
-      let cmd;
-      try {
-        cmd = JSON.parse(ev.data);
-      } catch (_) {
-        return;
-      }
-      serverTick = cmd.tick || serverTick;
-      lastBeatAt = Date.now();
-
-      switch (cmd.kind) {
-        case 'snapshot':
-          applySnapshot(cmd.data);
-          ready = true;
-          break;
-        case 'config':
-          if (!effect) break;
-          try {
-            effect.setConfig(cmd.data);
-          } catch (_) {}
-          latestConfig = cmd.data || null;
-          if (latestConfig && controls.getSchema()) controls.setValues(latestConfig);
-          break;
-        case 'trigger':
-          if (effect && effect.triggerEvent) effect.triggerEvent(cmd.event);
-          log(cmd.event + (cmd.desc ? ' - ' + cmd.desc : ''), 'trigger');
-          break;
-        case 'scene':
-          try {
-            const scene = cmd.data;
-            el.sceneName.textContent = scene.name || '-';
-            el.nextName.textContent = scene.nextName || '-';
-            sceneDurationTicks = scene.durationTicks || 0;
-            sceneStartTick = scene.startedAtTick || 0;
-            log('scene -> ' + scene.name + ' - up next ' + scene.nextName, 'scene');
-            el.panel.classList.remove('flash');
-            void el.panel.offsetWidth;
-            el.panel.classList.add('flash');
-          } catch (err) {
-            console.error(err);
-          }
-          break;
-        case 'metric':
-          try {
-            const metric = cmd.data;
-            if (typeof metric.entropyBytes === 'number') el.entropyCount.textContent = fmtBytes(metric.entropyBytes);
-            if (typeof metric.sceneRemaining === 'number') el.sceneRemaining.textContent = fmtDuration(metric.sceneRemaining);
-            if (metric.currentName) el.sceneName.textContent = metric.currentName;
-            if (metric.nextName) el.nextName.textContent = metric.nextName;
-          } catch (_) {}
-          break;
-      }
-    };
-    es.onerror = () => {
-      log('sse disconnected - retrying', 'system');
-    };
-
-    setInterval(() => {
-      if (!ready || !effect) return;
-      effect.step();
-      // Unwrap a finished crossfade so we drop the outgoing sim once the
-      // incoming one is fully visible.
-      if (effect.isTransition && effect.done()) {
-        if (effect.outgoing && typeof effect.outgoing.destroy === 'function') effect.outgoing.destroy();
-        effect = effect.incoming;
-      }
-    }, 100);
-
-    (function draw() {
-      if (ready && effect) {
-        effect.render(ctx, canvas.width, canvas.height);
-        if (initialFadePending) {
-          initialFadePending = false;
-          revealInitialScene();
-        }
-      }
-      requestAnimationFrame(draw);
-    })();
-  }
-
-  let entropyBuf = [];
-  const ENTROPY_FLUSH_MS = 2000;
-  const ENTROPY_MAX_BUFFERED = 256;
-
-  document.addEventListener('keydown', (event) => {
-    if (!el.entropyToggle.checked) return;
-    const charCode = (event.key && event.key.length === 1) ? event.key.charCodeAt(0) : 0;
-    if (charCode === 0) return;
-    const t = Date.now() & 0xff;
-    entropyBuf.push((charCode ^ t) & 0xff);
-    if (entropyBuf.length > ENTROPY_MAX_BUFFERED) {
-      entropyBuf.splice(0, entropyBuf.length - ENTROPY_MAX_BUFFERED);
-    }
-    el.entropyCount.classList.remove('entropy-pulse');
-    void el.entropyCount.offsetWidth;
-    el.entropyCount.classList.add('entropy-pulse');
-  }, { passive: true });
-
-  setInterval(() => {
-    if (!el.entropyToggle.checked || entropyBuf.length === 0) return;
-    const bytes = entropyBuf.splice(0, entropyBuf.length);
-    const count = bytes.length;
-    try {
-      fetch('/entropy', {
-        method: 'POST',
-        body: new Uint8Array(bytes),
-        keepalive: true,
-      }).then(() => {
-        log('entropy +' + count + ' B', 'entropy');
-      }).catch(() => {});
-    } catch (_) {}
-  }, ENTROPY_FLUSH_MS);
-
-  log('connecting...', 'system');
-  startRuntime().catch((err) => {
-    console.error(err);
-    log('wasm runtime failed', 'system');
-  });
+	// ── boot ─────────────────────────────────────────────────────────────
+	setAuthUI();
+	handleMicrosoftCallback();
+	refreshControlAuth();
+	startRuntime().catch((err) => { console.error(err); chrome.setLine('wasm runtime failed'); });
 })();
 </script>
 </body>

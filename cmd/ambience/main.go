@@ -11,6 +11,9 @@
 //	GET  /wasm_runtime.js       — Go/WASM sim loader
 //	GET  /ambience.wasm         — Go sim package compiled for browser runtime
 //	GET  /controls.js           — shared schema-driven control panel helper
+//	GET  /chrome.js             — shared "Exposed" control/monitor chrome
+//	GET  /chrome.css            — chrome styles + design tokens
+//	GET  /fonts/Archivo.ttf     — chrome wordmark/label font
 //	GET  /snapshot              — shared atmosphere init payload (JSON)
 //	GET  /events                — shared atmosphere SSE command stream
 //	GET  /control-auth          — live-control auth status
@@ -245,6 +248,14 @@ func registerStaticRoutes(mux *http.ServeMux, static staticAssets, lookup effect
 	// /wasm_runtime.js from the Go/WASM runtime.
 	mux.HandleFunc("/sim.js", serveSimBundle(static))
 	mux.HandleFunc("/controls.js", serveStaticFile(static, "controls.js"))
+	// "Exposed" chrome — shared control/monitor presentation used by both
+	// index.html and dev.html, its stylesheet, and the wordmark font. There is
+	// no static catch-all, so without explicit routes these would fall through
+	// to the index page; the font @font-face in chrome.css fetches it from the
+	// /fonts/ path relative to /chrome.css.
+	mux.HandleFunc("/chrome.js", serveStaticFile(static, "chrome.js"))
+	mux.HandleFunc("/chrome.css", serveStaticFile(static, "chrome.css"))
+	mux.HandleFunc("/fonts/Archivo.ttf", serveStaticFile(static, "fonts/Archivo.ttf"))
 	mux.HandleFunc("/client.js", serveStaticFile(static, "client.js"))
 	mux.HandleFunc("/ambience.js", serveStaticFile(static, "ambience.js"))
 	mux.HandleFunc("/wasm_runtime.js", serveStaticFile(static, "wasm_runtime.js"))
