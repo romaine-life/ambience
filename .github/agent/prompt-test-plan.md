@@ -22,6 +22,10 @@ environment and reconciles them.
 1. Read the issue context (provided below) and re-read the project's
    `AGENTS.md`, `CLAUDE.md`, `docs/effects-cookbook.md`, and
    `docs/dev-endpoints.md` so your plan matches project conventions.
+   If the issue context includes an `Issue contract` JSON block, treat
+   its canonical target, public routes, trigger names, aliases, and
+   recommended touchpoints as binding. Do not invent a competing public
+   slug or event name.
    If the issue context includes a `Run evidence requirements` JSON
    block, treat it as a required input from Glimmung and mirror every
    non-optional item in your `required_evidence`.

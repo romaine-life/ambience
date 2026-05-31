@@ -15,7 +15,10 @@ validation environment and produces the verdict.
 1. Read the issue context (provided below) and re-read the project's
    `AGENTS.md`, `CLAUDE.md`, and the cookbook docs
    (`docs/effects-cookbook.md`, `docs/dev-endpoints.md`) for
-   conventions.
+   conventions. If the context includes an `Issue contract` JSON block,
+   treat its canonical target, public routes, trigger names, aliases, and
+   recommended touchpoints as binding. The contract does not tell you how
+   to implement the feature, but it does settle public names.
 2. Identify a single bounded slice that addresses the issue. Bias
    toward the smallest change that resolves the stated request — the
    same scope discipline the test-plan stage applies, picked
@@ -77,6 +80,8 @@ Write a short companion `issue-agent-implementation.md` with:
 - **Do not** read or depend on the test-plan artifact. This stage runs
   in parallel with test planning; the two are reconciled by the
   verification stage.
+- **Do** follow the issue-contract artifact when present. It is shared
+  upstream target context, not a test plan.
 - **Do not** push to GitHub. **Do not** open PRs. **Do not** comment
   on issues. Networked GitHub operations are forbidden in this stage.
 - **Do not** curl or otherwise touch the validation environment. The

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-# Always-run teardown phase (glimmung#296). Runs after agent-execute
-# regardless of how that phase resolved — success, abort, or fail —
-# so a failed verify-loop no longer leaves its slot namespace
-# claiming the public hostname for the next 24h. Idempotent: missing
+# Always-run teardown phase (glimmung#296). Runs after the verification gate
+# regardless of how that gate resolved — success, abort, or fail —
+# so a failed verify-loop no longer leaves its slot namespace claiming
+# the public hostname for the next 24h. Idempotent: missing
 # helm release or namespace is fine, we log and move on.
 #
 # The env-prep slot reap (ambience#224) stays in place as belt-and-
