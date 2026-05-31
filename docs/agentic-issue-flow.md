@@ -15,19 +15,21 @@ the source of issue-run execution for the native Ambience flow.
 2. Glimmung creates a Run, acquires native runner capacity, creates the
    per-attempt callback token, and launches a Kubernetes Job in
    `glimmung-runs`.
-3. The `env-prep` native phase runs
-   `scripts/glimmung-native/env-prep.sh`.
+3. The `prepare` native phase runs two parallel jobs:
+   `scripts/glimmung-native/env-prep.sh` and
+   `scripts/glimmung-native/issue-contract.sh`.
 4. `env-prep` clones this repo, builds and verifies an Ambience validation
    image, deploys a public validation environment, checks it, and emits
    `validation_url`, `namespace`, `image_tag`, `claude_namespace`, and
    `claude_ca_namespace`.
-5. Glimmung substitutes those phase outputs into `agent-execute`.
-6. The `agent-execute` native phase runs
-   `scripts/glimmung-native/agent-execute.sh`.
-7. `agent-execute` clones this repo, prepares the Claude agent Job in the
-   validation namespace, collects logs/evidence, rebuilds the validation
-   environment from the pushed agent branch, captures browser evidence, posts a
-   typed verification result, and lets Glimmung drive retry/report decisions.
+5. `issue-contract` reads the issue and emits `issue_contract`, the canonical
+   target/public-surface contract consumed by later LLM jobs.
+6. Glimmung substitutes those phase outputs into `llm-work`.
+7. `llm-work` runs `test-plan` and `implement` in parallel. Both consume
+   `issue_contract`; neither consumes the other's output.
+8. `llm-verify` receives `issue_contract`, `test_plan`, `implementation`, and
+   the rebuilt validation URL, captures evidence, posts a typed verification
+   result, and lets Glimmung drive retry/report decisions.
 
 Glimmung-native issue bodies are passed into the native Kubernetes job as the
 `GLIMMUNG_ISSUE_BODY` environment variable and included verbatim in the agent
@@ -65,13 +67,10 @@ The terminal review surface is the Glimmung Report primitive. The current
 Glimmung registration schema still exposes that knob as `pr.enabled` until the
 remaining Report API rename lands.
 
-The native runner registration has been smoke-tested end-to-end through
-Glimmung against this repo: a Glimmung-dispatched issue successfully
-ran `env-prep` and `agent-execute` against the registered Ambience
-workflow and produced a documentation-only commit on an agent branch.
-Most recently re-exercised on 2026-05-04 as a production dogfood pass:
-both phases ran cleanly under the registered native runner image and the
-attempt produced a reviewable agent branch via the Report primitive.
+The native runner registration was first smoke-tested end-to-end through
+Glimmung on 2026-05-04 with the earlier two-phase native runner. The current
+workflow shape is `prepare` → `llm-work` → `llm-verify` → `evidence-gate`; use
+the Glimmung run graph as the source of truth for the active registered shape.
 
 The native runner confirms the pushed agent branch directly through GitHub.
 It does not mutate validation namespace metadata for branch discovery.
@@ -90,8 +89,9 @@ Codex, and the native Ambience scripts under `/opt/ambience-native/scripts`.
 
 ## Retry And Resume
 
-`agent-execute` is a verification phase with a recycle policy on
-`verify_fail` and `verify_malformed`. The app-owned step boundaries are the
+`llm-verify` plus the evidence gate form the verification boundary with a
+recycle policy on `verify_fail` and `verify_malformed`. The app-owned step
+boundaries are the
 resume surface for future MCP/API dispatches; a caller that wants to resume
 from a particular point should pass `GLIMMUNG_RESUME_FROM_STEP=<step-slug>`
 when creating the next native attempt.
@@ -106,8 +106,7 @@ the markdown summary still links through
 `https://glimmung.romaine.life/v1/artifacts/...`. Public reviewers do not
 access the storage account directly.
 
-The Glimmung-artifact upload path has been smoke-tested end-to-end through a
-Glimmung-dispatched native run against this repo: `agent-execute` captured
-browser evidence from the validation environment and pushed it to
+The Glimmung-artifact upload path is exercised by `llm-verify`, which captures
+browser evidence from the validation environment and pushes it to
 `runs/ambience/<run-id>/...` on `romaineglimmungartifacts`, with the proxy link
-rendering inline in the resulting PR body.
+rendering inline in the resulting report body.

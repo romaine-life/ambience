@@ -71,6 +71,7 @@ printf '[]\n' >"$EVIDENCE_ARTIFACTS"
 mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/videos"
 
 # Stage handoff files — written by prepare_context from glimmung inputs.
+ISSUE_CONTRACT_FILE="${EVIDENCE_DIR}/issue-agent-contract.json"
 TEST_PLAN_FILE="${EVIDENCE_DIR}/issue-agent-test-plan.json"
 TEST_PLAN_MD_FILE="${EVIDENCE_DIR}/issue-agent-test-plan.md"
 IMPL_FILE="${EVIDENCE_DIR}/issue-agent-implementation.json"
@@ -132,6 +133,14 @@ prepare_context() {
     --dry-run=client -o yaml | kubectl apply -f -
 
   # Stage handoff artifacts from glimmung phase outputs into evidence dir.
+  if [ -n "${GLIMMUNG_INPUT_ISSUE_CONTRACT:-}" ]; then
+    printf '%s' "$GLIMMUNG_INPUT_ISSUE_CONTRACT" | jq -r . >"$ISSUE_CONTRACT_FILE" 2>/dev/null \
+      || printf '%s' "$GLIMMUNG_INPUT_ISSUE_CONTRACT" >"$ISSUE_CONTRACT_FILE"
+    echo "staged issue-contract JSON ($(wc -c <"$ISSUE_CONTRACT_FILE") bytes)"
+  else
+    echo "GLIMMUNG_INPUT_ISSUE_CONTRACT not set; verify will proceed without issue-contract context"
+  fi
+
   # GLIMMUNG_INPUT_TEST_PLAN is the test-plan JSON string; unwrap it.
   if [ -n "${GLIMMUNG_INPUT_TEST_PLAN:-}" ]; then
     printf '%s' "$GLIMMUNG_INPUT_TEST_PLAN" | jq -r . >"$TEST_PLAN_FILE" 2>/dev/null \
@@ -153,7 +162,7 @@ prepare_context() {
   local args=(
     --from-file=prompt-verification.md="${REPO_DIR}/.github/agent/prompt-verification.md"
   )
-  for f in "$TEST_PLAN_FILE" "$TEST_PLAN_MD_FILE" "$IMPL_FILE" "$IMPL_MD_FILE"; do
+  for f in "$ISSUE_CONTRACT_FILE" "$TEST_PLAN_FILE" "$TEST_PLAN_MD_FILE" "$IMPL_FILE" "$IMPL_MD_FILE"; do
     [ -s "$f" ] || continue
     base="$(basename "$f")"
     args+=(--from-file="${base}=${f}")
@@ -252,6 +261,74 @@ verification_cost() {
   else
     printf '0'
   fi
+}
+
+enforce_issue_contract() {
+  local contract="${ISSUE_CONTRACT_FILE}"
+  if [ ! -s "$contract" ]; then
+    add_reason "missing issue-contract JSON; cannot enforce public target contract"
+    return 1
+  fi
+
+  local failed=0
+  local slug dev_route schema_route
+  slug="$(jq -r '.canonical_target.slug // ""' "$contract" 2>/dev/null || true)"
+  dev_route="$(jq -r '.public_surface.dev_route // ""' "$contract" 2>/dev/null || true)"
+  schema_route="$(jq -r '.public_surface.schema_route // ""' "$contract" 2>/dev/null || true)"
+
+  check_get_route() {
+    local label="$1"
+    local route="$2"
+    [ -n "$route" ] || return 0
+    local status
+    status="$(curl -sS -o /dev/null -w "%{http_code}" "${VALIDATION_URL}${route}" || printf '000')"
+    case "$status" in
+      2*|3*) ;;
+      *)
+        add_reason "issue contract: ${label} ${route} returned HTTP ${status}"
+        failed=1
+        ;;
+    esac
+  }
+
+  check_get_route "dev route" "$dev_route"
+  check_get_route "schema route" "$schema_route"
+
+  if jq -e '(.public_surface.trigger_events // []) | length > 0' "$contract" >/dev/null 2>&1; then
+    if [ -z "$slug" ]; then
+      add_reason "issue contract: trigger_events declared but canonical_target.slug is empty"
+      failed=1
+    else
+      while IFS= read -r event; do
+        [ -n "$event" ] || continue
+        local session status
+        session="contract-$(printf '%s' "$event" | tr -c 'A-Za-z0-9_-' '-')"
+        status="$(curl -sS -o /dev/null -w "%{http_code}" \
+          -X POST "${VALIDATION_URL}/dev/trigger/${session}/${event}?effect=${slug}" || printf '000')"
+        case "$status" in
+          2*|3*) ;;
+          *)
+            add_reason "issue contract: trigger ${event} for effect ${slug} returned HTTP ${status}"
+            failed=1
+            ;;
+        esac
+      done < <(jq -r '.public_surface.trigger_events[]? // empty' "$contract" 2>/dev/null)
+    fi
+  fi
+
+  while IFS= read -r forbidden; do
+    [ -n "$forbidden" ] || continue
+    local status
+    status="$(curl -sS -o /dev/null -w "%{http_code}" "${VALIDATION_URL}/dev/${forbidden}" || printf '000')"
+    case "$status" in
+      2*|3*)
+        add_reason "issue contract: forbidden public name /dev/${forbidden} unexpectedly exists"
+        failed=1
+        ;;
+    esac
+  done < <(jq -r '.forbidden_public_names[]? // empty' "$contract" 2>/dev/null)
+
+  [ "$failed" -eq 0 ]
 }
 
 enforce_evidence_contract() {
@@ -460,6 +537,11 @@ finalize() {
   verifier_status="$(jq -r '.status // "missing"' "${EVIDENCE_DIR}/issue-agent-verification.json" 2>/dev/null || echo missing)"
   if [ "$verifier_status" != "pass" ]; then
     add_reason "verifier reported status=${verifier_status} reason=$(jq -r '.abort_reason // ""' "${EVIDENCE_DIR}/issue-agent-verification.json" 2>/dev/null || echo "")"
+    write_verification "fail"
+    return 0
+  fi
+
+  if ! enforce_issue_contract; then
     write_verification "fail"
     return 0
   fi

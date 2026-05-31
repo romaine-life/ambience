@@ -55,6 +55,7 @@ EVIDENCE_DIR="/tmp/evidence"
 POD_LOG="/tmp/agent-pod.log"
 IMPL_EXIT_CODE_FILE="/tmp/implementation-exit-code"
 PROXY_IP_FILE="/tmp/implementation-proxy-ip"
+ISSUE_CONTRACT_FILE="${EVIDENCE_DIR}/issue-agent-contract.json"
 : >"$SUMMARY_MD"
 : >"$EVENTS_LOG"
 mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/videos"
@@ -114,8 +115,20 @@ prepare_context() {
     --from-literal=token="$token" \
     --dry-run=client -o yaml | kubectl apply -f -
 
+  if [ -n "${GLIMMUNG_INPUT_ISSUE_CONTRACT:-}" ]; then
+    printf '%s' "$GLIMMUNG_INPUT_ISSUE_CONTRACT" | jq -r . >"$ISSUE_CONTRACT_FILE" 2>/dev/null \
+      || printf '%s' "$GLIMMUNG_INPUT_ISSUE_CONTRACT" >"$ISSUE_CONTRACT_FILE"
+    echo "staged issue-contract JSON ($(wc -c <"$ISSUE_CONTRACT_FILE") bytes)"
+  else
+    echo "GLIMMUNG_INPUT_ISSUE_CONTRACT not set; implementation will proceed from issue context only"
+  fi
+
+  local args=(
+    --from-file=prompt-implementation.md="${REPO_DIR}/.github/agent/prompt-implementation.md"
+  )
+  [ -s "$ISSUE_CONTRACT_FILE" ] && args+=(--from-file="issue-agent-contract.json=${ISSUE_CONTRACT_FILE}")
   kubectl -n "$NAMESPACE" create configmap "$CONFIG_MAP_NAME" \
-    --from-file=prompt-implementation.md="${REPO_DIR}/.github/agent/prompt-implementation.md" \
+    "${args[@]}" \
     --dry-run=client -o yaml | kubectl apply -f -
 }
 

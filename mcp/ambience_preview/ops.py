@@ -517,17 +517,19 @@ def destroy_pr_preview(*, pr_number: int, release: str = DEFAULT_PR_RELEASE_NAME
 # container's bash from the env block defined in apply_agent_job below
 # (REPO_SLUG, GH_TOKEN, ISSUE_NUMBER, BRANCH_NAME, etc).
 #
-# The flow is split across two K8s Job pods to reduce per-step LLM context
+# The flow is split across K8s Job pods to reduce per-step LLM context
 # burden (see docs/issue-agent-stage-split.md and tank-operator's
 # docs/agent-llm-task-splitting.md):
 #
-#   pod 1 — _PLAN_AND_IMPLEMENT_BASH: two sequential `claude --print`
-#   invocations (test-plan, then implementation), each with a fresh LLM
-#   context. Pod 1 commits + pushes the implementation branch on success.
+#   issue-contract — canonicalizes the issue target before test-plan and
+#   implement run. It does not plan evidence or edit code.
 #
-#   pod 2 — _VERIFY_BASH: one `claude --print` invocation that reads the
+#   test-plan / implement — independent sibling jobs. Both read the issue
+#   contract, but neither reads the other's artifact.
+#
+#   verify — one `claude --print` invocation that reads the
 #   prior stages' JSON+MD handoff artifacts (mounted via configmap) and
-#   captures evidence against the rebuilt validation env. Pod 2 does NOT
+#   captures evidence against the rebuilt validation env. It does NOT
 #   touch git.
 #
 # Both share the same bootstrap (claude state seed + git auth header).
@@ -636,6 +638,43 @@ if [ -d /workspace/evidence ]; then
 fi
 """
 
+# Pod: issue-contract. Read-only target canonicalization — no code edits,
+# no evidence planning, no git mutations.
+_ISSUE_CONTRACT_BASH = _AGENT_BOOTSTRAP_BASH + r"""
+git -c "http.extraHeader=${GIT_AUTH_HEADER}" \
+  clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
+cd /workspace/repo
+
+echo "=== prewarm: go mod download ==="
+go mod download 2>&1 | tail -20 || true
+
+echo "=== STAGE: issue-contract ==="
+cat /agent-config/prompt-issue-contract.md /tmp/issue-context.md > /tmp/contract-input.md
+cat /tmp/contract-input.md | claude \
+  --print \
+  --output-format stream-json \
+  --verbose \
+  --dangerously-skip-permissions \
+  2>&1 | tee /tmp/issue-contract-stream.log
+
+if [ ! -f /workspace/evidence/issue-agent-contract.json ]; then
+  echo "issue-contract stage exited without writing issue-agent-contract.json" >&2
+  exit 1
+fi
+contract_status="$(jq -r '.status // "missing"' /workspace/evidence/issue-agent-contract.json)"
+if [ "$contract_status" != "pass" ]; then
+  echo "issue-contract aborted: status=${contract_status} reason=$(jq -r '.abort_reason // ""' /workspace/evidence/issue-agent-contract.json)" >&2
+  exit 1
+fi
+
+# Issue-contract stage may not modify the working tree.
+if [ -n "$(git status --porcelain)" ]; then
+  echo "issue-contract stage modified files (forbidden):" >&2
+  git status --short >&2
+  exit 1
+fi
+""" + _AGENT_EVIDENCE_TAIL_BASH
+
 # Pod: test-plan. Read-only analysis — no code edits, no git mutations.
 # Clones main, runs the test-plan LLM, emits issue-agent-test-plan.json.
 _TEST_PLAN_BASH = _AGENT_BOOTSTRAP_BASH + r"""
@@ -647,7 +686,22 @@ echo "=== prewarm: go mod download ==="
 go mod download 2>&1 | tail -20 || true
 
 echo "=== STAGE: test-plan ==="
-cat /agent-config/prompt-test-plan.md /tmp/issue-context.md > /tmp/plan-input.md
+{
+  cat /agent-config/prompt-test-plan.md
+  cat /tmp/issue-context.md
+  if [ -f /agent-config/issue-agent-contract.json ]; then
+    echo ""
+    echo "## Issue contract"
+    echo ""
+    echo '```json'
+    cat /agent-config/issue-agent-contract.json
+    echo '```'
+  fi
+  if [ -f /agent-config/issue-agent-contract.md ]; then
+    echo ""
+    cat /agent-config/issue-agent-contract.md
+  fi
+} > /tmp/plan-input.md
 cat /tmp/plan-input.md | claude \
   --print \
   --output-format stream-json \
@@ -690,7 +744,22 @@ echo "=== prewarm: go mod download ==="
 go mod download 2>&1 | tail -20 || true
 
 echo "=== STAGE: implementation ==="
-cat /agent-config/prompt-implementation.md /tmp/issue-context.md > /tmp/impl-input.md
+{
+  cat /agent-config/prompt-implementation.md
+  cat /tmp/issue-context.md
+  if [ -f /agent-config/issue-agent-contract.json ]; then
+    echo ""
+    echo "## Issue contract"
+    echo ""
+    echo '```json'
+    cat /agent-config/issue-agent-contract.json
+    echo '```'
+  fi
+  if [ -f /agent-config/issue-agent-contract.md ]; then
+    echo ""
+    cat /agent-config/issue-agent-contract.md
+  fi
+} > /tmp/impl-input.md
 cat /tmp/impl-input.md | claude \
   --print \
   --output-format stream-json \
@@ -753,7 +822,8 @@ echo "=== prewarm: go mod download ==="
 go mod download 2>&1 | tail -20 || true
 
 # Make prior-phase handoff artifacts visible under /workspace/evidence/.
-for f in issue-agent-test-plan.json issue-agent-test-plan.md \
+for f in issue-agent-contract.json issue-agent-contract.md \
+         issue-agent-test-plan.json issue-agent-test-plan.md \
          issue-agent-implementation.json issue-agent-implementation.md; do
   if [ -f "/agent-config/${f}" ]; then
     cp "/agent-config/${f}" "/workspace/evidence/${f}"
@@ -764,6 +834,14 @@ echo "=== STAGE: verification ==="
 {
   cat /agent-config/prompt-verification.md
   cat /tmp/issue-context.md
+  echo ""
+  echo "## Issue contract"
+  echo ""
+  echo '```json'
+  cat /workspace/evidence/issue-agent-contract.json 2>/dev/null || echo '{}'
+  echo '```'
+  echo ""
+  cat /workspace/evidence/issue-agent-contract.md 2>/dev/null || true
   echo ""
   echo "## Test plan"
   echo ""
@@ -803,6 +881,7 @@ fi
 """ + _AGENT_EVIDENCE_TAIL_BASH
 
 _STAGE_BASH_SCRIPTS = {
+    "issue-contract": _ISSUE_CONTRACT_BASH,
     "test-plan": _TEST_PLAN_BASH,
     "implement": _IMPLEMENT_BASH,
     "verify": _VERIFY_BASH,

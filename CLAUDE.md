@@ -21,24 +21,37 @@ Release/deploy workflows publish the fingerprint-tagged images used by deploys.
 Glimmung dispatches autonomous agent runs for ambience as a native-k8s
 flow (`default` workflow). Per the platform principle in
 `tank-operator/docs/agent-llm-task-splitting.md`, LLM work is split
-across three parallel-capable phases:
+across staged phases with one shared target contract:
 
 ```
-env-prep → test-plan ─┐
-         → implement  ─┴→ verify (evidence_verification_gate) → env-destroy
+prepare
+  ├─ env-prep
+  └─ issue-contract
+       ↓
+llm-work
+  ├─ test-plan
+  └─ implement
+       ↓
+verify (evidence_verification_gate) → env-destroy
 ```
 
-- **test-plan** and **implement** both depend on `env-prep` and run in
-  parallel. `test-plan` produces an evidence specification; `implement`
-  produces code changes and pushes the branch + rebuilds the validation env.
-- **verify** depends on both and receives their JSON outputs as phase inputs.
-  It runs the verification LLM against the rebuilt env and enforces the
-  test plan's `required_evidence` contract before emitting `pass`.
+- **prepare** runs `env-prep` and `issue-contract` as parallel jobs.
+  `env-prep` prepares the validation environment. `issue-contract`
+  canonicalizes target names, public routes, trigger events, and aliases.
+- **test-plan** and **implement** both consume the issue contract and run in
+  parallel. They do not read each other's artifacts. `test-plan` produces an
+  evidence specification; `implement` produces code changes and pushes the
+  branch + rebuilds the validation env.
+- **verify** receives the issue contract, test plan, and implementation JSON
+  as phase inputs. It runs the verification LLM against the rebuilt env and
+  enforces both the issue contract's public surface and the test plan's
+  `required_evidence` contract before emitting `pass`.
 
 Each phase has its own wrapper script in `scripts/glimmung-native/` and
 spawns one K8s Job (LLM pod) via `mcp/ambience_preview/ops.py`. Stage
-bash scripts (`_TEST_PLAN_BASH`, `_IMPLEMENT_BASH`, `_VERIFY_BASH`) live
-in `ops.py`; prompts are in `.github/agent/prompt-{test-plan,implementation,
+bash scripts (`_ISSUE_CONTRACT_BASH`, `_TEST_PLAN_BASH`,
+`_IMPLEMENT_BASH`, `_VERIFY_BASH`) live in `ops.py`; prompts are in
+`.github/agent/prompt-{issue-contract,test-plan,implementation,
 verification}.md`. Design and stage contracts live at
 [docs/issue-agent-stage-split.md](docs/issue-agent-stage-split.md).
 

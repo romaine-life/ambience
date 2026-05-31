@@ -13,7 +13,9 @@ each entry is a contract item you must answer for in your output JSON.
 ## Workflow
 
 1. Read the test plan section and implementation section appended
-   below. The test plan's `required_evidence` is the contract.
+   below. If an issue-contract section is present, its canonical target
+   and public surface are also contract. The test plan's
+   `required_evidence` remains the evidence contract.
 2. For each `required_evidence` item, do exactly what its `kind` says:
    - **`video`**: hit `$VALIDATION_URL$url_path`, record a WebM.
      Use `node /workspace/repo/scripts/agent/capture-video.mjs`.

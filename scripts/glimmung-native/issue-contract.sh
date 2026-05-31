@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
 #
-# Glimmung phase: test-plan
+# Glimmung phase: prepare / issue-contract job
 #
-# Spawns a read-only LLM pod that reads the issue and produces an evidence
-# specification (issue-agent-test-plan.json). Runs in parallel with the
-# implement phase — does NOT receive or produce code changes.
+# Spawns a read-only LLM pod that canonicalizes the issue target before the
+# parallel test-plan and implement jobs run.
 #
 # Outputs emitted to glimmung:
-#   test_plan  — issue-agent-test-plan.json serialised as a JSON string.
-#                Consumed by the verify phase to know what evidence to capture.
+#   issue_contract — issue-agent-contract.json serialised as a JSON string.
 
 set -Eeuo pipefail
 
@@ -19,21 +17,27 @@ source "${SCRIPT_DIR}/lib.sh"
 native_init
 native_require_env \
   GLIMMUNG_RUN_ID \
-  GLIMMUNG_INPUT_VALIDATION_URL \
-  GLIMMUNG_INPUT_NAMESPACE
+  GLIMMUNG_VALIDATION_NAMESPACE
 
 REPO_SLUG="${AMBIENCE_REPO_SLUG:-nelsong6/ambience}"
 REPO_DIR="${AMBIENCE_REPO_DIR:-/workspace/ambience}"
 AGENT_CONTAINER_TAG="${AGENT_CONTAINER_TAG:-latest}"
-CLAUDE_NAMESPACE="${GLIMMUNG_INPUT_CLAUDE_NAMESPACE:-tank-operator}"
+CLAUDE_NAMESPACE="${GLIMMUNG_INPUT_CLAUDE_NAMESPACE:-${CLAUDE_NAMESPACE:-tank-operator}}"
 CLAUDE_CA_NAMESPACE="${GLIMMUNG_INPUT_CLAUDE_CA_NAMESPACE:-${CLAUDE_CA_NAMESPACE:-tank-operator-sessions}}"
 
-VALIDATION_URL="${GLIMMUNG_INPUT_VALIDATION_URL}"
-NAMESPACE="${GLIMMUNG_INPUT_NAMESPACE}"
+NAMESPACE="${GLIMMUNG_VALIDATION_NAMESPACE}"
+VALIDATION_SLOT_INDEX="${GLIMMUNG_NATIVE_SLOT_INDEX:-}"
+if [ -n "$VALIDATION_SLOT_INDEX" ]; then
+  VALIDATION_HOST="${AMBIENCE_STANDBY_HOST_PREFIX:-ambience-slot-}${VALIDATION_SLOT_INDEX}.ambience.dev.romaine.life"
+else
+  VALIDATION_HOST="${NAMESPACE}.ambience.dev.romaine.life"
+fi
+VALIDATION_URL="https://${VALIDATION_HOST}"
+
 RUN_SLUG="$(printf '%s' "$GLIMMUNG_RUN_ID" | tr '[:upper:]' '[:lower:]')"
 ATTEMPT_INDEX="${GLIMMUNG_ATTEMPT_INDEX:-0}"
-JOB_NAME="agent-${RUN_SLUG}-tp-${ATTEMPT_INDEX}"
-CONFIG_MAP_NAME="agent-config-test-plan"
+JOB_NAME="agent-${RUN_SLUG}-ic-${ATTEMPT_INDEX}"
+CONFIG_MAP_NAME="agent-config-issue-contract"
 
 ISSUE_TITLE="${GLIMMUNG_ISSUE_TITLE:-Glimmung issue ${GLIMMUNG_ISSUE_ID:-${GLIMMUNG_RUN_ID}}}"
 ISSUE_NUMBER="${GLIMMUNG_ISSUE_NUMBER:-}"
@@ -45,16 +49,15 @@ else
   ISSUE_URL="${GLIMMUNG_BASE_URL:-https://glimmung.romaine.life}/issues/${ISSUE_PROJECT}/${GLIMMUNG_ISSUE_ID:-${GLIMMUNG_RUN_ID}}"
 fi
 
-PLAN_EXIT_CODE=0
-TEST_PLAN_JSON="/tmp/test-plan.json"
-TEST_PLAN_MD="/tmp/test-plan.md"
+CONTRACT_EXIT_CODE=0
+CONTRACT_JSON="/tmp/issue-contract.json"
+CONTRACT_MD="/tmp/issue-contract.md"
 SUMMARY_MD="/tmp/summary.md"
 EVENTS_LOG="/tmp/agent-events.jsonl"
 EVIDENCE_DIR="/tmp/evidence"
 POD_LOG="/tmp/agent-pod.log"
-PLAN_EXIT_CODE_FILE="/tmp/test-plan-exit-code"
-PROXY_IP_FILE="/tmp/test-plan-proxy-ip"
-ISSUE_CONTRACT_FILE="${EVIDENCE_DIR}/issue-agent-contract.json"
+CONTRACT_EXIT_CODE_FILE="/tmp/issue-contract-exit-code"
+PROXY_IP_FILE="/tmp/issue-contract-proxy-ip"
 : >"$SUMMARY_MD"
 : >"$EVENTS_LOG"
 mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/videos"
@@ -92,48 +95,14 @@ prepare_context() {
   export PROXY_IP
   printf '%s\n' "$PROXY_IP" >"$PROXY_IP_FILE"
 
-  write_prompt_context() {
-    local dest="/tmp/agent-prompt-context.md"
-    : >"$dest"
-    {
-      echo "# Glimmung issue ${ISSUE_REFERENCE}: ${ISSUE_TITLE}"
-      echo "URL: ${ISSUE_URL}"
-      echo "Validation env: ${VALIDATION_URL}"
-      echo "Glimmung run: ${GLIMMUNG_RUN_ID}"
-      echo "Glimmung attempt index: ${ATTEMPT_INDEX:-unknown}"
-      if [ -n "${GLIMMUNG_ISSUE_BODY:-}" ]; then
-        echo ""
-        echo "## Issue body"
-        echo ""
-        printf '%s\n' "$GLIMMUNG_ISSUE_BODY"
-      fi
-    } >>"$dest"
-  }
-  write_prompt_context
+  local token
+  token="$(native_github_token)"
+  kubectl -n "$NAMESPACE" create secret generic agent-github-token \
+    --from-literal=token="$token" \
+    --dry-run=client -o yaml | kubectl apply -f -
 
-  prepare_agent_github_token() {
-    local token
-    token="$(native_github_token)"
-    kubectl -n "$NAMESPACE" create secret generic agent-github-token \
-      --from-literal=token="$token" \
-      --dry-run=client -o yaml | kubectl apply -f -
-  }
-  prepare_agent_github_token
-
-  if [ -n "${GLIMMUNG_INPUT_ISSUE_CONTRACT:-}" ]; then
-    printf '%s' "$GLIMMUNG_INPUT_ISSUE_CONTRACT" | jq -r . >"$ISSUE_CONTRACT_FILE" 2>/dev/null \
-      || printf '%s' "$GLIMMUNG_INPUT_ISSUE_CONTRACT" >"$ISSUE_CONTRACT_FILE"
-    echo "staged issue-contract JSON ($(wc -c <"$ISSUE_CONTRACT_FILE") bytes)"
-  else
-    echo "GLIMMUNG_INPUT_ISSUE_CONTRACT not set; test-plan will proceed from issue context only"
-  fi
-
-  local args=(
-    --from-file=prompt-test-plan.md="${REPO_DIR}/.github/agent/prompt-test-plan.md"
-  )
-  [ -s "$ISSUE_CONTRACT_FILE" ] && args+=(--from-file="issue-agent-contract.json=${ISSUE_CONTRACT_FILE}")
   kubectl -n "$NAMESPACE" create configmap "$CONFIG_MAP_NAME" \
-    "${args[@]}" \
+    --from-file=prompt-issue-contract.md="${REPO_DIR}/.github/agent/prompt-issue-contract.md" \
     --dry-run=client -o yaml | kubectl apply -f -
 }
 
@@ -169,23 +138,23 @@ run_llm() {
       --proxy-ip "$PROXY_IP" \
       --agent-container-tag "$AGENT_CONTAINER_TAG" \
       --repo-slug "$REPO_SLUG" \
-      --stage "test-plan" \
+      --stage "issue-contract" \
       --config-map-name "$CONFIG_MAP_NAME"
-    native_emit_inner_job_marker "$NAMESPACE" "$JOB_NAME" helper test-plan-agent
+    native_emit_inner_job_marker "$NAMESPACE" "$JOB_NAME" helper issue-contract-agent
     python3 -m ambience_preview.cli wait-agent-job \
       --namespace "$NAMESPACE" \
       --job-name "$JOB_NAME" \
-      --timeout-seconds "${AGENT_TEST_PLAN_TIMEOUT_SECONDS:-900}"
+      --timeout-seconds "${AGENT_ISSUE_CONTRACT_TIMEOUT_SECONDS:-900}"
   )
 }
 
 run_llm_record() {
-  native_record_exit_code "$PLAN_EXIT_CODE_FILE" run_llm
-  PLAN_EXIT_CODE="$(native_read_exit_code "$PLAN_EXIT_CODE_FILE")"
+  native_record_exit_code "$CONTRACT_EXIT_CODE_FILE" run_llm
+  CONTRACT_EXIT_CODE="$(native_read_exit_code "$CONTRACT_EXIT_CODE_FILE")"
 }
 
-plan_exit_code() {
-  native_read_exit_code "$PLAN_EXIT_CODE_FILE"
+contract_exit_code() {
+  native_read_exit_code "$CONTRACT_EXIT_CODE_FILE"
 }
 
 collect_evidence() {
@@ -216,38 +185,38 @@ collect_evidence() {
 }
 
 finalize() {
-  if [ -f "${EVIDENCE_DIR}/issue-agent-test-plan.json" ]; then
-    cp "${EVIDENCE_DIR}/issue-agent-test-plan.json" "$TEST_PLAN_JSON"
+  if [ -f "${EVIDENCE_DIR}/issue-agent-contract.json" ]; then
+    cp "${EVIDENCE_DIR}/issue-agent-contract.json" "$CONTRACT_JSON"
   fi
-  if [ -f "${EVIDENCE_DIR}/issue-agent-test-plan.md" ]; then
-    cp "${EVIDENCE_DIR}/issue-agent-test-plan.md" "$TEST_PLAN_MD"
-    cp "$TEST_PLAN_MD" "$SUMMARY_MD"
+  if [ -f "${EVIDENCE_DIR}/issue-agent-contract.md" ]; then
+    cp "${EVIDENCE_DIR}/issue-agent-contract.md" "$CONTRACT_MD"
+    cp "$CONTRACT_MD" "$SUMMARY_MD"
   fi
-  if [ ! -s "$TEST_PLAN_JSON" ]; then
+  if [ ! -s "$CONTRACT_JSON" ]; then
     local exit_code
-    exit_code="$(plan_exit_code)"
+    exit_code="$(contract_exit_code)"
     if [ "$exit_code" -ne 0 ]; then
-      jq -n --arg reason "test-plan pod exited with ${exit_code}" \
-        '{schema_version:1,status:"fail",abort_reason:$reason}' >"$TEST_PLAN_JSON"
+      jq -n --arg reason "issue-contract pod exited with ${exit_code}" \
+        '{schema_version:1,status:"fail",abort_reason:$reason}' >"$CONTRACT_JSON"
     else
-      jq -n '{schema_version:1,status:"fail",abort_reason:"test-plan pod produced no output"}' \
-        >"$TEST_PLAN_JSON"
+      jq -n '{schema_version:1,status:"fail",abort_reason:"issue-contract pod produced no output"}' \
+        >"$CONTRACT_JSON"
     fi
   fi
 }
 
 emit() {
-  local test_plan_str
-  test_plan_str="$(cat "$TEST_PLAN_JSON")"
+  local contract_str
+  contract_str="$(cat "$CONTRACT_JSON")"
   local outputs
-  outputs="$(jq -nc --argjson v "$test_plan_str" '{test_plan: ($v | tostring)}')"
+  outputs="$(jq -nc --argjson v "$contract_str" '{issue_contract: ($v | tostring)}')"
   local summary
   summary="$(cat "$SUMMARY_MD" 2>/dev/null || true)"
   native_completed "$outputs" "null" "" "$summary"
   local exit_code
-  exit_code="$(plan_exit_code)"
+  exit_code="$(contract_exit_code)"
   if native_selected_step && [ "$exit_code" -ne 0 ]; then
-    native_failed "test-plan pod exited with ${exit_code}"
+    native_failed "issue-contract pod exited with ${exit_code}"
     return "$exit_code"
   fi
 }
@@ -256,7 +225,7 @@ if native_selected_step; then
   native_run_selected_step \
     "clone" clone_repo \
     "prepare" prepare_context \
-    "run-test-plan" run_llm_record \
+    "run-issue-contract" run_llm_record \
     "collect" collect_evidence \
     "finalize" finalize \
     "emit" emit
@@ -265,13 +234,12 @@ fi
 
 native_step "clone" clone_repo
 native_step "prepare" prepare_context
-native_step "run-test-plan" run_llm_record
+native_step "run-issue-contract" run_llm_record
 native_step "collect" collect_evidence
 native_step "finalize" finalize
-PLAN_EXIT_CODE="$(plan_exit_code)"
-if [ "$PLAN_EXIT_CODE" -ne 0 ]; then
-  native_failed "test-plan pod exited with ${PLAN_EXIT_CODE}"
-  exit "$PLAN_EXIT_CODE"
+CONTRACT_EXIT_CODE="$(contract_exit_code)"
+if [ "$CONTRACT_EXIT_CODE" -ne 0 ]; then
+  native_failed "issue-contract pod exited with ${CONTRACT_EXIT_CODE}"
+  exit "$CONTRACT_EXIT_CODE"
 fi
 native_step "emit" emit
-native_assert_resume_satisfied

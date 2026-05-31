@@ -1,67 +1,65 @@
 # Issue-agent stage split (design)
 
-**Status:** draft (2026-05-07)
-**Driver:** Issue 172's run-agent observation — the single LLM phase
+**Status:** active design
+**Driver:** Issue 172's single-LLM observation — the prior phase
 ran ~14 min spanning code + build + browser evidence + verify, with the
 last ~5 min lost to playwright environment-fighting that should have
 been a separate, narrower context.
 
 ## Goal
 
-Restructure `scripts/glimmung-native/agent-execute.sh` so the LLM
-work is split across three discrete claude-code invocations rather
-than one monolithic run. Per the platform principle in
+Restructure the native Ambience agent flow so the LLM work is split across
+focused invocations rather than one monolithic run. Per the platform principle in
 `tank-operator/docs/agent-llm-task-splitting.md` and the canonical
 example in [`nelsong6/spirelens/.github/workflows/issue-agent.yaml`](https://github.com/nelsong6/spirelens/blob/main/.github/workflows/issue-agent.yaml).
 
 ## Current shape
 
-Today the `agent-execute` glimmung phase runs:
+The live workflow has a `prepare` phase followed by parallel planning and
+implementation:
 
 ```
-clone-repo → prepare-agent-context → run-agent (single LLM)
-            → collect-evidence → summarize-agent
-            → verify-result → push-branch → emit-agent-outputs
+prepare
+  ├─ env-prep          (validation image/env)
+  └─ issue-contract   (LLM, no code edits, no evidence plan)
+       ↓
+llm-work
+  ├─ run-test-plan      (LLM, no code edits, no kubectl)
+  └─ run-implementation (LLM, no GitHub, no kubectl, no Playwright)
+       ↓
+llm-verify              (LLM, no code edits, no GitHub-write)
+       ↓
+evidence-gate
 ```
 
-`run-agent` is one claude-code invocation given the full
-`.github/agent/prompt.md` + issue body + validation env URL. It
-authors code, builds, captures browser evidence, and writes notes.md in
-one context.
-
-## Proposed shape
-
-Replace the single `run-agent` step with three LLM steps, each with
-its own prompt and its own per-step tool/permission profile:
-
-```
-clone-repo → prepare-agent-context
-          → run-test-plan      (LLM, no code edits, no kubectl)
-          → run-implementation (LLM, no GitHub, no kubectl, no Playwright)
-          → push-branch
-          → rebuild-validation
-          → run-verification   (LLM, no code edits, no GitHub-write)
-          → collect-evidence
-          → summarize-agent
-          → verify-result
-          → emit-agent-outputs
-```
-
-`push-branch` and `rebuild-validation` move earlier — between
-implementation and verification — so the verification phase has a
-real branch + a rebuilt validation env to look at, mirroring
-spirelens.
+`issue-contract` exists so the test-plan and implementation jobs stay
+independent but share canonical target names, public routes, and trigger events.
+Implementation still solves the issue, not the test plan.
 
 ## Stage contracts
+
+### Stage 0 — `run-issue-contract`
+
+**Goal:** Read the issue and repo conventions, then settle canonical target
+names and public surface before the parallel LLM jobs run.
+
+**Input context:** issue body, `.github/agent/prompt-issue-contract.md`,
+`AGENTS.md`, `CLAUDE.md`, `docs/effects-cookbook.md`,
+`docs/dev-endpoints.md`.
+
+**Tools:** Read, Grep, ToolSearch, optional WebFetch. **No** Edit,
+Write, or Bash-state-mutating tools.
+
+**Output:** `/workspace/evidence/issue-agent-contract.json` and `.md`.
 
 ### Stage 1 — `run-test-plan`
 
 **Goal:** Read the issue, decide the change shape, list the evidence
 that would prove the change works.
 
-**Input context:** issue body, `.github/agent/prompt-test-plan.md`,
-`AGENTS.md`, `CLAUDE.md`, `docs/effects-cookbook.md`,
-`docs/dev-endpoints.md`.
+**Input context:** issue body, issue-contract JSON,
+`.github/agent/prompt-test-plan.md`, `AGENTS.md`, `CLAUDE.md`,
+`docs/effects-cookbook.md`, `docs/dev-endpoints.md`.
 
 **Tools:** Read, Grep, ToolSearch, optional WebFetch. **No** Edit,
 Write, or Bash-state-mutating tools.
@@ -111,10 +109,13 @@ Allowed `abort_reason` values: `issue_unclear`,
 
 ### Stage 2 — `run-implementation`
 
-**Goal:** Edit code only. Implement what the test plan calls for.
+**Goal:** Edit code only. Implement what the issue calls for while respecting
+the issue contract's public names.
 
-**Input context:** issue body, `.github/agent/prompt-implementation.md`,
-the test-plan JSON, `AGENTS.md`, `CLAUDE.md`, the cookbook docs.
+**Input context:** issue body, issue-contract JSON,
+`.github/agent/prompt-implementation.md`, `AGENTS.md`, `CLAUDE.md`, the
+cookbook docs. The implementation stage does **not** read the test-plan
+artifact.
 
 **Tools:** Read, Edit, Write, Grep, Bash (build/test only —
 `go build`, `go test`, language toolchains; no kubectl, no curl to
@@ -152,7 +153,7 @@ tree the run aborts with `implementation_build_failed`.
 Capture the evidence the test plan called for. Confirm `must_show`
 language matches what the captured artifact actually shows.
 
-**Input context:** test-plan JSON, implementation JSON,
+**Input context:** issue-contract JSON, test-plan JSON, implementation JSON,
 `.github/agent/prompt-verification.md`, the rebuilt validation URL.
 
 **Tools:** Read, Grep, Bash (curl, node, playwright), Write (only to
@@ -183,7 +184,10 @@ Allowed `abort_reason` values: `video_missing`, `screenshot_missing`,
 `claimed_result_not_observed`, `target_evidence_missing`,
 `validation_env_unreachable`, `unit_tests_failed`.
 
-The wrapper recomputes pass/fail by walking the test-plan's
+The wrapper first enforces the issue contract's public surface against the
+rebuilt validation environment: declared dev/schema routes must exist, declared
+trigger events must be accepted, and forbidden public names must not resolve.
+It then recomputes pass/fail by walking the test-plan's
 `required_evidence` list and confirming every required item has a
 matching `evidence_results` entry with `status: pass` and the expected
 artifact path (`video` for video requirements, `screenshot` for
@@ -193,43 +197,30 @@ target_evidence_missing`.
 
 ## Wrapper changes
 
-`scripts/glimmung-native/agent-execute.sh` grows three native_step
-calls (plus rebuild-validation moved earlier):
+The live phase scripts expose these job step boundaries:
 
 ```bash
-native_step "run-test-plan"      run_test_plan
-native_step "run-implementation" run_implementation
-native_step "push-branch"        push_branch
-native_step "rebuild-validation" rebuild_validation_env
-native_step "run-verification"   run_verification
-native_step "collect-evidence"   collect_evidence
-# ... existing finalize/emit steps ...
+scripts/glimmung-native/issue-contract.sh: run-issue-contract
+scripts/glimmung-native/test-plan.sh:      run-test-plan
+scripts/glimmung-native/implement.sh:      run-implementation, push-branch, rebuild-env
+scripts/glimmung-native/verify.sh:         run-verification, finalize, upload-screenshots
 ```
 
 Each `run_*` function calls a per-stage helper that drives a fresh
 claude-code invocation with the stage prompt and tool restrictions.
-Stage prompts live at `.github/agent/prompt-test-plan.md`,
-`.github/agent/prompt-implementation.md`,
-`.github/agent/prompt-verification.md`; the existing
-`.github/agent/prompt.md` is removed (or kept temporarily as a
-deprecated landmark for one release).
+Stage prompts live at `.github/agent/prompt-issue-contract.md`,
+`.github/agent/prompt-test-plan.md`, `.github/agent/prompt-implementation.md`,
+and `.github/agent/prompt-verification.md`.
 
-The glimmung workflow registration grows three new step slugs in the
-`agent-execute` job. PR retry policy stays attached to the
-`agent-execute` phase as a whole.
+## Registration checklist
 
-## Migration plan
-
-1. Land this design doc (this PR) for review.
-2. Land a follow-up PR adding the three stage prompts under
-   `.github/agent/`, the wrapper changes in
-   `scripts/glimmung-native/agent-execute.sh`, and a glimmung
-   workflow patch (separate change in the glimmung workflow
-   registration). Keep the old `prompt.md` in tree under a
-   `.deprecated.md` rename for one release for traceability.
-3. Run a few real issues through the new shape. Watch for stages
-   reaching into adjacent stage surfaces; tighten tool permissions
-   per stage if they do.
+1. Land the stage prompts, native scripts, and `ambience_preview` stage
+   helpers on the workflow checkout ref.
+2. Register the live Glimmung workflow with `prepare` containing both
+   `env-prep` and `issue-contract`, then wire `issue_contract` into
+   `llm-work` and `llm-verify`.
+3. Run a real issue through the shape. Watch for stages reaching into adjacent
+   stage surfaces; tighten tool permissions per stage if they do.
 
 ## Open questions
 
