@@ -5,333 +5,67 @@
 <title>ambience — dev</title>
 <meta name="description" content="Tune ambience effect controls in an isolated browser session.">
 <!-- __AMBIENCE_SOCIAL_META__ -->
+<link rel="stylesheet" href="/chrome.css">
 <style>
-	html, body { margin: 0; padding: 0; height: 100%; background: #0a0a0a; overflow: hidden; color: #e0e0e0; font-family: monospace; }
+	/* Page frame only — all chrome lives in /chrome.css ("Exposed" skin). */
+	html, body { margin: 0; padding: 0; height: 100%; background: #0a0a0a; overflow: hidden;
+		color: var(--fg-body); font-family: var(--font-primary); }
 	#c { position: absolute; inset: 0; width: 100vw; height: 100vh; image-rendering: pixelated; }
-	#panel {
-		position: absolute; top: 10px; right: 10px; z-index: 10;
-		background: rgba(0,0,0,0.78); padding: 10px 14px;
-		border: 1px solid #333; border-radius: 4px;
-		font-size: 11px; width: 300px; max-width: 300px;
-		max-height: calc(100vh - 20px); overflow-y: auto;
-	}
-	#panel.collapsed .body { display: none; }
-	#panel.collapsed { width: auto; }
-	#panel h1 {
-		font-size: 11px; margin: 0 0 8px 0; opacity: 0.7;
-		text-transform: uppercase; letter-spacing: 1.2px;
-		display: flex; justify-content: space-between; align-items: center; gap: 8px;
-	}
-	.btnbar { display: flex; gap: 4px; }
-	.iconbtn {
-		background: none; border: 1px solid #333; color: #e0e0e0;
-		font-family: monospace; font-size: 10px; padding: 0 6px;
-		cursor: pointer; border-radius: 2px; line-height: 1.5;
-	}
-	.iconbtn:hover { background: #1a1a1a; border-color: #555; }
-	.switcher {
-		display: flex; flex-direction: column; gap: 6px;
-		margin: 0 0 8px 0;
-		padding: 0 0 8px 0;
-		border-bottom: 1px solid #222;
-	}
-	.switcher-row {
-		display: flex; align-items: center; gap: 8px;
-	}
-	.switcher label {
-		opacity: 0.55; font-size: 9px;
-		text-transform: uppercase; letter-spacing: 1px;
-	}
-	.switcher select {
-		flex: 1;
-		background: #111; border: 1px solid #333; color: #e0e0e0;
-		font-family: monospace; font-size: 10px; padding: 4px 6px;
-		border-radius: 3px;
-	}
-	.switcher select:hover { border-color: #555; }
-	.switcher select:focus {
-		outline: none;
-		border-color: #777;
-		box-shadow: 0 0 0 1px rgba(255,255,255,0.08);
-	}
-
-	.section { margin: 6px 0 0 0; }
-	.section-head {
-		display: flex; align-items: center; gap: 6px;
-		padding: 3px 0; cursor: pointer; user-select: none;
-		border-bottom: 1px solid #2a2a2a;
-		font-size: 10px; opacity: 0.75;
-		text-transform: uppercase; letter-spacing: 1px;
-	}
-	.section-head:hover { opacity: 1; }
-	.section-head .chev {
-		display: inline-block; width: 10px; transition: transform 0.15s;
-		opacity: 0.6; font-size: 9px;
-	}
-	.section.closed .section-head .chev { transform: rotate(-90deg); }
-	.section-head .name { flex: 1; }
-	.section-head .count { opacity: 0.4; font-size: 9px; }
-	.section-body { padding: 4px 0 6px 0; }
-	.section.closed .section-body { display: none; }
-
-	#panel h3 {
-		font-size: 9px; margin: 6px 0 2px 0; opacity: 0.4;
-		text-transform: uppercase; letter-spacing: 1px; font-weight: normal;
-	}
-	.empty-slot { opacity: 0.3; font-size: 10px; padding: 4px 0; font-style: italic; }
-
-	.row { display: flex; align-items: center; margin: 3px 0; gap: 6px; }
-	.row label { opacity: 0.75; min-width: 70px; font-size: 10px; }
-	.row input[type=range] { flex: 1; min-width: 50px; }
-	.row .val { opacity: 0.6; min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; font-size: 10px; }
-	.help {
-		display: inline-flex; align-items: center; justify-content: center;
-		width: 13px; height: 13px; min-width: 13px;
-		border: 1px solid #555; border-radius: 50%;
-		font-size: 8px; line-height: 1; color: #888;
-		cursor: help; flex-shrink: 0; user-select: none;
-	}
-	.help:hover { border-color: #aaa; color: #e0e0e0; background: #1a1a1a; }
-	.fire {
-		background: #2a2a2a; border: 1px solid #555; color: #e0e0e0;
-		font-family: monospace; font-size: 9px; padding: 1px 5px;
-		cursor: pointer; border-radius: 2px; text-transform: uppercase;
-		letter-spacing: 0.5px; flex-shrink: 0;
-	}
-	.fire:hover { background: #3a3a3a; border-color: #888; }
-	.fire:active { background: #555; }
-
-	#logEntries {
-		font-size: 9px; height: 180px; overflow-y: auto;
-		background: #060606; border: 1px solid #1a1a1a; padding: 4px 6px;
-		opacity: 0.9; display: flex; flex-direction: column; justify-content: flex-end;
-	}
-	#logEntries .entry { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; }
-	#logEntries .entry .t { opacity: 0.5; margin-right: 4px; }
-	#logEntries .entry .k { opacity: 0.9; margin-right: 4px; font-weight: bold; }
-	#logEntries .entry.downpour .k { color: #9cdcfe; }
-	#logEntries .entry.calm .k { color: #ce9178; }
-	#logEntries .entry.gust .k { color: #dcdcaa; }
-	#logEntries .entry.splash .k { color: #c586c0; }
-	.log-actions { display: flex; gap: 4px; margin-top: 6px; justify-content: flex-end; }
+	/* dev exposes the whole effect library, so its track scrolls horizontally. */
+	#d5Trk { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+	#d5Trk::-webkit-scrollbar { height: 4px; }
+	#d5Trk::-webkit-scrollbar-thumb { background: var(--gray-800); border-radius: 2px; }
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
-<div id="panel">
-	<h1>
-		<span id="title">ambience dev</span>
-		<span class="btnbar">
-			<button class="iconbtn" id="toggleAll" title="collapse / expand all sections">⊟</button>
-			<button class="iconbtn" id="toggle" title="collapse / expand panel (h)">–</button>
-		</span>
-	</h1>
-	<div class="switcher">
-		<div class="switcher-row">
-			<label for="effectSelect">effect</label>
-			<select id="effectSelect" title="switch dev effect"></select>
-		</div>
-		<div class="switcher-row">
-			<label for="presetSelect">preset</label>
-			<select id="presetSelect" title="apply effect preset"></select>
-			<button class="iconbtn" id="randomizeBtn" title="randomize current effect config">randomize</button>
-		</div>
-	</div>
-	<div class="body" id="body"></div>
-</div>
+<canvas id="c" class="worldview"></canvas>
+<div class="chrome" id="chrome"></div>
+<!-- minimal "esc →" summon affordance; content + mouse-reveal behavior owned by chrome.js -->
+<div class="summon" id="summonHint" style="display:none"></div>
+
 <script src="/sim.js"></script>
 <script src="/wasm_runtime.js"></script>
+<script src="/chrome.js"></script>
 <script>
-	// Dev panel runs a local effect sim and drives a per-session effect
-	// atmosphere on the server via POST /dev/config and /dev/trigger.
-	// State commands return over SSE.
+	// ── ambience dev console ──────────────────────────────────────────────
+	// Runs a local effect sim, drives a per-session atmosphere on the server
+	// via POST /dev/config and /dev/trigger; state returns over SSE. All
+	// presentation is the shared "Exposed" chrome (window.AmbienceChrome).
+	'use strict';
+	(function () {
 
-	const SLOT_LABELS = {
-		'spawn':     'spawn config',
-		'lever':     'continuous levers',
-		'event':     'discrete events',
-		'event-mod': 'event modifiers',
-		'end':       'end conditions',
-	};
-	const SLOT_ORDER = ['spawn', 'lever', 'event', 'event-mod', 'end'];
-	const LS_PREFIX = 'ambience.dev.section.';
-	const CHEV = '▾';
 	const GRID_W = 160, GRID_H = 80;
-
 	const SESSION_ID = (crypto.randomUUID ? crypto.randomUUID() :
 		Math.random().toString(36).slice(2) + Date.now().toString(36));
+	const SESSION_SHORT = SESSION_ID.replace(/-/g, '').slice(0, 8);
 
 	const canvas = document.getElementById('c');
 	const ctx = canvas.getContext('2d');
-	const body = document.getElementById('body');
-	const title = document.getElementById('title');
-	const effectSelect = document.getElementById('effectSelect');
-	const presetSelect = document.getElementById('presetSelect');
-	const randomizeBtn = document.getElementById('randomizeBtn');
-	const CUSTOM_PRESET = '__custom__';
-	let knobs = [];
-	let currentSchema = null;
+	const L = window.AmbienceChrome.effectLabel;
+
 	let effect = effectFromLocation();
 	let sim = null;
-	// currentSimType tracks the type of the actual `sim` instance running.
-	// Soft-switching to a different effect updates `effect` (and the URL)
-	// before the new SSE delivers its first snapshot — so the snapshot
-	// handler compares the snapshot's type against currentSimType when
-	// deciding whether to start a crossfade.
 	let currentSimType = effect;
 	let ready = false;
 	let streamSeq = 0;
+	let latestConfig = null;
+	let es = null;
 
 	function effectFromLocation() {
 		const q = new URLSearchParams(window.location.search);
-		const fromQuery = q.get('effect');
 		const parts = window.location.pathname.split('/').filter(Boolean);
 		if (parts.length >= 2 && parts[0] === 'dev') return parts[1];
-		return fromQuery || 'rain';
+		return q.get('effect') || 'rain';
 	}
-
 	function newEffectInstance(name) {
 		const ctor = AmbienceSim.effects[name];
 		if (!ctor) throw new Error('unknown effect: ' + name);
 		return new ctor(GRID_W, GRID_H, {});
 	}
-
 	function availableEffects() {
 		return Object.keys(AmbienceSim.effects || {}).sort((a, b) => a.localeCompare(b));
 	}
-
-	function effectLabel(name) {
-		return name.replace(/-/g, ' ');
-	}
-
-	function effectPath(name) {
-		return '/dev/' + encodeURIComponent(name);
-	}
-
-	function effectPresets(name) {
-		const presets = AmbienceSim.presets && AmbienceSim.presets[name];
-		return Array.isArray(presets) ? presets : [];
-	}
-
-	function presetValue(preset) {
-		return preset.key || preset.name;
-	}
-
-	function presetConfig(preset) {
-		return (preset && (preset.config || preset.values)) || {};
-	}
-
-	function findPreset(name, value) {
-		return effectPresets(name).find((preset) => presetValue(preset) === value) || null;
-	}
-
-	function syncEffectSwitcher() {
-		const effects = availableEffects();
-		effectSelect.innerHTML = '';
-		for (const name of effects) {
-			const opt = document.createElement('option');
-			opt.value = name;
-			opt.textContent = effectLabel(name);
-			opt.selected = name === effect;
-			effectSelect.appendChild(opt);
-		}
-		if (!effects.includes(effect)) {
-			const opt = document.createElement('option');
-			opt.value = effect;
-			opt.textContent = effectLabel(effect);
-			opt.selected = true;
-			effectSelect.appendChild(opt);
-		}
-	}
-
-	function knobMatches(knob, left, right) {
-		if (!knob) return false;
-		const a = Number(left);
-		const b = Number(right);
-		if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
-		if (knob.type === 'int') return Math.round(a) === Math.round(b);
-		const step = Number(knob.step) || 0.001;
-		return Math.abs(a - b) <= Math.max(1e-9, step / 2);
-	}
-
-	function currentValues() {
-		const values = {};
-		for (const knob of knobs) {
-			const input = document.getElementById(knob.key);
-			if (input) values[knob.key] = +input.value;
-		}
-		return values;
-	}
-
-	function resolvedPresetConfig(schema, preset) {
-		const resolved = {};
-		for (const knob of (schema && schema.knobs) || []) resolved[knob.key] = knob.default;
-		return Object.assign(resolved, presetConfig(preset));
-	}
-
-	function matchingPresetValue() {
-		if (!currentSchema || !knobs.length) return CUSTOM_PRESET;
-		const values = currentValues();
-		for (const preset of effectPresets(effect)) {
-			const resolved = resolvedPresetConfig(currentSchema, preset);
-			let matches = true;
-			for (const knob of knobs) {
-				if (!knobMatches(knob, values[knob.key], resolved[knob.key])) {
-					matches = false;
-					break;
-				}
-			}
-			if (matches) return presetValue(preset);
-		}
-		return CUSTOM_PRESET;
-	}
-
-	function syncPresetSwitcher(selectedValue) {
-		const presets = effectPresets(effect);
-		presetSelect.innerHTML = '';
-		const custom = document.createElement('option');
-		custom.value = CUSTOM_PRESET;
-		custom.textContent = 'custom';
-		presetSelect.appendChild(custom);
-		for (const preset of presets) {
-			const opt = document.createElement('option');
-			opt.value = presetValue(preset);
-			opt.textContent = preset.label || preset.name || opt.value;
-			presetSelect.appendChild(opt);
-		}
-		presetSelect.disabled = !currentSchema || presets.length === 0;
-		presetSelect.title = presets.length ? 'apply effect preset' : 'no presets for this effect yet';
-		const desired = selectedValue || matchingPresetValue();
-		presetSelect.value = findPreset(effect, desired) ? desired : CUSTOM_PRESET;
-	}
-
-	function applyValues(values) {
-		for (const knob of knobs) {
-			const input = document.getElementById(knob.key);
-			if (!input) continue;
-			const next = values[knob.key] != null ? values[knob.key] : knob.default;
-			input.value = next;
-		}
-		updateReadouts();
-	}
-
-	function applyServerConfig(values) {
-		if (!values || !knobs.length) return;
-		applyValues(values);
-		syncPresetSwitcher();
-	}
-
-	function applyPresetSelection(value) {
-		const preset = findPreset(effect, value);
-		if (!preset || !currentSchema) return;
-		applyValues(resolvedPresetConfig(currentSchema, preset));
-		syncPresetSwitcher(presetValue(preset));
-		schedule();
-	}
-
-	function markPresetCustom() {
-		if (!presetSelect.disabled) presetSelect.value = CUSTOM_PRESET;
-	}
+	function effectPath(name) { return '/dev/' + encodeURIComponent(name); }
 
 	function resize() {
 		const dpr = window.devicePixelRatio || 1;
@@ -341,247 +75,93 @@
 	resize();
 	window.addEventListener('resize', resize);
 
-	function fmt(knob, v) {
-		if (knob.type === 'int') return String(Math.round(v));
-		const d = (knob.step < 0.1) ? 2 : (knob.step < 1 ? 1 : 0);
-		return v.toFixed(d) + (knob.key === 'hue' || knob.key === 'hue_sp' ? '°' : '');
-	}
+	// ── chrome controller ──────────────────────────────────────────────────
+	const chrome = window.AmbienceChrome.mount({
+		host: document.getElementById('chrome'),
+		hint: document.getElementById('summonHint'),
+		canvas, mode: 'dev', gridW: GRID_W, gridH: GRID_H, effect, summoned: true,
+		line: 'isolated dev session · tune the effect freely; nothing here touches the live broadcast.',
+		routeJump: { label: '← live', title: 'open the live broadcast monitor', onClick: () => { window.location.href = '/'; } },
+		ctl: { title: 'control surface', modeLabel: 'dev · open', note: 'open sandbox — tinker freely; nothing here broadcasts.', showRandomize: true },
+		feedLabel: 'effects',
+		tele: {
+			header: 'session clock', badge: { tone: 'muted', label: 'local' },
+			rows: [
+				{ k: 'sim.tick', v: '0' }, { k: 'effect', v: L(effect) }, { k: 'grid', v: GRID_W + ' × ' + GRID_H },
+				{ k: 'session', v: SESSION_SHORT }, { k: 'effects', v: '—' },
+			],
+			footer: { tone: 'muted', html: 'isolated dev session · changes stay local' },
+		},
+		handlers: {
+			onKnob: () => schedule(),
+			onFire: (eventName) => fire(eventName),
+			onPreset: (val, cfg) => { chrome.setValues(cfg); schedule(); },
+			onRandomize: () => randomizeCurrentEffect(),
+		},
+	});
 
-	function valOf(key) { return +document.getElementById(key).value; }
-
-	function updateReadouts() {
-		for (const k of knobs) {
-			document.getElementById(k.key + '_v').textContent = fmt(k, valOf(k.key));
-		}
-	}
-
+	// ── server IO (data layer) ─────────────────────────────────────────────
 	function currentQuery() {
+		const vals = chrome.currentValues();
 		const q = new URLSearchParams();
 		q.set('session', SESSION_ID);
 		q.set('effect', effect);
-		for (const k of knobs) {
-			const v = valOf(k.key);
-			q.set(k.key, k.type === 'int' ? String(Math.round(v)) : v.toString());
+		for (const k of chrome.getKnobs()) {
+			const v = vals[k.key];
+			if (v == null) continue;
+			q.set(k.key, k.type === 'int' ? String(Math.round(v)) : String(v));
 		}
 		return q.toString();
 	}
-
-	// Push a fresh config to the server (debounced when sliders move).
-	async function pushConfig() {
-		try {
-			await fetch('/dev/config?' + currentQuery(), { method: 'POST' });
-		} catch (e) { console.error('config push', e); }
-	}
 	let debounceT = null;
 	function schedule() {
-		updateReadouts();
 		if (debounceT) clearTimeout(debounceT);
 		debounceT = setTimeout(pushConfig, 150);
 	}
-
+	async function pushConfig() {
+		try { await fetch('/dev/config?' + currentQuery(), { method: 'POST' }); }
+		catch (e) { console.error('config push', e); }
+	}
 	async function fire(eventName) {
 		try {
 			await fetch('/dev/trigger/' + encodeURIComponent(SESSION_ID) + '/' + encodeURIComponent(eventName) +
 				'?effect=' + encodeURIComponent(effect), { method: 'POST' });
 		} catch (e) { console.error('trigger', e); }
 	}
-
 	async function randomizeCurrentEffect() {
-		randomizeBtn.disabled = true;
+		const btn = document.getElementById('d5RandomizeBtn');
+		if (btn) btn.disabled = true;
 		try {
 			const resp = await fetch('/dev/randomize?session=' + encodeURIComponent(SESSION_ID) +
 				'&effect=' + encodeURIComponent(effect), { method: 'POST' });
 			if (!resp.ok) throw new Error('randomize failed: ' + resp.status);
 			const cfg = await resp.json();
-			sim.setConfig(cfg);
-			applyServerConfig(cfg);
-		} catch (e) {
-			console.error('randomize', e);
-		} finally {
-			randomizeBtn.disabled = false;
-		}
+			if (sim) sim.setConfig(cfg);
+			latestConfig = cfg;
+			chrome.setValues(cfg);
+			chrome.appendLog({ t: 't=' + (sim ? sim.tick : 0), kind: 'entropy', text: 'randomize · ' + effect });
+		} catch (e) { console.error('randomize', e); }
+		finally { if (btn) btn.disabled = false; }
 	}
 
-	function buildRow(knob) {
-		const row = document.createElement('div');
-		row.className = 'row';
-		const label = document.createElement('label');
-		label.textContent = knob.label;
-		const input = document.createElement('input');
-		input.type = 'range';
-		input.id = knob.key;
-		input.min = knob.min;
-		input.max = knob.max;
-		input.step = knob.step;
-		input.value = knob.default;
-		const val = document.createElement('span');
-		val.className = 'val';
-		val.id = knob.key + '_v';
-		row.append(label, input, val);
-		if (knob.trigger) {
-			const btn = document.createElement('button');
-			btn.className = 'fire';
-			btn.textContent = 'fire';
-			btn.title = 'trigger this event now';
-			btn.addEventListener('click', () => fire(knob.trigger));
-			row.append(btn);
-		}
-		if (knob.description) {
-			const help = document.createElement('span');
-			help.className = 'help';
-			help.textContent = '?';
-			help.title = knob.description;
-			row.append(help);
-		}
-		return row;
+	function setScene() {
+		chrome.setScene(effect);
+		chrome.setTele('effect', L(effect));
+	}
+	function renderTrack() {
+		chrome.renderTrack(availableEffects().map((name) => ({
+			label: L(name), now: name === effect,
+			title: name === effect ? 'current effect' : 'switch to ' + L(name),
+			onClick: name === effect ? null : () => softSwitchEffect(name),
+		})));
 	}
 
-	function buildSection(id, titleText, count, defaultOpen, bodyBuilder) {
-		const section = document.createElement('div');
-		section.className = 'section';
-		section.dataset.id = id;
-		const storedClosed = localStorage.getItem(LS_PREFIX + id) === 'closed';
-		const initiallyClosed = storedClosed ||
-			(!defaultOpen && localStorage.getItem(LS_PREFIX + id) === null);
-		if (initiallyClosed) section.classList.add('closed');
-		const head = document.createElement('div');
-		head.className = 'section-head';
-		head.innerHTML = `<span class="chev">${CHEV}</span><span class="name">${titleText}</span>` +
-			(count != null ? `<span class="count">${count}</span>` : '');
-		head.addEventListener('click', () => {
-			section.classList.toggle('closed');
-			localStorage.setItem(LS_PREFIX + id,
-				section.classList.contains('closed') ? 'closed' : 'open');
-		});
-		section.appendChild(head);
-		const bodyEl = document.createElement('div');
-		bodyEl.className = 'section-body';
-		bodyBuilder(bodyEl);
-		section.appendChild(bodyEl);
-		return section;
-	}
-
-	function renderPanel(schema) {
-		currentSchema = schema;
-		title.textContent = 'ambience dev — ' + schema.name;
-		body.innerHTML = '';
-		knobs = schema.knobs;
-		const bySlot = {};
-		for (const k of knobs) (bySlot[k.slot] ||= {})[k.group || ''] ??= [], (bySlot[k.slot][k.group || ''] ||= []).push(k);
-		for (const slot of SLOT_ORDER) {
-			const slotKnobs = bySlot[slot] ? Object.values(bySlot[slot]).flat() : [];
-			const count = slotKnobs.length;
-			const defaultOpen = slot === 'spawn';
-			const section = buildSection('slot.' + slot, SLOT_LABELS[slot] || slot, count > 0 ? count : 'none', defaultOpen, (bodyEl) => {
-				if (!bySlot[slot]) {
-					const empty = document.createElement('div');
-					empty.className = 'empty-slot';
-					empty.textContent = 'none yet';
-					bodyEl.appendChild(empty);
-					return;
-				}
-				const groups = bySlot[slot];
-				const groupNames = Object.keys(groups);
-				const showSubHeaders = !(groupNames.length === 1 && groupNames[0] === '');
-				for (const g of groupNames) {
-					if (showSubHeaders && g) {
-						const h3 = document.createElement('h3');
-						h3.textContent = g;
-						bodyEl.appendChild(h3);
-					}
-					for (const k of groups[g]) bodyEl.appendChild(buildRow(k));
-				}
-			});
-			body.appendChild(section);
-		}
-		const logSection = buildSection('log', 'event log', null, true, (bodyEl) => {
-			const entries = document.createElement('div');
-			entries.id = 'logEntries';
-			bodyEl.appendChild(entries);
-			const actions = document.createElement('div');
-			actions.className = 'log-actions';
-			const clearBtn = document.createElement('button');
-			clearBtn.className = 'iconbtn';
-			clearBtn.textContent = 'clear';
-			clearBtn.addEventListener('click', () => { entries.innerHTML = ''; });
-			actions.append(clearBtn);
-			bodyEl.appendChild(actions);
-		});
-		body.appendChild(logSection);
-		for (const k of knobs) {
-			document.getElementById(k.key).addEventListener('input', () => {
-				markPresetCustom();
-				schedule();
-			});
-		}
-		syncPresetSwitcher();
-	}
-
-	function appendLog(entry) {
-		const box = document.getElementById('logEntries');
-		if (!box) return;
-		const shouldStick = box.scrollHeight-box.clientHeight-box.scrollTop <= 12;
-		const row = document.createElement('div');
-		row.className = 'entry ' + entry.type;
-		row.innerHTML = '<span class="t">t=' + entry.tick + '</span><span class="k">' + entry.type + '</span><span class="d">' + (entry.desc || '') + '</span>';
-		box.appendChild(row);
-		while (box.children.length > 200) box.removeChild(box.firstChild);
-		if (shouldStick) box.scrollTop = box.scrollHeight;
-	}
-
-	// Panel collapse (global) + per-section collapse.
-	const panel = document.getElementById('panel');
-	const toggle = document.getElementById('toggle');
-	function setCollapsed(on) {
-		panel.classList.toggle('collapsed', on);
-		toggle.textContent = on ? '+' : '–';
-	}
-	setCollapsed(true);
-	toggle.addEventListener('click', () => setCollapsed(!panel.classList.contains('collapsed')));
-	window.addEventListener('keydown', (e) => {
-		if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
-		if (e.key === 'h') setCollapsed(!panel.classList.contains('collapsed'));
-	});
-	effectSelect.addEventListener('change', () => {
-		const next = effectSelect.value;
-		if (!next || next === effect) return;
-		softSwitchEffect(next);
-	});
-
-	// Soft-switch the dev effect without a full reload, so the crossfade
-	// between the outgoing and incoming sims is visible. Closing and
-	// reopening the SSE under a different effect triggers a fresh snapshot
-	// whose type differs from currentSimType — that mismatch is what the
-	// snapshot handler turns into an EffectTransition wrap.
-	function softSwitchEffect(next) {
-		effect = next;
-		history.replaceState(null, '', effectPath(next));
-		title.textContent = 'ambience dev — ' + next;
-		syncEffectSwitcher();
-		if (es) es.close();
-		es = openDevStream(next);
-	}
-	presetSelect.addEventListener('change', () => {
-		if (presetSelect.value === CUSTOM_PRESET) return;
-		applyPresetSelection(presetSelect.value);
-	});
-	randomizeBtn.addEventListener('click', randomizeCurrentEffect);
-	document.getElementById('toggleAll').addEventListener('click', () => {
-		const sections = document.querySelectorAll('.section');
-		const anyOpen = [...sections].some(s => !s.classList.contains('closed'));
-		for (const s of sections) {
-			s.classList.toggle('closed', anyOpen);
-			localStorage.setItem(LS_PREFIX + s.dataset.id, anyOpen ? 'closed' : 'open');
-		}
-	});
-
+	// ── local loops + SSE ──────────────────────────────────────────────────
 	function startLoops() {
-		// Local tick + render loops
 		setInterval(() => {
 			if (!ready || !sim) return;
 			sim.step();
-			// Unwrap a finished crossfade so we drop the outgoing sim and stop
-			// paying its render cost.
+			chrome.setTele('sim.tick', (sim.tick || 0).toLocaleString());
 			if (sim.isTransition && sim.done()) {
 				if (sim.outgoing && typeof sim.outgoing.destroy === 'function') sim.outgoing.destroy();
 				sim = sim.incoming;
@@ -602,80 +182,80 @@
 					const snapType = (snap && snap.type) || currentSimType;
 					if (snapType !== expectedEffect) return;
 					if (snapType !== currentSimType) {
-						// Crossfade the previous sim into the new one. The
-						// outgoing sim keeps stepping during the fade so it
-						// doesn't freeze mid-blend.
 						const incoming = newEffectInstance(snapType);
 						try { incoming.restoreSnapshot(snap); } catch (err) { console.error('bad snapshot', err); }
-						sim = sim && AmbienceSim.EffectTransition
-							? new AmbienceSim.EffectTransition(sim, incoming)
-							: incoming;
+						sim = sim && AmbienceSim.EffectTransition ? new AmbienceSim.EffectTransition(sim, incoming) : incoming;
 						currentSimType = snapType;
 						effect = snapType;
 						loadSchema(effect);
-						syncEffectSwitcher();
-						appendLog({ tick: cmd.tick, type: 'effect-switch', desc: snapType });
+						setScene();
+						renderTrack();
+						chrome.appendLog({ t: 't=' + cmd.tick, kind: 'scene', text: 'effect → ' + snapType });
 					} else {
 						if (!sim) sim = newEffectInstance(snapType);
 						sim.restoreSnapshot(snap);
 					}
 					ready = true;
-					// Initialize sliders to the server's current config.
-					applyServerConfig(snap.config);
+					latestConfig = snap.config || latestConfig;
+					if (snap.config) chrome.setValues(snap.config);
 				} catch (err) { console.error('bad snapshot', err); }
 				break;
 			case 'config':
-				if (expectedEffect !== effect) break;
-				if (!sim) break;
+				if (expectedEffect !== effect || !sim) break;
 				try {
 					const cfg = typeof cmd.data === 'string' ? JSON.parse(cmd.data) : cmd.data;
 					sim.setConfig(cfg);
-					applyServerConfig(cfg);
+					latestConfig = cfg;
+					chrome.setValues(cfg);
 				} catch (err) { console.error('bad config', err); }
 				break;
 			case 'trigger':
 				if (expectedEffect !== effect) break;
 				if (sim && sim.triggerEvent) sim.triggerEvent(cmd.event);
-				appendLog({ tick: cmd.tick, type: cmd.event, desc: cmd.desc });
+				chrome.appendLog({ t: 't=' + cmd.tick, kind: 'trigger', text: cmd.event + (cmd.desc ? ' · ' + cmd.desc : '') });
 				break;
 		}
 	}
-
 	function openDevStream(effectName) {
 		const streamID = ++streamSeq;
 		const stream = new EventSource('/dev/events?session=' + encodeURIComponent(SESSION_ID) +
 			'&effect=' + encodeURIComponent(effectName));
 		stream.addEventListener('message', (e) => {
-			let cmd;
-			try { cmd = JSON.parse(e.data); } catch (_) { return; }
+			let cmd; try { cmd = JSON.parse(e.data); } catch (_) { return; }
 			handleDevCommand(cmd, streamID, effectName);
 		});
 		return stream;
 	}
-
-	let es = null;
-
+	function softSwitchEffect(next) {
+		if (!next || next === effect) return;
+		effect = next;
+		history.replaceState(null, '', effectPath(next));
+		setScene();
+		renderTrack();
+		if (es) es.close();
+		es = openDevStream(next);
+	}
 	function loadSchema(effectName) {
 		fetch('/effects/' + encodeURIComponent(effectName) + '/schema')
 			.then(r => r.json())
-			.then(schema => { renderPanel(schema); updateReadouts(); })
+			.then(schema => { chrome.renderControls(schema); if (latestConfig) chrome.setValues(latestConfig); })
 			.catch(err => console.error('schema', err));
 	}
 
 	async function startDevRuntime() {
 		await AmbienceSim.wasm.ready();
-		syncEffectSwitcher();
+		setScene();
+		renderTrack();
+		chrome.setTele('effects', String(availableEffects().length));
 		loadSchema(effect);
 		startLoops();
 		es = openDevStream(effect);
 	}
-
-	// Boot: fetch schema, render panel; SSE will deliver the initial snapshot
-	// which sets the sliders.
 	startDevRuntime().catch((err) => {
 		console.error(err);
-		title.textContent = 'ambience dev - wasm runtime failed';
+		chrome.setLine('wasm runtime failed — ' + err.message);
 	});
+	})();
 </script>
 </body>
 </html>
