@@ -51,10 +51,9 @@ re-fetching it from GitHub Issues.
 
 ## Workflow Registration
 
-The `default` workflow is authored at `.glimmung/workflows/default.yaml` and
-synced into Glimmung over MCP/API. Glimmung's database row is still the runtime
-source of truth at dispatch time, but the repo file is the desired-state source
-operators should edit. Ambience contributes the per-phase runner scripts under
+The live `default` workflow is the Postgres-backed workflow row registered in
+Glimmung. Dispatch reads that database row, not a workflow file from this repo.
+Ambience contributes the per-phase runner scripts under
 `scripts/glimmung-native/`; managed `type: agent` steps provide the concrete
 provider/model selection through Glimmung's agent runtime policy.
 
