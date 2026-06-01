@@ -10,6 +10,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from .agent_runtime import resolve_stage_runtime
+
 
 DEFAULT_REGISTRY_NAME = "romainecr"
 DEFAULT_IMAGE_REPOSITORY = "ambience"
@@ -537,6 +539,11 @@ def destroy_pr_preview(*, pr_number: int, release: str = DEFAULT_PR_RELEASE_NAME
 _AGENT_BOOTSTRAP_BASH = r"""set -euo pipefail
 
 mkdir -p /workspace/evidence/screenshots /workspace/evidence/videos
+if [ -f /etc/codex-creds/auth.json ]; then
+  mkdir -p $HOME/.codex
+  cp /etc/codex-creds/auth.json $HOME/.codex/auth.json
+  chmod 600 $HOME/.codex/auth.json
+fi
 
 # Seed claude state — placeholder credentials so claude never tries to
 # refresh, project trust + onboarding flags so it boots straight into the run.
@@ -594,6 +601,42 @@ if [ -n "${GLIMMUNG_EVIDENCE_REQUIREMENTS_JSON:-}" ]; then
     echo '```'
   } >> /tmp/issue-context.md
 fi
+
+run_agent_prompt() {
+  input_file="$1"
+  log_file="$2"
+  echo "=== agent runtime: stage=${AGENT_STAGE} slot=${AGENT_RUNTIME_SLOT} profile=${AGENT_RUNTIME_PROFILE_ID} provider=${AGENT_PROVIDER} model=${AGENT_MODEL} reasoning=${AGENT_REASONING_EFFORT:-} source=${AGENT_RUNTIME_SOURCE:-} ==="
+  case "${AGENT_PROVIDER}" in
+    claude)
+      cat "${input_file}" | claude \
+        --print \
+        --model "${AGENT_MODEL}" \
+        --output-format stream-json \
+        --verbose \
+        --dangerously-skip-permissions \
+        2>&1 | tee "${log_file}"
+      ;;
+    codex)
+      args=(
+        exec
+        --cd /workspace/repo
+        --model "${AGENT_MODEL}"
+        --dangerously-bypass-approvals-and-sandbox
+        --json
+        --output-last-message /tmp/ambience-codex-last-message.md
+        -
+      )
+      if [ -n "${AGENT_REASONING_EFFORT:-}" ]; then
+        args=(exec -c "model_reasoning_effort=\"${AGENT_REASONING_EFFORT}\"" "${args[@]:1}")
+      fi
+      cat "${input_file}" | codex "${args[@]}" 2>&1 | tee "${log_file}"
+      ;;
+    *)
+      echo "unsupported agent provider: ${AGENT_PROVIDER}" >&2
+      return 2
+      ;;
+  esac
+}
 """
 
 # Common tail used by both pod scripts. Stages have already written their
@@ -650,12 +693,7 @@ go mod download 2>&1 | tail -20 || true
 
 echo "=== STAGE: issue-contract ==="
 cat /agent-config/prompt-issue-contract.md /tmp/issue-context.md > /tmp/contract-input.md
-cat /tmp/contract-input.md | claude \
-  --print \
-  --output-format stream-json \
-  --verbose \
-  --dangerously-skip-permissions \
-  2>&1 | tee /tmp/issue-contract-stream.log
+run_agent_prompt /tmp/contract-input.md /tmp/issue-contract-stream.log
 
 if [ ! -f /workspace/evidence/issue-agent-contract.json ]; then
   echo "issue-contract stage exited without writing issue-agent-contract.json" >&2
@@ -702,12 +740,7 @@ echo "=== STAGE: test-plan ==="
     cat /agent-config/issue-agent-contract.md
   fi
 } > /tmp/plan-input.md
-cat /tmp/plan-input.md | claude \
-  --print \
-  --output-format stream-json \
-  --verbose \
-  --dangerously-skip-permissions \
-  2>&1 | tee /tmp/test-plan-stream.log
+run_agent_prompt /tmp/plan-input.md /tmp/test-plan-stream.log
 
 if [ ! -f /workspace/evidence/issue-agent-test-plan.json ]; then
   echo "test-plan stage exited without writing issue-agent-test-plan.json" >&2
@@ -760,12 +793,7 @@ echo "=== STAGE: implementation ==="
     cat /agent-config/issue-agent-contract.md
   fi
 } > /tmp/impl-input.md
-cat /tmp/impl-input.md | claude \
-  --print \
-  --output-format stream-json \
-  --verbose \
-  --dangerously-skip-permissions \
-  2>&1 | tee /tmp/impl-stream.log
+run_agent_prompt /tmp/impl-input.md /tmp/impl-stream.log
 
 if [ ! -f /workspace/evidence/issue-agent-implementation.json ]; then
   echo "implementation stage exited without writing issue-agent-implementation.json" >&2
@@ -860,12 +888,7 @@ echo "=== STAGE: verification ==="
   cat /workspace/evidence/issue-agent-implementation.md 2>/dev/null || true
 } > /tmp/verify-input.md
 
-cat /tmp/verify-input.md | claude \
-  --print \
-  --output-format stream-json \
-  --verbose \
-  --dangerously-skip-permissions \
-  2>&1 | tee /tmp/verify-stream.log
+run_agent_prompt /tmp/verify-input.md /tmp/verify-stream.log
 
 if [ ! -f /workspace/evidence/issue-agent-verification.json ]; then
   echo "verification stage exited without writing issue-agent-verification.json" >&2
@@ -903,6 +926,7 @@ def _agent_job_spec(
     repo_slug: str = "nelsong6/ambience",
     stage: str = "test-plan",
     config_map_name: str = "agent-config",
+    agent_runtime_json: str = "",
 ) -> dict:
     """Build the Job spec as a Python dict. No templating; values land directly
     in their typed positions. `stage` selects which bash script the agent
@@ -912,6 +936,7 @@ def _agent_job_spec(
         raise ValueError(
             f"unknown stage {stage!r}; expected one of {sorted(_STAGE_BASH_SCRIPTS)}"
         )
+    runtime = resolve_stage_runtime(agent_runtime_json, stage)
     issue_ref = issue_reference or (f"#{issue_number}" if issue_number else "glimmung-run")
 
     return {
@@ -963,6 +988,10 @@ def _agent_job_spec(
                             "name": "agent-config",
                             "configMap": {"name": config_map_name},
                         },
+                        {
+                            "name": "codex-credentials",
+                            "secret": {"secretName": "codex-credentials", "optional": True},
+                        },
                     ],
                     "containers": [
                         {
@@ -985,6 +1014,12 @@ def _agent_job_spec(
                                 {"name": "BRANCH_NAME", "value": branch_name},
                                 {"name": "REPO_SLUG", "value": repo_slug},
                                 {"name": "AGENT_STAGE", "value": stage},
+                                {"name": "AGENT_RUNTIME_SLOT", "value": runtime.slot},
+                                {"name": "AGENT_RUNTIME_PROFILE_ID", "value": runtime.profile_id},
+                                {"name": "AGENT_PROVIDER", "value": runtime.provider},
+                                {"name": "AGENT_MODEL", "value": runtime.model},
+                                {"name": "AGENT_REASONING_EFFORT", "value": runtime.reasoning_effort},
+                                {"name": "AGENT_RUNTIME_SOURCE", "value": runtime.source},
                                 {
                                     "name": "GLIMMUNG_EVIDENCE_REQUIREMENTS_JSON",
                                     "value": os.environ.get(
@@ -1004,6 +1039,7 @@ def _agent_job_spec(
                             ],
                             "volumeMounts": [
                                 {"name": "claude-ca", "mountPath": "/etc/claude-ca", "readOnly": True},
+                                {"name": "codex-credentials", "mountPath": "/etc/codex-creds", "readOnly": True},
                                 {"name": "workspace", "mountPath": "/workspace"},
                                 {"name": "agent-config", "mountPath": "/agent-config", "readOnly": True},
                             ],
@@ -1030,6 +1066,7 @@ def apply_agent_job(
     issue_reference: str | None = None,
     stage: str = "test-plan",
     config_map_name: str = "agent-config",
+    agent_runtime_json: str = "",
 ) -> dict:
     """Render the agent Job spec and `kubectl apply -f -` it. `stage` selects
     the bash script (test-plan / implement / verify). `config_map_name` is the
@@ -1050,6 +1087,7 @@ def apply_agent_job(
         repo_slug=repo_slug,
         stage=stage,
         config_map_name=config_map_name,
+        agent_runtime_json=agent_runtime_json,
     )
     proc = subprocess.run(
         ["kubectl", "apply", "-f", "-"],
@@ -1065,7 +1103,25 @@ def apply_agent_job(
     return {
         "namespace": namespace,
         "job": job_name,
+        "agent_runtime": _agent_runtime_result(spec),
         "applied": proc.stdout.strip(),
+    }
+
+
+def _agent_runtime_result(spec: dict) -> dict:
+    env = {
+        item.get("name"): item.get("value")
+        for item in spec["spec"]["template"]["spec"]["containers"][0]["env"]
+        if isinstance(item, dict) and "value" in item
+    }
+    return {
+        "stage": env.get("AGENT_STAGE", ""),
+        "slot": env.get("AGENT_RUNTIME_SLOT", ""),
+        "profile_id": env.get("AGENT_RUNTIME_PROFILE_ID", ""),
+        "provider": env.get("AGENT_PROVIDER", ""),
+        "model": env.get("AGENT_MODEL", ""),
+        "reasoning_effort": env.get("AGENT_REASONING_EFFORT", ""),
+        "source": env.get("AGENT_RUNTIME_SOURCE", ""),
     }
 
 

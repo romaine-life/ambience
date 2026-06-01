@@ -43,6 +43,8 @@ Implementation still solves the issue, not the test plan.
 **Goal:** Read the issue and repo conventions, then settle canonical target
 names and public surface before the parallel LLM jobs run.
 
+**Agent runtime slot:** `issue_contract`.
+
 **Input context:** issue body, `.github/agent/prompt-issue-contract.md`,
 `AGENTS.md`, `CLAUDE.md`, `docs/effects-cookbook.md`,
 `docs/dev-endpoints.md`.
@@ -56,6 +58,8 @@ Write, or Bash-state-mutating tools.
 
 **Goal:** Read the issue, decide the change shape, list the evidence
 that would prove the change works.
+
+**Agent runtime slot:** `test_plan`.
 
 **Input context:** issue body, issue-contract JSON,
 `.github/agent/prompt-test-plan.md`, `AGENTS.md`, `CLAUDE.md`,
@@ -112,6 +116,8 @@ Allowed `abort_reason` values: `issue_unclear`,
 **Goal:** Edit code only. Implement what the issue calls for while respecting
 the issue contract's public names.
 
+**Agent runtime slot:** `implementation`.
+
 **Input context:** issue body, issue-contract JSON,
 `.github/agent/prompt-implementation.md`, `AGENTS.md`, `CLAUDE.md`, the
 cookbook docs. The implementation stage does **not** read the test-plan
@@ -152,6 +158,8 @@ tree the run aborts with `implementation_build_failed`.
 **Goal:** Validate the change against the rebuilt validation env.
 Capture the evidence the test plan called for. Confirm `must_show`
 language matches what the captured artifact actually shows.
+
+**Agent runtime slot:** `verification`.
 
 **Input context:** issue-contract JSON, test-plan JSON, implementation JSON,
 `.github/agent/prompt-verification.md`, the rebuilt validation URL.
@@ -207,7 +215,12 @@ scripts/glimmung-native/verify.sh:         run-verification, finalize, upload-sc
 ```
 
 Each `run_*` function calls a per-stage helper that drives a fresh
-claude-code invocation with the stage prompt and tool restrictions.
+agent invocation with the stage prompt and tool restrictions. Glimmung
+snapshots the resolved agent runtime on the Run and passes it as
+`GLIMMUNG_AGENT_RUNTIME_JSON`; Ambience maps stages to the stable slots above
+and renders the selected provider/model/reasoning into the actual agent command.
+If that snapshot is missing or selects an unsupported provider, the stage fails
+before launching an agent pod rather than using a hidden default.
 Stage prompts live at `.github/agent/prompt-issue-contract.md`,
 `.github/agent/prompt-test-plan.md`, `.github/agent/prompt-implementation.md`,
 and `.github/agent/prompt-verification.md`.

@@ -427,6 +427,18 @@ native_install_preview_package() {
   python3 -m pip install --user "$package_dir"
 }
 
+native_prepare_codex_credentials_secret() {
+  local namespace="$1"
+  local source_file="${NATIVE_CODEX_CREDENTIALS_FILE:-/etc/codex-creds/auth.json}"
+  if [ ! -s "$source_file" ]; then
+    echo "codex credentials file not present at ${source_file}; codex-selected stages will fail before agent startup"
+    return 0
+  fi
+  kubectl -n "$namespace" create secret generic codex-credentials \
+    --from-file=auth.json="$source_file" \
+    --dry-run=client -o yaml | kubectl apply -f -
+}
+
 native_github_token() {
   curl -fsS \
     --retry 5 \
