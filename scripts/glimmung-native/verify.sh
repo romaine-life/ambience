@@ -101,6 +101,7 @@ prepare_context() {
   native_azure_login
   native_install_preview_package "${REPO_DIR}/mcp"
   copy_claude_ca
+  native_prepare_codex_credentials_secret "$NAMESPACE"
 
   PROXY_IP="$(kubectl -n "$CLAUDE_NAMESPACE" get svc claude-api-proxy -o jsonpath='{.spec.clusterIP}')"
   if [ -z "$PROXY_IP" ]; then
@@ -205,7 +206,8 @@ run_llm() {
       --agent-container-tag "$AGENT_CONTAINER_TAG" \
       --repo-slug "$REPO_SLUG" \
       --stage "verify" \
-      --config-map-name "$CONFIG_MAP_NAME"
+      --config-map-name "$CONFIG_MAP_NAME" \
+      --agent-runtime-json "${GLIMMUNG_AGENT_RUNTIME_JSON:-}"
     native_emit_inner_job_marker "$NAMESPACE" "$JOB_NAME" verification_agent verify-agent
     python3 -m ambience_preview.cli wait-agent-job \
       --namespace "$NAMESPACE" \

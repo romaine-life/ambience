@@ -35,16 +35,21 @@ Glimmung-native issue bodies are passed into the native Kubernetes job as the
 `GLIMMUNG_ISSUE_BODY` environment variable and included verbatim in the agent
 prompt, so the agent works from the Glimmung-owned issue text rather than
 re-fetching it from GitHub Issues.
+Glimmung also passes the run-scoped `GLIMMUNG_AGENT_RUNTIME_JSON` snapshot.
+Ambience LLM stages use the `issue_contract`, `test_plan`, `implementation`,
+and `verification` slots from that snapshot; model/provider selection is not
+owned by shell script defaults.
 
 ## Ownership
 
 - Glimmung owns clone-token minting, run/session authentication, native
   callback endpoints, graph state, log archival, retry decisions, and report
   creation.
-- Ambience owns image build, Helm deploy, validation checks, agent prompt/job
-  creation, evidence capture, and verification semantics.
-- Steps are observational boundaries emitted by Ambience scripts. Glimmung
-  records them but does not orchestrate inside a step.
+- Ambience owns image build, Helm deploy, validation checks, stage prompts,
+  evidence capture, and verification semantics.
+- Managed `type: agent` steps are orchestrated by Glimmung. Ambience scripts
+  still emit observational boundaries around app-specific preparation,
+  collection, and enforcement work.
 - Native job success and failure both terminate through Glimmung's
   `/native/completed` callback. Ambience runner images must not require the
   retired `GLIMMUNG_FAILED_URL` environment variable.

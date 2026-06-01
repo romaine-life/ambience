@@ -9,6 +9,8 @@ called for** against the rebuilt environment.
 You will see both prior stages' artifacts appended to this prompt as
 context blocks. Read the test plan's `required_evidence` carefully —
 each entry is a contract item you must answer for in your output JSON.
+Glimmung selects the concrete provider/model for this invocation through the
+`verification` agent runtime slot and records that choice in run events.
 
 ## Workflow
 

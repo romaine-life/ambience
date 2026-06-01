@@ -49,9 +49,13 @@ verify (evidence_verification_gate) → env-destroy
 
 Each phase has wrapper scripts in `scripts/glimmung-native/`; the actual
 agent calls are Glimmung-managed `type: agent` workflow steps so provider/model
-selection comes from Glimmung's agent runtime policy. The older inner LLM Job
-helpers in `mcp/ambience_preview/ops.py` are retained for historical context.
-Prompts are in
+selection comes from the resolved Glimmung agent runtime snapshot on the Run.
+The Ambience LLM stages use stable runtime slots:
+`issue_contract`, `test_plan`, `implementation`, and `verification`. The
+script-launched inner Job renderer in `mcp/ambience_preview/ops.py` also
+requires `GLIMMUNG_AGENT_RUNTIME_JSON` and selects the same stage slot before
+rendering Claude or Codex commands, so registered rows cannot silently fall
+back to a hard-coded model. Prompts are in
 `.github/agent/prompt-{issue-contract,test-plan,implementation,
 verification}.md`. Design and stage contracts live at
 [docs/issue-agent-stage-split.md](docs/issue-agent-stage-split.md).

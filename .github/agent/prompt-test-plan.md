@@ -10,6 +10,8 @@ not inspect proposed code edits or assume any specific implementation
 shape** — test planning must be independent of implementation. The
 verification stage reads both artifacts plus the rebuilt validation
 environment and reconciles them.
+Glimmung selects the concrete provider/model for this invocation through the
+`test_plan` agent runtime slot and records that choice in run events.
 
 > **Note**: this prompt may be preceded by additional context blocks
 > (`## Prior attempt verification — reasons to address`,

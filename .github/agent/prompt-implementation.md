@@ -9,6 +9,8 @@ read or depend on the test-plan artifact** — implementation must be
 independent of test planning. The two stages are reconciled by the
 verification stage, which reads both artifacts plus the rebuilt
 validation environment and produces the verdict.
+Glimmung selects the concrete provider/model for this invocation through the
+`implementation` agent runtime slot and records that choice in run events.
 
 ## Workflow
 

@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from ambience_preview.agent_runtime import resolve_stage_runtime  # noqa: E402
+from ambience_preview import ops  # noqa: E402
+
+
+def snapshot(**slot_profiles: dict[str, str]) -> str:
+    slots = {
+        slot: {
+            "profile_id": values["profile_id"],
+            "provider": values["provider"],
+            "model": values["model"],
+            "reasoning_effort": values.get("reasoning_effort", ""),
+            "source": values.get("source", "issue"),
+        }
+        for slot, values in slot_profiles.items()
+    }
+    return json.dumps(
+        {
+            "default": {
+                "profile_id": "default-codex",
+                "provider": "codex",
+                "model": "gpt-5.4",
+                "reasoning_effort": "high",
+                "source": "global",
+            },
+            "slots": slots,
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("stage", "slot"),
+    [
+        ("issue-contract", "issue_contract"),
+        ("test-plan", "test_plan"),
+        ("implement", "implementation"),
+        ("verify", "verification"),
+    ],
+)
+def test_resolve_stage_runtime_uses_stable_stage_slots(stage: str, slot: str) -> None:
+    runtime = resolve_stage_runtime(
+        snapshot(
+            **{
+                slot: {
+                    "profile_id": f"{slot}-claude",
+                    "provider": "claude",
+                    "model": "claude-sonnet-4-6",
+                    "source": "issue",
+                }
+            }
+        ),
+        stage,
+    )
+
+    assert runtime.stage == stage
+    assert runtime.slot == slot
+    assert runtime.profile_id == f"{slot}-claude"
+    assert runtime.provider == "claude"
+    assert runtime.model == "claude-sonnet-4-6"
+
+
+def test_resolve_stage_runtime_fails_when_snapshot_missing() -> None:
+    with pytest.raises(ValueError, match="GLIMMUNG_AGENT_RUNTIME_JSON is required"):
+        resolve_stage_runtime("", "implement")
+
+
+def test_resolve_stage_runtime_fails_when_profile_missing() -> None:
+    raw = json.dumps({"slots": {}})
+    with pytest.raises(ValueError, match="no resolved profile for slot 'implementation'"):
+        resolve_stage_runtime(raw, "implement")
+
+
+def test_resolve_stage_runtime_fails_on_unsupported_provider() -> None:
+    raw = snapshot(
+        implementation={
+            "profile_id": "bad",
+            "provider": "unknown-ai",
+            "model": "mystery",
+        }
+    )
+    with pytest.raises(ValueError, match="unsupported provider 'unknown-ai'"):
+        resolve_stage_runtime(raw, "implement")
+
+
+def test_agent_job_spec_renders_selected_runtime() -> None:
+    spec = ops._agent_job_spec(
+        namespace="ambience-slot-1",
+        job_name="agent-run-im-0",
+        issue_number="12",
+        issue_title="render selected runtime",
+        issue_url="https://glimmung.example/issues/12",
+        issue_reference="ambience#12",
+        validation_url="https://slot.example",
+        branch_name="glimmung/run-1",
+        proxy_ip="10.0.0.5",
+        agent_container_tag="latest",
+        stage="implement",
+        config_map_name="agent-config-implement",
+        agent_runtime_json=snapshot(
+            implementation={
+                "profile_id": "impl-codex",
+                "provider": "codex",
+                "model": "gpt-5.5",
+                "reasoning_effort": "xhigh",
+                "source": "issue",
+            }
+        ),
+    )
+
+    env = {
+        item["name"]: item["value"]
+        for item in spec["spec"]["template"]["spec"]["containers"][0]["env"]
+        if "value" in item
+    }
+    assert env["AGENT_RUNTIME_SLOT"] == "implementation"
+    assert env["AGENT_RUNTIME_PROFILE_ID"] == "impl-codex"
+    assert env["AGENT_PROVIDER"] == "codex"
+    assert env["AGENT_MODEL"] == "gpt-5.5"
+    assert env["AGENT_REASONING_EFFORT"] == "xhigh"

@@ -115,6 +115,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="agent-config",
         help="Name of the configmap mounted at /agent-config in the agent pod.",
     )
+    apply_agent.add_argument(
+        "--agent-runtime-json",
+        default="",
+        help="Resolved Glimmung agent runtime snapshot for this run.",
+    )
 
     wait_agent = subparsers.add_parser(
         "wait-agent-job",
@@ -206,6 +211,7 @@ def main() -> int:
                     repo_slug=args.repo_slug,
                     stage=args.stage,
                     config_map_name=args.config_map_name,
+                    agent_runtime_json=args.agent_runtime_json,
                 )
             )
         elif args.command == "wait-agent-job":
