@@ -51,11 +51,12 @@ re-fetching it from GitHub Issues.
 
 ## Workflow Registration
 
-The `default` workflow is registered with Glimmung over MCP/API. Glimmung's
-Cosmos-backed Workflow row is the runtime source of truth; this repo does not
-keep a `.glimmung/workflows/*.yaml` desired-state file. Ambience contributes
-the per-phase runner scripts under `scripts/glimmung-native/` and the runner
-image they execute in.
+The `default` workflow is authored at `.glimmung/workflows/default.yaml` and
+synced into Glimmung over MCP/API. Glimmung's database row is still the runtime
+source of truth at dispatch time, but the repo file is the desired-state source
+operators should edit. Ambience contributes the per-phase runner scripts under
+`scripts/glimmung-native/`; managed `type: agent` steps provide the concrete
+provider/model selection through Glimmung's agent runtime policy.
 
 Video evidence can be required per issue with Glimmung labels such as
 `evidence:video`, or made the Ambience baseline by registering

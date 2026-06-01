@@ -47,18 +47,20 @@ verify (evidence_verification_gate) → env-destroy
   enforces both the issue contract's public surface and the test plan's
   `required_evidence` contract before emitting `pass`.
 
-Each phase has its own wrapper script in `scripts/glimmung-native/` and
-spawns one K8s Job (LLM pod) via `mcp/ambience_preview/ops.py`. Stage
-bash scripts (`_ISSUE_CONTRACT_BASH`, `_TEST_PLAN_BASH`,
-`_IMPLEMENT_BASH`, `_VERIFY_BASH`) live in `ops.py`; prompts are in
+Each phase has wrapper scripts in `scripts/glimmung-native/`; the actual
+agent calls are Glimmung-managed `type: agent` workflow steps so provider/model
+selection comes from Glimmung's agent runtime policy. The older inner LLM Job
+helpers in `mcp/ambience_preview/ops.py` are retained for historical context,
+but the repo-authored workflow should prefer the managed agent steps. Prompts
+are in
 `.github/agent/prompt-{issue-contract,test-plan,implementation,
 verification}.md`. Design and stage contracts live at
 [docs/issue-agent-stage-split.md](docs/issue-agent-stage-split.md).
 
 Runs are started directly via the glimmung UI/API; there is no
-GitHub-label trigger and no repo-owned `.glimmung/workflows/*.yaml`
-manifest. The live workflow shape is the `ambience.default` Workflow row
-registered in Glimmung's database.
+GitHub-label trigger. The authored workflow lives at
+`.glimmung/workflows/default.yaml`; after edits land on `main`, sync
+`ambience.default` through Glimmung so the database row matches the file.
 
 When developing a new effect, the relevant references are
 [docs/effects-cookbook.md](docs/effects-cookbook.md) (file pattern +
