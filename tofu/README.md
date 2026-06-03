@@ -1,7 +1,7 @@
 # Ambience Infrastructure
 
 This directory owns Ambience-specific Azure resources. Shared cluster
-infrastructure still lives in `nelsong6/infra-bootstrap`.
+infrastructure still lives in `romaine-life/infra-bootstrap`.
 
 ## App-Owned Key Vault
 

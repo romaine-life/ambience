@@ -39,7 +39,7 @@ native_run_selected_step() {
 }
 
 # native_emit_inner_job_marker prints the inner-Job registration line
-# the outer glimmung-native-runner parses (per nelsong6/glimmung's
+# the outer glimmung-native-runner parses (per romaine-life/glimmung's
 # docs/inner-job-observation.md). Stage scripts that spawn a child k8s
 # Job in the slot namespace call this immediately after apply-agent-job
 # succeeds so glimmung records the child alongside the outer phase Job.

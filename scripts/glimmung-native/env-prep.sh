@@ -9,7 +9,7 @@ source "${SCRIPT_DIR}/lib.sh"
 native_init
 native_require_env GLIMMUNG_VALIDATION_NAMESPACE GLIMMUNG_RUN_ID
 
-REPO_SLUG="${AMBIENCE_REPO_SLUG:-nelsong6/ambience}"
+REPO_SLUG="${AMBIENCE_REPO_SLUG:-romaine-life/ambience}"
 REPO_DIR="${AMBIENCE_REPO_DIR:-/workspace/ambience}"
 CLAUDE_NAMESPACE="${CLAUDE_NAMESPACE:-tank-operator}"
 CLAUDE_CA_NAMESPACE="${CLAUDE_CA_NAMESPACE:-tank-operator-sessions}"

@@ -72,7 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="40-character git SHA at the branch ref being built. The image tag must be git-<sha>.",
     )
-    rebuild_validation.add_argument("--repo-slug", default="nelsong6/ambience")
+    rebuild_validation.add_argument("--repo-slug", default="romaine-life/ambience")
 
     upsert_pr = subparsers.add_parser("upsert-pr-preview")
     upsert_pr.add_argument("--pr-number", type=int, required=True)
@@ -103,7 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     apply_agent.add_argument("--branch-name", required=True)
     apply_agent.add_argument("--proxy-ip", required=True)
     apply_agent.add_argument("--agent-container-tag", required=True)
-    apply_agent.add_argument("--repo-slug", default="nelsong6/ambience")
+    apply_agent.add_argument("--repo-slug", default="romaine-life/ambience")
     apply_agent.add_argument(
         "--stage",
         default="test-plan",

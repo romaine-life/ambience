@@ -57,7 +57,7 @@ Configure via
 `data-ambience-*` attributes on the canvas (server URL, grid dims,
 transparent-vs-opaque render, entropy on/off).
 
-For terminal consumers, `github.com/nelsong6/ambience/terminal` is a Go
+For terminal consumers, `github.com/romaine-life/ambience/terminal` is a Go
 package that subscribes + renders rain via sixel. It applies snapshots
 immediately, queues future config/trigger commands behind the delayed
 authority playback tick, and exposes `Client.DebugState()` telemetry for

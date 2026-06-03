@@ -11,7 +11,7 @@ been a separate, narrower context.
 Restructure the native Ambience agent flow so the LLM work is split across
 focused invocations rather than one monolithic run. Per the platform principle in
 `tank-operator/docs/agent-llm-task-splitting.md` and the canonical
-example in [`nelsong6/spirelens/.github/workflows/issue-agent.yaml`](https://github.com/nelsong6/spirelens/blob/main/.github/workflows/issue-agent.yaml).
+example in [`romaine-life/spirelens/.github/workflows/issue-agent.yaml`](https://github.com/romaine-life/spirelens/blob/main/.github/workflows/issue-agent.yaml).
 
 ## Current shape
 

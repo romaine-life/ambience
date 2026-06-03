@@ -286,7 +286,7 @@ Consumers:
   testing effects/configs without interfering with prod state.
 - **fzt-showcase** — `<canvas data-ambience>` behind the WASM DOS terminal.
 - **my-homepage** — `<canvas data-ambience>` behind the fzt bookmark terminal.
-- **fzt-automate** (terminal) — imports `github.com/nelsong6/ambience/terminal`,
+- **fzt-automate** (terminal) — imports `github.com/romaine-life/ambience/terminal`,
   paints sixel via `tui.PostFrameHook`. Currently has known rendering
   issues tracked in #11–#15; on pause.
 

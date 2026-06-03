@@ -75,7 +75,7 @@ def test_rebuild_validation_image_builds_exact_source_revision(
         branch="issue-170-run-4.1",
         image_tag=image_tag,
         source_revision=revision,
-        repo_slug="nelsong6/ambience",
+        repo_slug="romaine-life/ambience",
     )
 
     assert result["source_revision"] == revision
