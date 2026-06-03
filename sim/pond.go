@@ -5,7 +5,7 @@ import (
 	"math"
 	"sync"
 
-	"github.com/nelsong6/ambience/rngutil"
+	"github.com/romaine-life/ambience/rngutil"
 )
 
 // Pond is a still pond with a small flock of ducks that circle their own

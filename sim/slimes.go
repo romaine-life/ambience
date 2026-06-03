@@ -5,7 +5,7 @@ import (
 	"math"
 	"sync"
 
-	"github.com/nelsong6/ambience/rngutil"
+	"github.com/romaine-life/ambience/rngutil"
 )
 
 // Slimes is a meadow with a row of pixel-art slime blobs sitting on the grass

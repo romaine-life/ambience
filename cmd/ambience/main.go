@@ -265,7 +265,7 @@ func registerStaticRoutes(mux *http.ServeMux, static staticAssets, lookup effect
 	// expose /_styleguide on its live env so reviewers + the screenshot
 	// pass have a stable catalog to scan. The leading underscore marks
 	// it as a platform route, kept out of product-route space. Contract:
-	// nelsong6/glimmung/docs/styleguide-contract.md.
+	// romaine-life/glimmung/docs/styleguide-contract.md.
 	mux.HandleFunc("/_styleguide", serveExactStaticFile(static, "/_styleguide", "styleguide.html"))
 	index := serveIndexPage(static, socialVersion)
 	mux.HandleFunc("/auth/callback", index)

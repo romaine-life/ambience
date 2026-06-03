@@ -24,7 +24,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nelsong6/ambience/terminal"
+	"github.com/romaine-life/ambience/terminal"
 )
 
 func main() {

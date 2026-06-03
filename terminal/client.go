@@ -33,7 +33,7 @@ import (
 	"time"
 
 	"github.com/mattn/go-sixel"
-	"github.com/nelsong6/ambience/sim"
+	"github.com/romaine-life/ambience/sim"
 )
 
 // Config tunes a Client.

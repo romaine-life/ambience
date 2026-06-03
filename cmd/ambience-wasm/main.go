@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"syscall/js"
 
-	"github.com/nelsong6/ambience/sim"
+	"github.com/romaine-life/ambience/sim"
 )
 
 type runtime struct {

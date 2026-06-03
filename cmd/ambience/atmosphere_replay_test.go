@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nelsong6/ambience/sim"
+	"github.com/romaine-life/ambience/sim"
 )
 
 func TestAtmosphereReplayAfterLastEventID(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"math"
 	"sync"
 
-	"github.com/nelsong6/ambience/rngutil"
+	"github.com/romaine-life/ambience/rngutil"
 )
 
 // Pixel is one cell in the grid. Filled=false means transparent/empty.

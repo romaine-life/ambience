@@ -11,8 +11,8 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/nelsong6/ambience/rngutil"
-	"github.com/nelsong6/ambience/sim"
+	"github.com/romaine-life/ambience/rngutil"
+	"github.com/romaine-life/ambience/sim"
 )
 
 type Scene struct {

@@ -9,7 +9,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 
-	"github.com/nelsong6/ambience/sim"
+	"github.com/romaine-life/ambience/sim"
 )
 
 // memoryStore is the in-memory persistenceStore used by tests that exercise

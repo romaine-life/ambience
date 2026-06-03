@@ -5,7 +5,7 @@ import (
 	"math"
 	"math/rand"
 
-	"github.com/nelsong6/ambience/sim"
+	"github.com/romaine-life/ambience/sim"
 )
 
 const devRandomSeedMixer int64 = 0x5deece66d

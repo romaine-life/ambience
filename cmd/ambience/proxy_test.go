@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nelsong6/ambience/sim"
+	"github.com/romaine-life/ambience/sim"
 )
 
 func TestLoadAppConfigFromEnvRequiresAuthorityURLForEdge(t *testing.T) {

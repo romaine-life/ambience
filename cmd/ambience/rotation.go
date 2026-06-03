@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nelsong6/ambience/rngutil"
+	"github.com/romaine-life/ambience/rngutil"
 )
 
 // defaultRotationCadenceTicks is 10 minutes at 10 Hz — the middle of the

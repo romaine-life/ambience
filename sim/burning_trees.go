@@ -5,7 +5,7 @@ import (
 	"math"
 	"sync"
 
-	"github.com/nelsong6/ambience/rngutil"
+	"github.com/romaine-life/ambience/rngutil"
 )
 
 // BurningTrees is a row of pixel-art trees along the bottom of the frame.

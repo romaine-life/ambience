@@ -1,6 +1,6 @@
 package main
 
-import "github.com/nelsong6/ambience/sim"
+import "github.com/romaine-life/ambience/sim"
 
 func (r *rainRuntime) Frame() [][]sim.Pixel          { return r.sim.GridCopy() }
 func (r *auroraRuntime) Frame() [][]sim.Pixel        { return r.sim.GridCopy() }

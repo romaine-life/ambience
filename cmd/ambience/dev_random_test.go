@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/nelsong6/ambience/sim"
+	"github.com/romaine-life/ambience/sim"
 )
 
 func TestRandomizedDevConfigStaysWithinSchemaBounds(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"math"
 	"sync"
 
-	"github.com/nelsong6/ambience/rngutil"
+	"github.com/romaine-life/ambience/rngutil"
 )
 
 // AutumnLeavesConfig keeps the lightweight ProceduralConfig shape so the

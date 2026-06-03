@@ -5,7 +5,7 @@ import (
 	"math"
 	"sync"
 
-	"github.com/nelsong6/ambience/rngutil"
+	"github.com/romaine-life/ambience/rngutil"
 )
 
 // Tetris is an ambient tetromino effect. Pieces descend slowly into a fixed
