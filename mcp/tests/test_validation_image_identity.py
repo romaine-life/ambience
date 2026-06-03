@@ -80,5 +80,5 @@ def test_rebuild_validation_image_builds_exact_source_revision(
 
     assert result["source_revision"] == revision
     assert result["image_tag"] == image_tag
-    assert commands[0][-1] == f"https://github.com/nelsong6/ambience.git#{revision}"
+    assert commands[0][-1] == f"https://github.com/romaine-life/ambience.git#{revision}"
     assert not any("issue-170-run-4.1" in part for command in commands for part in command)
