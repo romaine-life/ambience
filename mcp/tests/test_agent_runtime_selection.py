@@ -127,3 +127,11 @@ def test_agent_job_spec_renders_selected_runtime() -> None:
     assert env["AGENT_PROVIDER"] == "codex"
     assert env["AGENT_MODEL"] == "gpt-5.5"
     assert env["AGENT_REASONING_EFFORT"] == "xhigh"
+
+
+def test_verify_agent_job_receives_selected_case_context() -> None:
+    script = ops._STAGE_BASH_SCRIPTS["verify"]
+
+    assert "verification-case.json" in script
+    assert "## Verification case" in script
+    assert "cat /workspace/evidence/verification-case.json" in script

@@ -235,6 +235,21 @@ finalize() {
       jq -n '{schema_version:1,status:"fail",abort_reason:"test-plan pod produced no output"}' \
         >"$TEST_PLAN_JSON"
     fi
+  elif [ "$(jq -r '.status // "missing"' "$TEST_PLAN_JSON" 2>/dev/null || echo missing)" = "pass" ]; then
+    local evidence_count
+    evidence_count="$(jq -r '(.required_evidence // []) | length' "$TEST_PLAN_JSON" 2>/dev/null || echo 0)"
+    if [ "$evidence_count" -gt 10 ]; then
+      jq -n \
+        --argjson evidence_count "$evidence_count" \
+        '{
+          schema_version: 1,
+          status: "fail",
+          abort_reason: "too_many_required_evidence",
+          summary: "Test plan produced too many required evidence cases for the bounded verifier.",
+          required_evidence_count: $evidence_count
+        }' >"$TEST_PLAN_JSON"
+      printf '1\n' >"$PLAN_EXIT_CODE_FILE"
+    fi
   fi
 }
 
