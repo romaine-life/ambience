@@ -27,9 +27,12 @@ the source of issue-run execution for the native Ambience flow.
 6. Glimmung substitutes those phase outputs into `llm-work`.
 7. `llm-work` runs `test-plan` and `implement` in parallel. Both consume
    `issue_contract`; neither consumes the other's output.
-8. `llm-verify` receives `issue_contract`, `test_plan`, `implementation`, and
-   the rebuilt validation URL, captures evidence, posts a typed verification
-   result, and lets Glimmung drive retry/report decisions.
+8. The verification phase receives `issue_contract`, `test_plan`,
+   `implementation`, and the rebuilt validation URL. It runs ten fixed jobs
+   named `verify-case-01` through `verify-case-10`; each active job captures
+   one ordered `required_evidence` item from the test plan and posts a typed
+   per-case verification result. Empty slots complete as skipped. Glimmung
+   aggregates the case results and drives retry/report decisions.
 
 Glimmung-native issue bodies are passed into the native Kubernetes job as the
 `GLIMMUNG_ISSUE_BODY` environment variable and included verbatim in the agent
@@ -47,9 +50,11 @@ owned by shell script defaults.
   creation.
 - Ambience owns image build, Helm deploy, validation checks, stage prompts,
   evidence capture, and verification semantics.
-- Managed `type: agent` steps are orchestrated by Glimmung. Ambience scripts
-  still emit observational boundaries around app-specific preparation,
-  collection, and enforcement work.
+- Managed `type: agent` steps are orchestrated by Glimmung for planning and
+  implementation. Verification case jobs use Ambience's wrapper to skip empty
+  slots or launch exactly one inner verifier Job for the selected evidence
+  item. Ambience scripts still emit observational boundaries around
+  app-specific preparation, collection, and enforcement work.
 - Native job success and failure both terminate through Glimmung's
   `/native/completed` callback. Ambience runner images must not require the
   retired `GLIMMUNG_FAILED_URL` environment variable.
@@ -74,8 +79,9 @@ remaining Report API rename lands.
 
 The native runner registration was first smoke-tested end-to-end through
 Glimmung on 2026-05-04 with the earlier two-phase native runner. The current
-workflow shape is `prepare` → `llm-work` → `llm-verify` → `evidence-gate`; use
-the Glimmung run graph as the source of truth for the active registered shape.
+workflow shape is `prepare` → `llm-work` → `verify-case-01..10` →
+`evidence-gate`; use the Glimmung run graph as the source of truth for the
+active registered shape.
 
 The native runner confirms the pushed agent branch directly through GitHub.
 It does not mutate validation namespace metadata for branch discovery.
@@ -94,24 +100,25 @@ Codex, and the native Ambience scripts under `/opt/ambience-native/scripts`.
 
 ## Retry And Resume
 
-`llm-verify` plus the evidence gate form the verification boundary with a
-recycle policy on `verify_fail` and `verify_malformed`. The app-owned step
-boundaries are the
+The bounded verification case phase plus the evidence gate form the
+verification boundary with a recycle policy on `verify_fail` and
+`verify_malformed`. The app-owned step boundaries are the
 resume surface for future MCP/API dispatches; a caller that wants to resume
 from a particular point should pass `GLIMMUNG_RESUME_FROM_STEP=<step-slug>`
 when creating the next native attempt.
 
 ## Evidence
 
-`llm-verify` uploads WebM videos and optional screenshots to Glimmung-owned
-private artifact storage under `runs/<project>/<run-id>/videos/` and
-`runs/<project>/<run-id>/screenshots/`. It emits typed evidence metadata in the
-completion callback so Glimmung can render videos directly on the Touchpoint;
-the markdown summary still links through
+Each active verification case uploads WebM videos and optional screenshots to
+Glimmung-owned private artifact storage under `runs/<project>/<run-id>/videos/`
+and `runs/<project>/<run-id>/screenshots/`. It emits typed evidence metadata
+in the completion callback so Glimmung can render videos directly on the
+Touchpoint; the markdown summary still links through
 `https://glimmung.romaine.life/v1/artifacts/...`. Public reviewers do not
 access the storage account directly.
 
-The Glimmung-artifact upload path is exercised by `llm-verify`, which captures
-browser evidence from the validation environment and pushes it to
+The Glimmung-artifact upload path is exercised by each active verification
+case, which captures browser evidence from the validation environment and
+pushes it to
 `runs/ambience/<run-id>/...` on `romaineglimmungartifacts`, with the proxy link
 rendering inline in the resulting report body.

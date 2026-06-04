@@ -7,18 +7,19 @@ the new code. Your job is to **capture the evidence the test plan
 called for** against the rebuilt environment.
 
 You will see both prior stages' artifacts appended to this prompt as
-context blocks. Read the test plan's `required_evidence` carefully —
-each entry is a contract item you must answer for in your output JSON.
+context blocks. You will also see a `Verification case` JSON block.
+That selected case is your whole task. Do not capture or judge any
+other `required_evidence` item from the full test plan.
 Glimmung selects the concrete provider/model for this invocation through the
 `verification` agent runtime slot and records that choice in run events.
 
 ## Workflow
 
-1. Read the test plan section and implementation section appended
+1. Read the verification-case section, test plan section, and implementation section appended
    below. If an issue-contract section is present, its canonical target
-   and public surface are also contract. The test plan's
-   `required_evidence` remains the evidence contract.
-2. For each `required_evidence` item, do exactly what its `kind` says:
+   and public surface are also contract. The selected
+   `verification-case.required_evidence` item is the evidence contract.
+2. Do exactly what the selected case's `kind` says:
    - **`video`**: hit `$VALIDATION_URL$url_path`, record a WebM.
      Use `node /workspace/repo/scripts/agent/capture-video.mjs`.
      If the entry has a `trigger_event`, use the helper's
@@ -117,11 +118,12 @@ node /workspace/repo/scripts/agent/capture-video.mjs \
 }
 ```
 
-Every `required_evidence.id` from the test plan must appear in your
-`evidence_results` with `status` either `pass` or `fail`. For browser
-artifacts, include the matching `video` or `screenshot` path on that
-result. The wrapper recomputes pass/fail by walking that list — a
-verifier `pass` with a missing required item flips to `fail` with
+The selected `verification-case.required_evidence.id` must appear in
+your `evidence_results` with `status` either `pass` or `fail`. Do not
+include results for other test-plan items. For browser artifacts,
+include the matching `video` or `screenshot` path on that result. The
+wrapper recomputes pass/fail for the selected case — a verifier `pass`
+with a missing selected item flips to `fail` with
 `target_evidence_missing`.
 
 Use `evidence` for every browser artifact you captured. Use

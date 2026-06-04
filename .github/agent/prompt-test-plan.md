@@ -34,7 +34,11 @@ Glimmung selects the concrete provider/model for this invocation through the
 2. Identify a **single bounded slice** that addresses the issue. Bias
    toward the smallest change that resolves the stated request.
 3. Decide which kind of evidence would prove the change works (see
-   "Required evidence shapes" below).
+   "Required evidence shapes" below). `required_evidence` is the runtime
+   verification case list. It must contain at most 10 items, ordered from
+   most important to least important. Glimmung will map item 1 to
+   `verify-case-01`, item 2 to `verify-case-02`, and so on; unused slots
+   are skipped by the verifier wrapper.
 4. Write `/workspace/evidence/issue-agent-test-plan.json` and
    `/workspace/evidence/issue-agent-test-plan.md` per the schemas
    below. **The JSON file is required** — the wrapper aborts the run
@@ -44,8 +48,9 @@ Glimmung selects the concrete provider/model for this invocation through the
 ## Required evidence shapes
 
 `required_evidence` is a list of the things the verification stage
-will need to capture. Each entry has an `id`, a `kind`, and shape-
-specific fields:
+will need to capture. Each entry becomes one bounded verification case.
+Use no more than 10 entries. Each entry has an `id`, a `kind`, and
+shape-specific fields:
 
 - **`video`**: browser-visible behavior, animation, transitions, or
   interaction flow that should be reviewed over time. Required fields:

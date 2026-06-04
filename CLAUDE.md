@@ -32,7 +32,7 @@ llm-work
   ├─ test-plan
   └─ implement
        ↓
-verify (evidence_verification_gate) → env-destroy
+verify-case-01..10 (evidence_verification_gate) → env-destroy
 ```
 
 - **prepare** runs `env-prep` and `issue-contract` as parallel jobs.
@@ -43,13 +43,18 @@ verify (evidence_verification_gate) → env-destroy
   evidence specification; `implement` produces code changes and pushes the
   branch + rebuilds the validation env.
 - **verify** receives the issue contract, test plan, and implementation JSON
-  as phase inputs. It runs the verification LLM against the rebuilt env and
-  enforces both the issue contract's public surface and the test plan's
-  `required_evidence` contract before emitting `pass`.
+  as phase inputs. It has ten bounded jobs named `verify-case-01` through
+  `verify-case-10`; each active job selects one `required_evidence` item,
+  runs one verification LLM task against the rebuilt env, and emits a
+  per-case result. Empty slots complete as skipped. Glimmung aggregates the
+  case results into the phase `verification` output consumed by the evidence
+  gate.
 
-Each phase has wrapper scripts in `scripts/glimmung-native/`; the actual
-agent calls are Glimmung-managed `type: agent` workflow steps so provider/model
-selection comes from the resolved Glimmung agent runtime snapshot on the Run.
+Each phase has wrapper scripts in `scripts/glimmung-native/`. Planning and
+implementation use Glimmung-managed `type: agent` workflow steps.
+Verification cases use the script-launched inner Job path so the wrapper can
+skip empty slots before invoking an LLM. Both paths take provider/model
+selection from the resolved Glimmung agent runtime snapshot on the Run.
 The Ambience LLM stages use stable runtime slots:
 `issue_contract`, `test_plan`, `implementation`, and `verification`. The
 script-launched inner Job renderer in `mcp/ambience_preview/ops.py` also

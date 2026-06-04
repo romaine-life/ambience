@@ -852,7 +852,8 @@ go mod download 2>&1 | tail -20 || true
 # Make prior-phase handoff artifacts visible under /workspace/evidence/.
 for f in issue-agent-contract.json issue-agent-contract.md \
          issue-agent-test-plan.json issue-agent-test-plan.md \
-         issue-agent-implementation.json issue-agent-implementation.md; do
+         issue-agent-implementation.json issue-agent-implementation.md \
+         verification-case.json; do
   if [ -f "/agent-config/${f}" ]; then
     cp "/agent-config/${f}" "/workspace/evidence/${f}"
   fi
@@ -870,6 +871,12 @@ echo "=== STAGE: verification ==="
   echo '```'
   echo ""
   cat /workspace/evidence/issue-agent-contract.md 2>/dev/null || true
+  echo ""
+  echo "## Verification case"
+  echo ""
+  echo '```json'
+  cat /workspace/evidence/verification-case.json 2>/dev/null || echo '{}'
+  echo '```'
   echo ""
   echo "## Test plan"
   echo ""

@@ -27,7 +27,7 @@ llm-work
   ├─ run-test-plan      (LLM, no code edits, no kubectl)
   └─ run-implementation (LLM, no GitHub, no kubectl, no Playwright)
        ↓
-llm-verify              (LLM, no code edits, no GitHub-write)
+verify-case-01..10     (bounded LLM evidence cases, no code edits, no GitHub-write)
        ↓
 evidence-gate
 ```
@@ -155,14 +155,15 @@ tree the run aborts with `implementation_build_failed`.
 
 ### Stage 3 — `run-verification`
 
-**Goal:** Validate the change against the rebuilt validation env.
-Capture the evidence the test plan called for. Confirm `must_show`
+**Goal:** Validate one ordered evidence case against the rebuilt validation
+env. Capture the selected item from the test plan and confirm `must_show`
 language matches what the captured artifact actually shows.
 
 **Agent runtime slot:** `verification`.
 
 **Input context:** issue-contract JSON, test-plan JSON, implementation JSON,
-`.github/agent/prompt-verification.md`, the rebuilt validation URL.
+`verification-case.json`, `.github/agent/prompt-verification.md`, the rebuilt
+validation URL.
 
 **Tools:** Read, Grep, Bash (curl, node, playwright), Write (only to
 `/workspace/evidence/`). **No** Edit on `/workspace/repo/`. **No**
@@ -181,9 +182,7 @@ in `/workspace/evidence/screenshots/`. JSON shape:
     {"kind": "video", "ref": "videos/dev-distant-storm.webm", "content_type": "video/webm", "duration_ms": 6000}
   ],
   "evidence_results": [
-    {"id": "dev-distant-storm-default", "status": "pass", "video": "videos/dev-distant-storm.webm", "observed_text": null},
-    {"id": "dev-distant-storm-flash", "status": "pass", "video": "videos/dev-distant-storm-flash.webm", "observed_text": null},
-    {"id": "tests-distant-storm", "status": "pass", "stdout_excerpt": "PASS: TestDistantStormFlashFlow"}
+    {"id": "dev-distant-storm-default", "status": "pass", "video": "videos/dev-distant-storm.webm", "observed_text": null}
   ]
 }
 ```
@@ -192,16 +191,15 @@ Allowed `abort_reason` values: `video_missing`, `screenshot_missing`,
 `claimed_result_not_observed`, `target_evidence_missing`,
 `validation_env_unreachable`, `unit_tests_failed`.
 
-The wrapper first enforces the issue contract's public surface against the
+`verify-case-01` also enforces the issue contract's public surface against the
 rebuilt validation environment: declared dev/schema routes must exist, declared
 trigger events must be accepted, and forbidden public names must not resolve.
-It then recomputes pass/fail by walking the test-plan's
-`required_evidence` list and confirming every required item has a
-matching `evidence_results` entry with `status: pass` and the expected
-artifact path (`video` for video requirements, `screenshot` for
-screenshot requirements). A verifier-claimed pass with a missing
-required item flips to `fail` with `abort_reason:
-target_evidence_missing`.
+Each active case then recomputes pass/fail for its selected
+`verification-case.required_evidence` item, confirming it has a matching
+`evidence_results` entry with `status: pass` and the expected artifact path
+(`video` for video requirements, `screenshot` for screenshot requirements). A
+verifier-claimed pass with a missing selected item flips to `fail` with
+`abort_reason: target_evidence_missing`.
 
 ## Wrapper changes
 
@@ -231,7 +229,8 @@ and `.github/agent/prompt-verification.md`.
    helpers on the workflow checkout ref.
 2. Register the live Glimmung workflow with `prepare` containing both
    `env-prep` and `issue-contract`, then wire `issue_contract` into
-   `llm-work` and `llm-verify`.
+   `llm-work` and the bounded verification phase with jobs
+   `verify-case-01` through `verify-case-10`.
 3. Run a real issue through the shape. Watch for stages reaching into adjacent
    stage surfaces; tighten tool permissions per stage if they do.
 

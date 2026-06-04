@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # Glimmung phase: verify.
 #
-# Runs after both test-plan and implement. Receives the test-plan JSON
-# (evidence specification) and implementation JSON from glimmung phase
-# outputs, mounts them in the verify pod's configmap, and runs the
-# verification LLM against the rebuilt validation env.
+# Runs after both test-plan and implement. Each verify-case-NN job selects
+# one required_evidence item from the test-plan JSON, mounts that single case
+# in the verifier pod's configmap, and runs the verification LLM against the
+# rebuilt validation env for that case only.
 #
-# Also enforces the test plan's required_evidence contract against the
-# verifier's evidence_results before emitting pass.
+# Also enforces the selected required_evidence item against the verifier's
+# evidence_results before emitting pass.
 #
-# Outputs emitted to glimmung:
-#   verification — issue-agent-verification.json as a JSON string.
-#                  Consumed by the downstream evidence_verification_gate phase.
+# Completion emitted to glimmung:
+#   verification — typed per-case verification JSON. Glimmung aggregates all
+#                  verify-case jobs and synthesizes the phase output consumed
+#                  by the downstream evidence_verification_gate phase.
 
 set -Eeuo pipefail
 
@@ -37,8 +38,22 @@ NAMESPACE="${GLIMMUNG_INPUT_NAMESPACE}"
 BRANCH_NAME="${GLIMMUNG_INPUT_BRANCH_NAME}"
 RUN_SLUG="$(printf '%s' "$GLIMMUNG_RUN_ID" | tr '[:upper:]' '[:lower:]')"
 ATTEMPT_INDEX="${GLIMMUNG_ATTEMPT_INDEX:-0}"
-JOB_NAME="agent-${RUN_SLUG}-ve-${ATTEMPT_INDEX}"
-CONFIG_MAP_NAME="agent-config-verify"
+VERIFY_CASE_JOB_ID="${GLIMMUNG_JOB_ID:-}"
+case "$VERIFY_CASE_JOB_ID" in
+  verify-case-[0-9][0-9]) ;;
+  *)
+    echo "GLIMMUNG_JOB_ID must be verify-case-NN for bounded verification, got '${VERIFY_CASE_JOB_ID:-unset}'" >&2
+    exit 1
+    ;;
+esac
+VERIFY_CASE_NUMBER="$((10#${VERIFY_CASE_JOB_ID#verify-case-}))"
+if [ "$VERIFY_CASE_NUMBER" -lt 1 ] || [ "$VERIFY_CASE_NUMBER" -gt 10 ]; then
+  echo "verification case ${VERIFY_CASE_JOB_ID} is outside supported range verify-case-01..verify-case-10" >&2
+  exit 1
+fi
+VERIFY_CASE_INDEX="$((VERIFY_CASE_NUMBER - 1))"
+JOB_NAME="agent-${RUN_SLUG}-vc${VERIFY_CASE_NUMBER}-${ATTEMPT_INDEX}"
+CONFIG_MAP_NAME="agent-config-${VERIFY_CASE_JOB_ID}"
 
 ISSUE_TITLE="${GLIMMUNG_ISSUE_TITLE:-Glimmung issue ${GLIMMUNG_ISSUE_ID:-${GLIMMUNG_RUN_ID}}}"
 ISSUE_NUMBER="${GLIMMUNG_ISSUE_NUMBER:-}"
@@ -62,12 +77,15 @@ EVIDENCE_DIR="/tmp/evidence"
 POD_LOG="/tmp/agent-pod.log"
 VERIFY_EXIT_CODE_FILE="/tmp/verification-exit-code"
 PROXY_IP_FILE="/tmp/verification-proxy-ip"
+VERIFICATION_CASE_FILE="${EVIDENCE_DIR}/verification-case.json"
+VERIFICATION_CASE_STATUS_FILE="/tmp/verification-case-status"
 : >"$VERIFICATION_REASONS"
 : >"$EVIDENCE_REFS"
 printf '[]\n' >"$EVIDENCE_ARTIFACTS"
 : >"$SCREENSHOTS_MD"
 : >"$SUMMARY_MD"
 : >"$EVENTS_LOG"
+printf 'active\n' >"$VERIFICATION_CASE_STATUS_FILE"
 mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/videos"
 
 # Stage handoff files — written by prepare_context from glimmung inputs.
@@ -98,6 +116,37 @@ copy_claude_ca() {
 }
 
 prepare_context() {
+  # Stage handoff artifacts from glimmung phase outputs into evidence dir.
+  if [ -n "${GLIMMUNG_INPUT_ISSUE_CONTRACT:-}" ]; then
+    printf '%s' "$GLIMMUNG_INPUT_ISSUE_CONTRACT" | jq -r . >"$ISSUE_CONTRACT_FILE" 2>/dev/null \
+      || printf '%s' "$GLIMMUNG_INPUT_ISSUE_CONTRACT" >"$ISSUE_CONTRACT_FILE"
+    echo "staged issue-contract JSON ($(wc -c <"$ISSUE_CONTRACT_FILE") bytes)"
+  else
+    echo "GLIMMUNG_INPUT_ISSUE_CONTRACT not set; verify will proceed without issue-contract context"
+  fi
+
+  # GLIMMUNG_INPUT_TEST_PLAN is the test-plan JSON string; unwrap it.
+  if [ -n "${GLIMMUNG_INPUT_TEST_PLAN:-}" ]; then
+    printf '%s' "$GLIMMUNG_INPUT_TEST_PLAN" | jq -r . >"$TEST_PLAN_FILE" 2>/dev/null \
+      || printf '%s' "$GLIMMUNG_INPUT_TEST_PLAN" >"$TEST_PLAN_FILE"
+    echo "staged test-plan JSON ($(wc -c <"$TEST_PLAN_FILE") bytes)"
+  else
+    echo "GLIMMUNG_INPUT_TEST_PLAN not set; verify will proceed without test-plan context"
+  fi
+
+  if [ -n "${GLIMMUNG_INPUT_IMPLEMENTATION:-}" ]; then
+    printf '%s' "$GLIMMUNG_INPUT_IMPLEMENTATION" | jq -r . >"$IMPL_FILE" 2>/dev/null \
+      || printf '%s' "$GLIMMUNG_INPUT_IMPLEMENTATION" >"$IMPL_FILE"
+    echo "staged implementation JSON ($(wc -c <"$IMPL_FILE") bytes)"
+  else
+    echo "GLIMMUNG_INPUT_IMPLEMENTATION not set; verify will proceed without implementation context"
+  fi
+
+  select_verification_case
+  if [ "$(verification_case_status)" != "active" ]; then
+    return 0
+  fi
+
   native_azure_login
   native_install_preview_package "${REPO_DIR}/mcp"
   copy_claude_ca
@@ -133,37 +182,11 @@ prepare_context() {
     --from-literal=token="$token" \
     --dry-run=client -o yaml | kubectl apply -f -
 
-  # Stage handoff artifacts from glimmung phase outputs into evidence dir.
-  if [ -n "${GLIMMUNG_INPUT_ISSUE_CONTRACT:-}" ]; then
-    printf '%s' "$GLIMMUNG_INPUT_ISSUE_CONTRACT" | jq -r . >"$ISSUE_CONTRACT_FILE" 2>/dev/null \
-      || printf '%s' "$GLIMMUNG_INPUT_ISSUE_CONTRACT" >"$ISSUE_CONTRACT_FILE"
-    echo "staged issue-contract JSON ($(wc -c <"$ISSUE_CONTRACT_FILE") bytes)"
-  else
-    echo "GLIMMUNG_INPUT_ISSUE_CONTRACT not set; verify will proceed without issue-contract context"
-  fi
-
-  # GLIMMUNG_INPUT_TEST_PLAN is the test-plan JSON string; unwrap it.
-  if [ -n "${GLIMMUNG_INPUT_TEST_PLAN:-}" ]; then
-    printf '%s' "$GLIMMUNG_INPUT_TEST_PLAN" | jq -r . >"$TEST_PLAN_FILE" 2>/dev/null \
-      || printf '%s' "$GLIMMUNG_INPUT_TEST_PLAN" >"$TEST_PLAN_FILE"
-    echo "staged test-plan JSON ($(wc -c <"$TEST_PLAN_FILE") bytes)"
-  else
-    echo "GLIMMUNG_INPUT_TEST_PLAN not set; verify will proceed without test-plan context"
-  fi
-
-  if [ -n "${GLIMMUNG_INPUT_IMPLEMENTATION:-}" ]; then
-    printf '%s' "$GLIMMUNG_INPUT_IMPLEMENTATION" | jq -r . >"$IMPL_FILE" 2>/dev/null \
-      || printf '%s' "$GLIMMUNG_INPUT_IMPLEMENTATION" >"$IMPL_FILE"
-    echo "staged implementation JSON ($(wc -c <"$IMPL_FILE") bytes)"
-  else
-    echo "GLIMMUNG_INPUT_IMPLEMENTATION not set; verify will proceed without implementation context"
-  fi
-
   # Build the agent-config configmap with the prompt + all available handoff files.
   local args=(
     --from-file=prompt-verification.md="${REPO_DIR}/.github/agent/prompt-verification.md"
   )
-  for f in "$ISSUE_CONTRACT_FILE" "$TEST_PLAN_FILE" "$TEST_PLAN_MD_FILE" "$IMPL_FILE" "$IMPL_MD_FILE"; do
+  for f in "$ISSUE_CONTRACT_FILE" "$TEST_PLAN_FILE" "$TEST_PLAN_MD_FILE" "$IMPL_FILE" "$IMPL_MD_FILE" "$VERIFICATION_CASE_FILE"; do
     [ -s "$f" ] || continue
     base="$(basename "$f")"
     args+=(--from-file="${base}=${f}")
@@ -171,6 +194,66 @@ prepare_context() {
   kubectl -n "$NAMESPACE" create configmap "$CONFIG_MAP_NAME" \
     "${args[@]}" \
     --dry-run=client -o yaml | kubectl apply -f -
+}
+
+verification_case_status() {
+  cat "$VERIFICATION_CASE_STATUS_FILE" 2>/dev/null || printf 'active'
+}
+
+write_verification_case_file() {
+  local status="$1"
+  local reason="${2:-}"
+  local case_json="${3:-null}"
+  printf '%s\n' "$status" >"$VERIFICATION_CASE_STATUS_FILE"
+  jq -n \
+    --arg schema_version "1" \
+    --arg slot_id "$VERIFY_CASE_JOB_ID" \
+    --argjson slot_index "$VERIFY_CASE_INDEX" \
+    --arg status "$status" \
+    --arg reason "$reason" \
+    --argjson required_evidence "$case_json" \
+    '{
+      schema_version: ($schema_version | tonumber),
+      slot_id: $slot_id,
+      slot_index: $slot_index,
+      status: $status,
+      reason: $reason,
+      required_evidence: $required_evidence
+    }' >"$VERIFICATION_CASE_FILE"
+}
+
+select_verification_case() {
+  if [ ! -s "$TEST_PLAN_FILE" ]; then
+    add_reason "missing test-plan JSON; cannot select verification case"
+    write_verification_case_file "plan_error" "missing test-plan JSON"
+    return 0
+  fi
+
+  local total
+  total="$(jq -r '(.required_evidence // []) | length' "$TEST_PLAN_FILE" 2>/dev/null || printf 'invalid')"
+  if [ "$total" = "invalid" ]; then
+    add_reason "test-plan JSON is not parseable; cannot select verification case"
+    write_verification_case_file "plan_error" "test-plan JSON is not parseable"
+    return 0
+  fi
+  if [ "$total" -gt 10 ]; then
+    if [ "$VERIFY_CASE_INDEX" -eq 0 ]; then
+      add_reason "test plan has ${total} required_evidence items; maximum is 10"
+      write_verification_case_file "plan_error" "test plan exceeds 10 required_evidence items"
+    else
+      write_verification_case_file "skipped" "test plan overflow reported by verify-case-01"
+    fi
+    return 0
+  fi
+  if [ "$VERIFY_CASE_INDEX" -ge "$total" ]; then
+    write_verification_case_file "skipped" "no required_evidence item for this slot"
+    return 0
+  fi
+
+  local case_json
+  case_json="$(jq -c --argjson idx "$VERIFY_CASE_INDEX" '.required_evidence[$idx]' "$TEST_PLAN_FILE")"
+  write_verification_case_file "active" "" "$case_json"
+  echo "${VERIFY_CASE_JOB_ID} selected required_evidence[$VERIFY_CASE_INDEX]: $(printf '%s' "$case_json" | jq -r '.id // "unnamed"')"
 }
 
 ensure_proxy_ip() {
@@ -190,6 +273,17 @@ ensure_proxy_ip() {
 }
 
 run_llm() {
+  case "$(verification_case_status)" in
+    active) ;;
+    skipped)
+      echo "${VERIFY_CASE_JOB_ID} has no required_evidence item; skipping verifier agent"
+      return 0
+      ;;
+    *)
+      echo "${VERIFY_CASE_JOB_ID} cannot launch verifier agent: $(jq -r '.reason // "case selection failed"' "$VERIFICATION_CASE_FILE" 2>/dev/null || echo "case selection failed")"
+      return 0
+      ;;
+  esac
   ensure_proxy_ip
   (
     cd "$REPO_DIR"
@@ -226,6 +320,10 @@ verify_exit_code() {
 }
 
 collect_evidence() {
+  if [ "$(verification_case_status)" != "active" ]; then
+    echo "${VERIFY_CASE_JOB_ID} did not launch a verifier pod; skipping evidence collection"
+    return 0
+  fi
   local pod=""
   pod="$(kubectl -n "$NAMESPACE" get pods -l "job-name=${JOB_NAME}" \
     -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
@@ -345,6 +443,7 @@ enforce_evidence_contract() {
     jq -nr \
       --slurpfile plan "$plan" \
       --slurpfile verify "$verify" \
+      --slurpfile selected_case "$VERIFICATION_CASE_FILE" \
       '
         def kind($value):
           ($value // "" | ascii_downcase) as $k
@@ -352,7 +451,11 @@ enforce_evidence_contract() {
             elif $k == "image" or $k == "still" then "screenshot"
             else $k
             end;
-        ($plan[0].required_evidence // []) as $req
+        (if (($selected_case[0].required_evidence // null) == null) then
+          ($plan[0].required_evidence // [])
+        else
+          [$selected_case[0].required_evidence]
+        end) as $req
         | ($verify[0].evidence_results // []) as $res
         | $req[]
         | . as $r
@@ -506,6 +609,9 @@ write_verification() {
     --arg run_id "$GLIMMUNG_RUN_ID" \
     --arg branch "$BRANCH_NAME" \
     --arg validation_url "$VALIDATION_URL" \
+    --arg verification_case "$VERIFY_CASE_JOB_ID" \
+    --argjson verification_case_index "$VERIFY_CASE_INDEX" \
+    --arg verification_case_status "$(verification_case_status)" \
     '{
       schema_version: 1,
       status: $status,
@@ -517,13 +623,29 @@ write_verification() {
       metadata: {
         run_id: $run_id,
         branch: $branch,
-        validation_url: $validation_url
+        validation_url: $validation_url,
+        verification_case: {
+          job_id: $verification_case,
+          index: $verification_case_index,
+          status: $verification_case_status
+        }
       }
     }' >"$VERIFICATION_JSON"
   cat "$VERIFICATION_JSON"
 }
 
 finalize() {
+  case "$(verification_case_status)" in
+    skipped)
+      write_verification "pass"
+      return 0
+      ;;
+    plan_error)
+      write_verification "fail"
+      return 0
+      ;;
+  esac
+
   VERIFY_EXIT_CODE="$(verify_exit_code)"
   if [ "$VERIFY_EXIT_CODE" -ne 0 ]; then
     add_reason "verify pod exited with ${VERIFY_EXIT_CODE}; see native step logs"
@@ -543,7 +665,7 @@ finalize() {
     return 0
   fi
 
-  if ! enforce_issue_contract; then
+  if [ "$VERIFY_CASE_INDEX" -eq 0 ] && ! enforce_issue_contract; then
     write_verification "fail"
     return 0
   fi
@@ -697,10 +819,8 @@ emit() {
   fi
   cat "$VERIFICATION_JSON"
 
-  local verification_outputs
-  verification_outputs="$(jq -nc --slurpfile v "$VERIFICATION_JSON" '{verification: ($v[0] | tostring)}')"
   native_completed \
-    "$verification_outputs" \
+    "{}" \
     "$(cat "$VERIFICATION_JSON")" \
     "$(cat "$SCREENSHOTS_MD")" \
     "$(cat "$SUMMARY_MD")" \
