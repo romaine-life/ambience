@@ -171,7 +171,9 @@ GitHub-write tools.
 
 **Output:** `/workspace/evidence/issue-agent-verification.json` and
 `.md`, plus WebMs in `/workspace/evidence/videos/` and optional PNGs
-in `/workspace/evidence/screenshots/`. JSON shape:
+in `/workspace/evidence/screenshots/`. Video cases must run
+`scripts/agent/inspect-video.mjs` against the captured WebM before claiming
+pass; ad hoc playback servers are outside the contract. JSON shape:
 
 ```json
 {
@@ -199,7 +201,11 @@ Each active case then recomputes pass/fail for its selected
 `evidence_results` entry with `status: pass` and the expected artifact path
 (`video` for video requirements, `screenshot` for screenshot requirements). A
 verifier-claimed pass with a missing selected item flips to `fail` with
-`abort_reason: target_evidence_missing`.
+`abort_reason: target_evidence_missing`. For selected video requirements, the
+wrapper also opens the reported local WebM with `inspect-video.mjs`, enforces
+the planned duration with a small capture tolerance, and writes a sampled-frame
+PNG. A verifier-claimed pass over an unopenable, remote-only, empty, or too
+short video flips to `fail` before evidence upload.
 
 ## Wrapper changes
 

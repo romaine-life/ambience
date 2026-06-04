@@ -25,7 +25,8 @@ Glimmung selects the concrete provider/model for this invocation through the
      If the entry has a `trigger_event`, use the helper's
      `--trigger-url` option so the event is POSTed after the page is
      loaded and recording has started.
-     Save under `/workspace/evidence/videos/`.
+     Save under `/workspace/evidence/videos/`. Then inspect that exact
+     WebM with `node /workspace/repo/scripts/agent/inspect-video.mjs`.
    - **`screenshot`**: hit `$VALIDATION_URL$url_path`, capture a PNG.
      Use `node /workspace/repo/scripts/agent/capture-screenshot.mjs`.
      If the entry has a `trigger_event`, POST to
@@ -34,12 +35,13 @@ Glimmung selects the concrete provider/model for this invocation through the
    - **`go-test`**: run the literal `command` field. Capture pass/fail
      and a stdout excerpt.
    - **`note`**: write a short observation as `observed_text`.
-3. After capture, sanity-check every artifact before writing the
-   verification JSON. Read each PNG. For each WebM, confirm the file
-   exists, is non-empty, and was recorded for long enough to cover the
-   plan's `must_show`; use a screenshot only as supplemental proof if
-   you need to inspect a specific frame. A `pass` claim over the wrong
-   artifact is worse than an honest `abort`.
+3. After capture, sanity-check the selected artifact before writing the
+   verification JSON. Read each PNG. For each WebM, run
+   `inspect-video.mjs` with `--min-duration-ms` matching the selected
+   case duration and optional `--screenshot` under
+   `/workspace/evidence/screenshots/`. Use the inspection output, not an
+   ad hoc local server, to confirm duration and decodability. A `pass`
+   claim over the wrong artifact is worse than an honest `abort`.
 4. Write `/workspace/evidence/issue-agent-verification.json` and
    `/workspace/evidence/issue-agent-verification.md` per the schemas
    below. **The JSON file is required.**
@@ -47,7 +49,8 @@ Glimmung selects the concrete provider/model for this invocation through the
 ## Capture scripts
 
 The agent container ships playwright + chromium and the
-`scripts/agent/capture-video.mjs` and
+`scripts/agent/capture-video.mjs`,
+`scripts/agent/inspect-video.mjs`, and
 `scripts/agent/capture-screenshot.mjs` helpers. The
 `PLAYWRIGHT_PACKAGE_PATH` env var is already set in the image so
 `import "playwright"` resolves correctly. Typical video call:
@@ -57,6 +60,11 @@ node /workspace/repo/scripts/agent/capture-video.mjs \
   --url "$VALIDATION_URL/dev/distant-storm" \
   --output /workspace/evidence/videos/dev-distant-storm.webm \
   --wait-ms 6000
+
+node /workspace/repo/scripts/agent/inspect-video.mjs \
+  --file /workspace/evidence/videos/dev-distant-storm.webm \
+  --min-duration-ms 6000 \
+  --screenshot /workspace/evidence/screenshots/dev-distant-storm-frame.png
 ```
 
 Typical screenshot call:
@@ -79,6 +87,12 @@ node /workspace/repo/scripts/agent/capture-video.mjs \
   --trigger-url "$VALIDATION_URL/dev/trigger/$SESSION/lightning-flash" \
   --wait-ms 6000
 ```
+
+Do not start `python -m http.server`, Node static servers, or any other local
+server to inspect captured videos. Do not navigate Playwright to
+`127.0.0.1` for evidence playback. Use `inspect-video.mjs` directly against
+the file path. Do not wait for dev-session expiry or recapture other
+test-plan items; this job owns only the selected verification case.
 
 ## Output JSON schema
 
