@@ -505,6 +505,96 @@ ${missing_files}"
   return 0
 }
 
+selected_required_evidence_kind() {
+  jq -r '
+    def kind($value):
+      ($value // "" | ascii_downcase) as $k
+      | if $k == "animation" or $k == "webm" or $k == "movie" or $k == "recording" then "video"
+        elif $k == "image" or $k == "still" then "screenshot"
+        else $k
+        end;
+    kind(.required_evidence.kind)
+  ' "$VERIFICATION_CASE_FILE" 2>/dev/null || true
+}
+
+evidence_ref_path() {
+  local ref="$1"
+  case "$ref" in
+    /workspace/evidence/*) printf '%s/%s\n' "$EVIDENCE_DIR" "${ref#/workspace/evidence/}" ;;
+    /tmp/evidence/*) printf '%s\n' "$ref" ;;
+    /*) printf '%s\n' "$ref" ;;
+    *) printf '%s/%s\n' "$EVIDENCE_DIR" "$ref" ;;
+  esac
+}
+
+enforce_video_artifact_inspection() {
+  local verify="${EVIDENCE_DIR}/issue-agent-verification.json"
+  if [ "$(selected_required_evidence_kind)" != "video" ]; then
+    return 0
+  fi
+  if [ ! -s "$VERIFICATION_CASE_FILE" ] || [ ! -s "$verify" ]; then
+    add_reason "video artifact: missing handoff JSON; cannot inspect selected video"
+    return 1
+  fi
+
+  local evidence_id min_duration_ms ref video_path safe_id screenshot manifest log_tail inspect_log
+  evidence_id="$(jq -r '.required_evidence.id // ""' "$VERIFICATION_CASE_FILE" 2>/dev/null || true)"
+  min_duration_ms="$(
+    jq -r '
+      (.required_evidence.duration_seconds // 5 | tonumber? // 5) as $seconds
+      | (($seconds * 900) | floor)
+    ' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '4500'
+  )"
+  ref="$(
+    jq -r --arg id "$evidence_id" '
+      .evidence_results[]?
+      | select((.id // "") == $id and (.status // "") == "pass")
+      | .video // empty
+    ' "$verify" 2>/dev/null | head -1
+  )"
+
+  if [ -z "$ref" ]; then
+    add_reason "video artifact: selected evidence ${evidence_id:-unknown} did not report a video path"
+    return 1
+  fi
+
+  case "$ref" in
+    http://*|https://*|blob://*|/v1/artifacts/*)
+      add_reason "video artifact: selected evidence ${evidence_id:-unknown} reported non-local video ref ${ref}"
+      return 1
+      ;;
+  esac
+
+  video_path="$(evidence_ref_path "$ref")"
+  if [ ! -s "$video_path" ]; then
+    add_reason "video artifact: selected evidence ${evidence_id:-unknown} points at missing or empty video ${ref}"
+    return 1
+  fi
+
+  if ! command -v node >/dev/null 2>&1; then
+    add_reason "video artifact: node is unavailable; cannot inspect selected video ${ref}"
+    return 1
+  fi
+
+  safe_id="$(printf '%s' "${evidence_id:-selected-video}" | tr -c 'A-Za-z0-9_.-' '-')"
+  screenshot="${EVIDENCE_DIR}/screenshots/inspect-${safe_id}.png"
+  manifest="/tmp/video-inspect-${safe_id}.json"
+  inspect_log="/tmp/video-inspect-${safe_id}.log"
+  if ! EVIDENCE_DIR="$EVIDENCE_DIR" node "${REPO_DIR}/scripts/agent/inspect-video.mjs" \
+      --file "$video_path" \
+      --min-duration-ms "$min_duration_ms" \
+      --screenshot "$screenshot" \
+      --manifest "$manifest" \
+      >"$inspect_log" 2>&1; then
+    log_tail="$(tail -5 "$inspect_log" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g')"
+    add_reason "video artifact: inspection failed for ${evidence_id:-unknown} (${ref}): ${log_tail:-no inspect output}"
+    return 1
+  fi
+
+  echo "inspected selected video evidence ${evidence_id:-unknown}: $(cat "$inspect_log")"
+  return 0
+}
+
 write_evidence_artifacts() {
   local artifacts_out="$1"
   local refs_out="$2"
@@ -671,6 +761,11 @@ finalize() {
   fi
 
   if ! enforce_evidence_contract; then
+    write_verification "fail"
+    return 0
+  fi
+
+  if ! enforce_video_artifact_inspection; then
     write_verification "fail"
     return 0
   fi

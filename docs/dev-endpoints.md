@@ -26,6 +26,10 @@ node scripts/agent/capture-video.mjs \
   --url "$VALIDATION_URL/dev/<effect>" \
   --output /workspace/evidence/videos/dev-<effect>.webm \
   --wait-ms 6000
+node scripts/agent/inspect-video.mjs \
+  --file /workspace/evidence/videos/dev-<effect>.webm \
+  --min-duration-ms 6000 \
+  --screenshot /workspace/evidence/screenshots/dev-<effect>-frame.png
 
 # 2. Trigger a discrete event in a named session and record it
 SESSION=test1
@@ -34,6 +38,10 @@ node scripts/agent/capture-video.mjs \
   --output /workspace/evidence/videos/dev-<effect>-flash.webm \
   --trigger-url "$VALIDATION_URL/dev/trigger/$SESSION/lightning-flash" \
   --wait-ms 6000
+node scripts/agent/inspect-video.mjs \
+  --file /workspace/evidence/videos/dev-<effect>-flash.webm \
+  --min-duration-ms 6000 \
+  --screenshot /workspace/evidence/screenshots/dev-<effect>-flash-frame.png
 
 # 3. Override config to a known good preset
 curl -s -X POST -H 'Content-Type: application/json' \
@@ -58,3 +66,16 @@ the server registers and it has no per-session state requirement.
 
 A first-class `/healthz` endpoint is tracked separately as a small
 follow-up.
+
+## Captured-video inspection
+
+Verification must inspect captured WebMs with
+`scripts/agent/inspect-video.mjs`. The helper reads the local file bytes into
+a controlled Playwright media page, checks that Chromium can decode them,
+enforces the requested minimum duration, and writes a sampled-frame PNG when
+requested.
+
+Do not start a local static server to play evidence videos back through
+`127.0.0.1`. Playback inspection is a repo-owned helper so the verifier job
+has one deterministic tool path and fails at that boundary when the artifact is
+bad.
