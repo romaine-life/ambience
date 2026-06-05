@@ -68,6 +68,12 @@ func (l *Lighthouse) GridCopy() [][]Pixel {
 	return renderProceduralGrid("lighthouse", l.W, l.H, l.tick, l.cfg, l.timers, l.values, l.rng.State())
 }
 
+func (m *MagicPortal) GridCopy() [][]Pixel {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return copyPixelGrid(m.Grid)
+}
+
 func (m *MysteriousMan) GridCopy() [][]Pixel {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -110,6 +110,13 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 	}
 
 	api.wasm = api.wasm || {};
+	api.presets = api.presets || {};
+	api.presets['magic-portal'] = [
+		{ key: 'arcane-blue', label: 'arcane blue', note: 'cool high-glow gate', config: { hue: 205, sat: 0.78, glow: 0.58, pulse_period: 42 } },
+		{ key: 'infernal-red', label: 'infernal red', note: 'hot underworld pulse', config: { hue: 6, sat: 0.86, glow: 0.62, pulse_period: 36 } },
+		{ key: 'ancient-amber', label: 'ancient amber', note: 'old gold runes', config: { hue: 38, sat: 0.72, glow: 0.5, pulse_period: 48 } },
+		{ key: 'dormant', label: 'dormant', note: 'gray low-power gate', config: { hue: 215, sat: 0.12, glow: 0.18, pulse_amp: 0.12, pulse_period: 58, ember_peak_p: 0.08 } },
+	];
 	api.wasm.load = load;
 	api.wasm.ready = ready;
 	api.wasm.registerAll = registerAll;
