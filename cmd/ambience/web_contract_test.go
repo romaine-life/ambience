@@ -175,3 +175,38 @@ func TestDevEffectSwitchIgnoresStaleStreams(t *testing.T) {
 		}
 	}
 }
+
+func TestChromeBottomLogLayoutStaysResponsive(t *testing.T) {
+	jsBytes, err := os.ReadFile(filepath.Join("web", "chrome.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(jsBytes)
+	for _, want := range []string{
+		`class: 'd5__trkwrap'`,
+		`class: 'logline__msg'`,
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("chrome.js bottom feed layout missing %q", want)
+		}
+	}
+	if strings.Contains(js, `class: 'd5__trk', style: 'flex:1;min-width:0'`) {
+		t.Fatal("track wrapper must not reuse d5__trk; nested track flex rules make the feed unstable")
+	}
+
+	cssBytes, err := os.ReadFile(filepath.Join("web", "chrome.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(cssBytes)
+	for _, want := range []string{
+		`.d5__trkwrap { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }`,
+		`.d5__log { flex: 0 0 clamp(220px, 25vw, 340px); min-width: 0; display: flex; flex-direction: column; gap: 3px; }`,
+		`.logline__msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }`,
+		`@media (max-width: 760px)`,
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("chrome.css responsive log layout missing %q", want)
+		}
+	}
+}
