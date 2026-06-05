@@ -38,15 +38,20 @@ NAMESPACE="${GLIMMUNG_INPUT_NAMESPACE}"
 BRANCH_NAME="${GLIMMUNG_INPUT_BRANCH_NAME}"
 RUN_SLUG="$(printf '%s' "$GLIMMUNG_RUN_ID" | tr '[:upper:]' '[:lower:]')"
 ATTEMPT_INDEX="${GLIMMUNG_ATTEMPT_INDEX:-0}"
-VERIFY_CASE_JOB_ID="${GLIMMUNG_JOB_ID:-}"
-case "$VERIFY_CASE_JOB_ID" in
-  verify-case-[0-9][0-9]) ;;
-  *)
-    echo "GLIMMUNG_JOB_ID must be verify-case-NN for bounded verification, got '${VERIFY_CASE_JOB_ID:-unset}'" >&2
-    exit 1
-    ;;
-esac
-VERIFY_CASE_NUMBER="$((10#${VERIFY_CASE_JOB_ID#verify-case-}))"
+if [ -n "${GLIMMUNG_DYNAMIC_CASE_INDEX:-}" ]; then
+  VERIFY_CASE_NUMBER="$((10#${GLIMMUNG_DYNAMIC_CASE_INDEX}))"
+  VERIFY_CASE_JOB_ID="$(printf 'verify-case-%02d' "$VERIFY_CASE_NUMBER")"
+else
+  VERIFY_CASE_JOB_ID="${GLIMMUNG_JOB_ID:-}"
+  case "$VERIFY_CASE_JOB_ID" in
+    verify-case-[0-9][0-9]) ;;
+    *)
+      echo "GLIMMUNG_JOB_ID must be verify-case-NN for bounded verification, got '${VERIFY_CASE_JOB_ID:-unset}'" >&2
+      exit 1
+      ;;
+  esac
+  VERIFY_CASE_NUMBER="$((10#${VERIFY_CASE_JOB_ID#verify-case-}))"
+fi
 if [ "$VERIFY_CASE_NUMBER" -lt 1 ] || [ "$VERIFY_CASE_NUMBER" -gt 10 ]; then
   echo "verification case ${VERIFY_CASE_JOB_ID} is outside supported range verify-case-01..verify-case-10" >&2
   exit 1
@@ -923,6 +928,11 @@ emit() {
 }
 
 if native_selected_step; then
+  case "${GLIMMUNG_STEP_SLUG}" in
+    *-case-[0-9][0-9])
+      export GLIMMUNG_STEP_SLUG="${GLIMMUNG_STEP_SLUG%-case-[0-9][0-9]}"
+      ;;
+  esac
   native_run_selected_step \
     "clone" clone_repo \
     "prepare" prepare_context \

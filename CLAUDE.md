@@ -32,7 +32,7 @@ llm-work
   ├─ test-plan
   └─ implement
        ↓
-verify-case-01..10 (evidence_verification_gate) → env-destroy
+verify-case-01..10 or one dynamic verification job (evidence_verification_gate) → env-destroy
 ```
 
 - **prepare** runs `env-prep` and `issue-contract` as parallel jobs.
@@ -43,12 +43,13 @@ verify-case-01..10 (evidence_verification_gate) → env-destroy
   evidence specification; `implement` produces code changes and pushes the
   branch + rebuilds the validation env.
 - **verify** receives the issue contract, test plan, and implementation JSON
-  as phase inputs. It has ten bounded jobs named `verify-case-01` through
-  `verify-case-10`; each active job selects one `required_evidence` item,
-  runs one verification LLM task against the rebuilt env, and emits a
-  per-case result. Empty slots complete as skipped. Glimmung aggregates the
-  case results into the phase `verification` output consumed by the evidence
-  gate.
+  as phase inputs. Legacy rows use ten bounded jobs named `verify-case-01`
+  through `verify-case-10`; newer Glimmung rows can use one dynamic
+  verification job whose runner expands those same cases sequentially. Each
+  active case selects one `required_evidence` item, runs one verification LLM
+  task against the rebuilt env, and emits a per-case result. Empty slots
+  complete as skipped. Glimmung aggregates the case results into the phase
+  `verification` output consumed by the evidence gate.
 
 Each phase has wrapper scripts in `scripts/glimmung-native/`. Planning and
 implementation use Glimmung-managed `type: agent` workflow steps.
