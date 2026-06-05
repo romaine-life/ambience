@@ -159,9 +159,9 @@
 .entropy:hover { color: var(--fg-muted); }
 .entropy.is-on { color: var(--accent-fg); }
 
-.logline { display: flex; gap: 8px; font-size: 11px; color: var(--fg-faint); padding: 1px 0;
-	white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.logline { display: flex; gap: 8px; min-width: 0; font-size: 11px; color: var(--fg-faint); padding: 1px 0; }
 .logline__t { color: var(--gray-600); font-variant-numeric: tabular-nums; }
+.logline__msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .logline--trigger { color: var(--mode-config-fg); }
 .logline--scene { color: var(--accent-fg); }
 .logline--entropy { color: var(--mode-api-key-fg); }
@@ -357,7 +357,8 @@
 	padding: 8px 28px 10px; background: linear-gradient(to top, rgba(8,8,10,calc(var(--surf-a) - .08)), transparent); animation: d5slideU .42s var(--ease-out); }
 @keyframes d5slideU { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 .d5__feedlbl { font-size: 9px; text-transform: uppercase; letter-spacing: .14em; color: var(--fg-faint); white-space: nowrap; }
-.d5__trk { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.d5__trkwrap { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.d5__trk { min-width: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .d5__seg { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border: 1px solid var(--border-subtle);
 	border-radius: var(--radius-pill); background: rgba(38,38,38,.5); color: var(--fg-muted); font-size: 11px; cursor: default; font-family: var(--font-primary); }
 .d5__seg.is-click { cursor: pointer; }
@@ -368,13 +369,18 @@
 	border: 1px solid var(--border-strong); background: var(--bg-elevated); color: var(--fg-muted); cursor: pointer; font-size: 11px; white-space: nowrap; transition: all var(--motion-fast); font-family: var(--font-primary); }
 .d5__nextbtn:hover:not(:disabled) { color: var(--accent-fg); border-color: rgba(79,140,247,.45); background: var(--accent-soft); }
 .d5__nextbtn:disabled { opacity: .4; cursor: default; }
-.d5__log { width: 340px; display: flex; flex-direction: column; gap: 3px; }
+.d5__log { flex: 0 0 clamp(220px, 25vw, 340px); min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .d5__loghead { display: flex; align-items: center; gap: 8px; }
 .d5__logclear { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--fg-faint);
 	font-size: 9px; text-transform: uppercase; letter-spacing: .1em; padding: 1px 4px; border-radius: var(--radius-sm); transition: color var(--motion-fast); font-family: var(--font-primary); }
 .d5__logclear:hover { color: var(--fg-body); }
-.d5__logbody { display: flex; flex-direction: column; gap: 1px; min-height: 30px; max-height: 84px; overflow-y: auto; }
+.d5__logbody { display: flex; flex-direction: column; gap: 1px; min-height: 30px; max-height: 84px; overflow-y: auto; overflow-x: hidden; }
 .d5__feed .entropy--mini { margin-top: 2px; }
+
+@media (max-width: 760px) {
+	.d5__feed { flex-direction: column; gap: 8px; padding: 8px 18px 10px; }
+	.d5__log { flex-basis: auto; width: 100%; min-width: 0; }
+}
 
 /* summon transitions — world dips, schematic etches */
 .d5__scan, .d5__flash { position: absolute; left: 0; right: 0; pointer-events: none; opacity: 0; }

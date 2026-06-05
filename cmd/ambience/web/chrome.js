@@ -166,7 +166,7 @@ window.AmbienceChrome = (function () {
 		// bottom feed
 		const trk = h('div', { class: 'd5__trk', id: 'd5Trk' });
 		refs.trk = trk;
-		const trkWrap = h('div', { class: 'd5__trk', style: 'flex:1;min-width:0' },
+		const trkWrap = h('div', { class: 'd5__trkwrap' },
 			h('span', { class: 'd5__feedlbl' }, opts.feedLabel || 'effects'), trk);
 		if (opts.showNext) {
 			const nextBtn = h('button', { class: 'd5__nextbtn', disabled: true, title: 'advance the broadcast',
@@ -448,7 +448,7 @@ window.AmbienceChrome = (function () {
 		const kind = entry.kind || 'trigger';
 		box.appendChild(h('div', { class: 'logline logline--' + kind },
 			h('span', { class: 'logline__t' }, entry.t != null ? entry.t : ''),
-			h('span', null, entry.text || '')));
+			h('span', { class: 'logline__msg' }, entry.text || '')));
 		while (box.children.length > 60) box.removeChild(box.firstChild);
 		if (stick) box.scrollTop = box.scrollHeight;
 	}
