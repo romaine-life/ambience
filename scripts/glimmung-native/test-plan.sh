@@ -257,8 +257,15 @@ finalize() {
 emit() {
   local test_plan_str
   test_plan_str="$(cat "$TEST_PLAN_JSON")"
+  # Emit the verification case count as a first-class phase output so the
+  # verify phase sizes its sequential per-case job set from the plan,
+  # rather than recomputing it inside verify. Bounded to [0,10].
+  local case_count
+  case_count="$(printf '%s' "$test_plan_str" | jq -r '((.required_evidence // .cases // .test_cases // []) | length)' 2>/dev/null || echo 0)"
+  case "$case_count" in ''|*[!0-9]*) case_count=0 ;; esac
+  if [ "$case_count" -gt 10 ]; then case_count=10; fi
   local outputs
-  outputs="$(jq -nc --argjson v "$test_plan_str" '{test_plan: ($v | tostring)}')"
+  outputs="$(jq -nc --argjson v "$test_plan_str" --argjson n "$case_count" '{test_plan: ($v | tostring), test_cases_count: $n}')"
   local summary
   summary="$(cat "$SUMMARY_MD" 2>/dev/null || true)"
   native_completed "$outputs" "null" "" "$summary"
