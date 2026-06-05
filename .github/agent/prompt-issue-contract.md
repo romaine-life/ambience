@@ -17,9 +17,21 @@ issue text and repo conventions.
 2. Identify the canonical target. Prefer explicit file names, route names, and
    code touchpoints over loose title aliases. If the title uses multiple names,
    keep the public/code name canonical and record the others as aliases.
-3. Write `/workspace/evidence/issue-agent-contract.json` and
+3. Classify every trigger event in `public_surface.lifecycle` as either a
+   **transient event** (fires, then the world returns to its prior resting
+   state) or a **terminal lifecycle state** (changes the world's *resting*
+   state and holds it until another lifecycle trigger — e.g. `intro`,
+   `ending`). For each terminal state, name its `resting_state` concretely
+   (what the final, held frame looks like — "the gate is dark"). This is the
+   shared contract both the implementation and test-plan stages rely on for
+   what "done" means; the implementation stage cannot see the test plan, so if
+   the terminal resting state is not determinable from the issue text and
+   `docs/effects-cookbook.md`, do **not** guess — add an `open_questions` entry
+   naming the ambiguity. See "Lifecycle states vs transient events" in the
+   cookbook.
+4. Write `/workspace/evidence/issue-agent-contract.json` and
    `/workspace/evidence/issue-agent-contract.md` per the schemas below.
-4. Exit cleanly. Do not edit files under `/workspace/repo/`.
+5. Exit cleanly. Do not edit files under `/workspace/repo/`.
 
 ## Output JSON schema
 
@@ -42,7 +54,12 @@ actually names that target.
   "public_surface": {
     "dev_route": "/dev/target-effect",
     "schema_route": "/effects/target-effect/schema",
-    "trigger_events": ["primary-event", "secondary-event"]
+    "trigger_events": ["primary-event", "secondary-event"],
+    "lifecycle": [
+      {"event": "intro", "kind": "terminal", "resting_state": "effect ignited / at its normal resting look"},
+      {"event": "ending", "kind": "terminal", "resting_state": "effect resolves to its terminal look (e.g. gate dark) and stays there until re-intro"},
+      {"event": "primary-event", "kind": "transient", "resting_state": "returns to the prior resting state after the event decays"}
+    ]
   },
   "recommended_touchpoints": [
     "sim/target_effect.go",

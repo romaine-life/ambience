@@ -53,13 +53,56 @@ Every effect exposes an `EffectSchema` (used by the dev-knob page).
 Compare to `sim.BurningTreesSchema()`. Keys are knob names; types
 use the standard `KnobType` set in `sim/schema.go`.
 
-## Intros and outros
+## Lifecycle states vs transient events
 
-If your effect has lifecycle (intro, ending, transitions), define
-those as named events your sim's `TriggerEvent` knows about. The
-authority server fires them at scene boundaries; the dev page
+Every `TriggerEvent` your sim handles is one of two kinds, and the
+distinction is load-bearing — get it wrong and the effect looks correct
+at a glance but fails verification:
+
+- **Transient event** (e.g. `pulse`, `power-surge`, `ember-burst`):
+  fires, peaks, then **decays back to the prior resting state**. The
+  world returns to exactly what it was before. Implement as a bounded
+  envelope — a timer that expires and leaves no lasting change.
+
+- **Terminal lifecycle state** (e.g. `intro`, `ending`): changes the
+  world's **resting state** and *holds it* until another lifecycle
+  trigger moves it. `intro` ignites from dark to the normal resting
+  look; `ending` resolves to its terminal look — for a portal, "the gate
+  goes dark" — **and stays there.** It must not revert to normal
+  breathing once the outro animation finishes.
+
+**Invariant: after a terminal lifecycle trigger completes, the resting
+frame is its terminal state.** The classic bug is implementing `ending`
+as a transient envelope (dim, then snap back to full brightness when the
+timer expires) — that reverts the world instead of ending it, and a
+verifier inspecting the final frame reports the claimed end state was
+not observed. Drive the resting look from a **persisted lifecycle state**
+(carried through snapshot/restore so it survives an authority restart),
+not only from a soon-to-expire timer.
+
+Wire lifecycle triggers as named events your sim's `TriggerEvent` knows
+about. The authority server fires them at scene boundaries; the dev page
 exposes manual triggers via `/dev/trigger/<session>/<event>` (see
-`docs/dev-endpoints.md`).
+`docs/dev-endpoints.md`). The issue contract classifies each trigger as
+transient or terminal and names the terminal resting state — treat that
+classification as binding, and verify your terminal states actually hold
+(see "Self-checking visual behavior" below).
+
+## Self-checking visual behavior
+
+`go build` and `go test` cannot see pixels, so a visual or temporal
+claim ("the gate goes dark", "the surge brightens then fades") is not
+proven by a green Go build. Prove it two ways before claiming pass:
+
+1. **Deterministic end-state assertion (Go).** Step the sim through a
+   trigger and *past* the outro/envelope expiry, then assert the resting
+   state via `GridCopy()` — a terminal `ending` leaves the gate at/below
+   its terminal brightness and stays there; a transient event returns to
+   baseline. This makes "the world reverted" a failing test.
+2. **Visual self-check (localhost browser).** Build and run your
+   in-progress code locally and watch it with the same capture/inspect
+   tooling the verification stage uses. See the implementation prompt for
+   the exact localhost recipe.
 
 ## Validation flow
 
