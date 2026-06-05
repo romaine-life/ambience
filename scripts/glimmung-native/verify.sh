@@ -82,6 +82,7 @@ EVIDENCE_DIR="/tmp/evidence"
 POD_LOG="/tmp/agent-pod.log"
 VERIFY_EXIT_CODE_FILE="/tmp/verification-exit-code"
 PROXY_IP_FILE="/tmp/verification-proxy-ip"
+CODEX_PROXY_IP_FILE="/tmp/verification-codex-proxy-ip"
 VERIFICATION_CASE_FILE="${EVIDENCE_DIR}/verification-case.json"
 VERIFICATION_CASE_STATUS_FILE="/tmp/verification-case-status"
 : >"$VERIFICATION_REASONS"
@@ -105,6 +106,12 @@ clone_repo() {
 }
 
 copy_claude_ca() {
+  if [ -s /etc/glimmung-provider-api-proxy-ca/ca.crt ]; then
+    kubectl -n "$NAMESPACE" create configmap claude-oauth-ca \
+      --from-file=ca.crt=/etc/glimmung-provider-api-proxy-ca/ca.crt \
+      --dry-run=client -o yaml | kubectl apply -f -
+    return 0
+  fi
   kubectl -n "$CLAUDE_CA_NAMESPACE" get configmap claude-oauth-ca -o json \
     | NAMESPACE="$NAMESPACE" jq '
         del(
@@ -157,13 +164,22 @@ prepare_context() {
   copy_claude_ca
   native_prepare_codex_credentials_secret "$NAMESPACE"
 
-  PROXY_IP="$(kubectl -n "$CLAUDE_NAMESPACE" get svc claude-api-proxy -o jsonpath='{.spec.clusterIP}')"
+  PROXY_IP="${GLIMMUNG_PROVIDER_API_PROXY_CLAUDE_IP:-}"
+  if [ -z "$PROXY_IP" ]; then
+    PROXY_IP="$(kubectl -n "$CLAUDE_NAMESPACE" get svc claude-api-proxy -o jsonpath='{.spec.clusterIP}')"
+  fi
   if [ -z "$PROXY_IP" ]; then
     echo "claude-api-proxy Service not found in ${CLAUDE_NAMESPACE}" >&2
     return 1
   fi
   export PROXY_IP
   printf '%s\n' "$PROXY_IP" >"$PROXY_IP_FILE"
+  CODEX_PROXY_IP="${GLIMMUNG_PROVIDER_API_PROXY_CODEX_IP:-}"
+  if [ -z "$CODEX_PROXY_IP" ]; then
+    CODEX_PROXY_IP="$PROXY_IP"
+  fi
+  export CODEX_PROXY_IP
+  printf '%s\n' "$CODEX_PROXY_IP" >"$CODEX_PROXY_IP_FILE"
 
   local dest="/tmp/agent-prompt-context.md"
   : >"$dest"
@@ -275,6 +291,15 @@ ensure_proxy_ip() {
     export PROXY_IP
     printf '%s\n' "$PROXY_IP" >"$PROXY_IP_FILE"
   fi
+  if [ -z "${CODEX_PROXY_IP:-}" ] && [ -s "$CODEX_PROXY_IP_FILE" ]; then
+    CODEX_PROXY_IP="$(cat "$CODEX_PROXY_IP_FILE")"
+    export CODEX_PROXY_IP
+  fi
+  if [ -z "${CODEX_PROXY_IP:-}" ]; then
+    CODEX_PROXY_IP="${GLIMMUNG_PROVIDER_API_PROXY_CODEX_IP:-${PROXY_IP:-}}"
+    export CODEX_PROXY_IP
+    printf '%s\n' "$CODEX_PROXY_IP" >"$CODEX_PROXY_IP_FILE"
+  fi
 }
 
 run_llm() {
@@ -302,6 +327,7 @@ run_llm() {
       --validation-url "$VALIDATION_URL" \
       --branch-name "$BRANCH_NAME" \
       --proxy-ip "$PROXY_IP" \
+      --codex-proxy-ip "$CODEX_PROXY_IP" \
       --agent-container-tag "$AGENT_CONTAINER_TAG" \
       --agent-container-image "$(native_agent_container_image)" \
       --repo-slug "$REPO_SLUG" \
