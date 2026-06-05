@@ -97,6 +97,10 @@ romainecr.azurecr.io/ambience-agent-runner:native-runner-<fingerprint>
 
 That image includes Azure CLI, `kubectl`, Helm, Python, Node, Playwright,
 Codex, and the native Ambience scripts under `/opt/ambience-native/scripts`.
+The native scripts also use that image for inner issue-agent Jobs. Workflow
+registration must pass either `AGENT_CONTAINER_IMAGE` with the full image ref
+or `AGENT_CONTAINER_TAG` for `romainecr.azurecr.io/ambience-agent-runner`;
+the scripts do not invent `latest`.
 
 ## Retry And Resume
 

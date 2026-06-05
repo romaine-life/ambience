@@ -24,7 +24,7 @@ native_require_env \
 
 REPO_SLUG="${AMBIENCE_REPO_SLUG:-romaine-life/ambience}"
 REPO_DIR="${AMBIENCE_REPO_DIR:-/workspace/ambience}"
-AGENT_CONTAINER_TAG="${AGENT_CONTAINER_TAG:-latest}"
+AGENT_CONTAINER_TAG="${AGENT_CONTAINER_TAG:-}"
 CLAUDE_NAMESPACE="${GLIMMUNG_INPUT_CLAUDE_NAMESPACE:-tank-operator}"
 CLAUDE_CA_NAMESPACE="${GLIMMUNG_INPUT_CLAUDE_CA_NAMESPACE:-${CLAUDE_CA_NAMESPACE:-tank-operator-sessions}}"
 
@@ -169,6 +169,7 @@ run_llm() {
       --branch-name "glimmung/${GLIMMUNG_RUN_ID}" \
       --proxy-ip "$PROXY_IP" \
       --agent-container-tag "$AGENT_CONTAINER_TAG" \
+      --agent-container-image "$(native_agent_container_image)" \
       --repo-slug "$REPO_SLUG" \
       --stage "test-plan" \
       --config-map-name "$CONFIG_MAP_NAME" \
