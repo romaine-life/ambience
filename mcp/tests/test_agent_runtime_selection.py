@@ -103,6 +103,8 @@ def test_agent_job_spec_renders_selected_runtime() -> None:
         validation_url="https://slot.example",
         branch_name="glimmung/run-1",
         proxy_ip="10.0.0.5",
+        claude_proxy_ip="10.0.0.6",
+        codex_proxy_ip="10.0.0.7",
         agent_container_tag="native-runner-test",
         agent_container_image="romainecr.azurecr.io/ambience-agent-runner:native-runner-test",
         stage="implement",
@@ -131,6 +133,16 @@ def test_agent_job_spec_renders_selected_runtime() -> None:
     assert (
         spec["spec"]["template"]["spec"]["containers"][0]["image"]
         == "romainecr.azurecr.io/ambience-agent-runner:native-runner-test"
+    )
+    pod_spec = spec["spec"]["template"]["spec"]
+    assert pod_spec["hostAliases"] == [
+        {"ip": "10.0.0.6", "hostnames": ["api.anthropic.com"]},
+        {"ip": "10.0.0.7", "hostnames": ["chatgpt.com", "api.openai.com"]},
+    ]
+    assert all(volume["name"] != "codex-credentials" for volume in pod_spec["volumes"])
+    assert all(
+        mount["name"] != "codex-credentials"
+        for mount in spec["spec"]["template"]["spec"]["containers"][0]["volumeMounts"]
     )
 
 

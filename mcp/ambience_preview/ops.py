@@ -539,11 +539,29 @@ def destroy_pr_preview(*, pr_number: int, release: str = DEFAULT_PR_RELEASE_NAME
 _AGENT_BOOTSTRAP_BASH = r"""set -euo pipefail
 
 mkdir -p /workspace/evidence/screenshots /workspace/evidence/videos
-if [ -f /etc/codex-creds/auth.json ]; then
-  mkdir -p $HOME/.codex
-  cp /etc/codex-creds/auth.json $HOME/.codex/auth.json
-  chmod 600 $HOME/.codex/auth.json
+if [ -f /etc/claude-ca/ca.crt ] && [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+  cat /etc/ssl/certs/ca-certificates.crt /etc/claude-ca/ca.crt > /workspace/provider-ca-bundle.crt
+  export SSL_CERT_FILE=/workspace/provider-ca-bundle.crt
+  export REQUESTS_CA_BUNDLE=/workspace/provider-ca-bundle.crt
+  export GIT_SSL_CAINFO=/workspace/provider-ca-bundle.crt
 fi
+mkdir -p $HOME/.codex
+cat > $HOME/.codex/auth.json <<'EOF'
+{
+  "auth_mode": "chatgptAuthTokens",
+  "tokens": {
+    "id_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJlbWFpbCI6ImdsaW1tdW5nQGxvY2FsIiwiZXhwIjo0MTAyNDQ0ODAwLCJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9wbGFuX3R5cGUiOiJwcm8iLCJjaGF0Z3B0X3VzZXJfaWQiOiJtYW5hZ2VkLWJ5LWdsaW1tdW5nIiwiY2hhdGdwdF9hY2NvdW50X2lkIjoibWFuYWdlZC1ieS1nbGltbXVuZyJ9fQ.signature",
+    "access_token": "managed-by-glimmung",
+    "refresh_token": "",
+    "account_id": "managed-by-glimmung"
+  },
+  "last_refresh": "2099-01-01T00:00:00Z"
+}
+EOF
+chmod 600 $HOME/.codex/auth.json
+cat > $HOME/.codex/config.toml <<'EOF'
+cli_auth_credentials_store = "file"
+EOF
 
 # Seed claude state — placeholder credentials so claude never tries to
 # refresh, project trust + onboarding flags so it boots straight into the run.
@@ -930,6 +948,8 @@ def _agent_job_spec(
     branch_name: str,
     proxy_ip: str,
     agent_container_tag: str,
+    claude_proxy_ip: str | None = None,
+    codex_proxy_ip: str | None = None,
     agent_container_image: str | None = None,
     repo_slug: str = "romaine-life/ambience",
     stage: str = "test-plan",
@@ -947,6 +967,8 @@ def _agent_job_spec(
     runtime = resolve_stage_runtime(agent_runtime_json, stage)
     issue_ref = issue_reference or (f"#{issue_number}" if issue_number else "glimmung-run")
     image = (agent_container_image or "").strip()
+    claude_proxy_ip = (claude_proxy_ip or proxy_ip).strip()
+    codex_proxy_ip = (codex_proxy_ip or proxy_ip).strip()
     if not image:
         tag = agent_container_tag.strip()
         if not tag:
@@ -987,7 +1009,8 @@ def _agent_job_spec(
                         "runAsNonRoot": True,
                     },
                     "hostAliases": [
-                        {"ip": proxy_ip, "hostnames": ["api.anthropic.com"]},
+                        {"ip": claude_proxy_ip, "hostnames": ["api.anthropic.com"]},
+                        {"ip": codex_proxy_ip, "hostnames": ["chatgpt.com", "api.openai.com"]},
                     ],
                     "volumes": [
                         {
@@ -1001,10 +1024,6 @@ def _agent_job_spec(
                         {
                             "name": "agent-config",
                             "configMap": {"name": config_map_name},
-                        },
-                        {
-                            "name": "codex-credentials",
-                            "secret": {"secretName": "codex-credentials", "optional": True},
                         },
                     ],
                     "containers": [
@@ -1052,7 +1071,6 @@ def _agent_job_spec(
                             ],
                             "volumeMounts": [
                                 {"name": "claude-ca", "mountPath": "/etc/claude-ca", "readOnly": True},
-                                {"name": "codex-credentials", "mountPath": "/etc/codex-creds", "readOnly": True},
                                 {"name": "workspace", "mountPath": "/workspace"},
                                 {"name": "agent-config", "mountPath": "/agent-config", "readOnly": True},
                             ],
@@ -1075,6 +1093,8 @@ def apply_agent_job(
     branch_name: str,
     proxy_ip: str,
     agent_container_tag: str,
+    claude_proxy_ip: str | None = None,
+    codex_proxy_ip: str | None = None,
     agent_container_image: str | None = None,
     repo_slug: str = "romaine-life/ambience",
     issue_reference: str | None = None,
@@ -1097,6 +1117,8 @@ def apply_agent_job(
         validation_url=validation_url,
         branch_name=branch_name,
         proxy_ip=proxy_ip,
+        claude_proxy_ip=claude_proxy_ip,
+        codex_proxy_ip=codex_proxy_ip,
         agent_container_tag=agent_container_tag,
         agent_container_image=agent_container_image,
         repo_slug=repo_slug,

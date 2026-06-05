@@ -66,6 +66,13 @@ back to a hard-coded model. Prompts are in
 verification}.md`. Design and stage contracts live at
 [docs/issue-agent-stage-split.md](docs/issue-agent-stage-split.md).
 
+Verification inner Jobs do not mount raw provider credential Secrets. The
+outer Glimmung verification phase must supply provider API proxy IPs and CA
+material; the wrapper copies that CA into the slot namespace and renders
+host aliases for `api.anthropic.com`, `chatgpt.com`, and `api.openai.com`.
+Codex uses placeholder `managed-by-glimmung` auth inside the pod and the
+central Glimmung proxy injects the real credentials.
+
 Runs are started directly via the glimmung UI/API; there is no
 GitHub-label trigger. The live workflow shape is the Postgres-backed
 `ambience.default` row in Glimmung; dispatch does not read a workflow file from

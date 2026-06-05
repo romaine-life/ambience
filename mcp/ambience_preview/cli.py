@@ -102,6 +102,8 @@ def build_parser() -> argparse.ArgumentParser:
     apply_agent.add_argument("--validation-url", required=True)
     apply_agent.add_argument("--branch-name", required=True)
     apply_agent.add_argument("--proxy-ip", required=True)
+    apply_agent.add_argument("--claude-proxy-ip", default="")
+    apply_agent.add_argument("--codex-proxy-ip", default="")
     apply_agent.add_argument("--agent-container-tag", default="")
     apply_agent.add_argument("--agent-container-image", default="")
     apply_agent.add_argument("--repo-slug", default="romaine-life/ambience")
@@ -208,6 +210,8 @@ def main() -> int:
                     validation_url=args.validation_url,
                     branch_name=args.branch_name,
                     proxy_ip=args.proxy_ip,
+                    claude_proxy_ip=args.claude_proxy_ip or args.proxy_ip,
+                    codex_proxy_ip=args.codex_proxy_ip or args.proxy_ip,
                     agent_container_tag=args.agent_container_tag,
                     agent_container_image=args.agent_container_image or None,
                     repo_slug=args.repo_slug,
