@@ -930,6 +930,7 @@ def _agent_job_spec(
     branch_name: str,
     proxy_ip: str,
     agent_container_tag: str,
+    agent_container_image: str | None = None,
     repo_slug: str = "romaine-life/ambience",
     stage: str = "test-plan",
     config_map_name: str = "agent-config",
@@ -945,6 +946,12 @@ def _agent_job_spec(
         )
     runtime = resolve_stage_runtime(agent_runtime_json, stage)
     issue_ref = issue_reference or (f"#{issue_number}" if issue_number else "glimmung-run")
+    image = (agent_container_image or "").strip()
+    if not image:
+        tag = agent_container_tag.strip()
+        if not tag:
+            raise ValueError("agent_container_image or agent_container_tag is required")
+        image = f"romainecr.azurecr.io/ambience-agent-runner:{tag}"
 
     return {
         "apiVersion": "batch/v1",
@@ -1003,11 +1010,10 @@ def _agent_job_spec(
                     "containers": [
                         {
                             "name": "agent",
-                            # agent-container is the issue-runner image (playwright
-                            # noble + Go + claude-code), distinct from
-                            # claude-container (which is alpine + serves tank-operator
-                            # interactive sessions). See tank-operator/agent-container/.
-                            "image": f"romainecr.azurecr.io/agent-container:{agent_container_tag}",
+                            # The Ambience native runner image is also the inner
+                            # issue-agent image: it carries Playwright, Claude,
+                            # Codex, kubectl, Helm, and the staged MCP package.
+                            "image": image,
                             "imagePullPolicy": "IfNotPresent",
                             "command": ["/bin/bash", "-c", _STAGE_BASH_SCRIPTS[stage]],
                             "env": [
@@ -1069,6 +1075,7 @@ def apply_agent_job(
     branch_name: str,
     proxy_ip: str,
     agent_container_tag: str,
+    agent_container_image: str | None = None,
     repo_slug: str = "romaine-life/ambience",
     issue_reference: str | None = None,
     stage: str = "test-plan",
@@ -1091,6 +1098,7 @@ def apply_agent_job(
         branch_name=branch_name,
         proxy_ip=proxy_ip,
         agent_container_tag=agent_container_tag,
+        agent_container_image=agent_container_image,
         repo_slug=repo_slug,
         stage=stage,
         config_map_name=config_map_name,

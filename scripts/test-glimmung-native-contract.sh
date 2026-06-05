@@ -71,6 +71,16 @@ if native_image_tag_for_revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" >/dev
   echo "native_image_tag_for_revision must reject non-40-character revisions" >&2
   exit 1
 fi
+unset AGENT_CONTAINER_IMAGE AGENT_CONTAINER_TAG
+if native_agent_container_image >/dev/null 2>&1; then
+  echo "native_agent_container_image must reject missing image inputs" >&2
+  exit 1
+fi
+AGENT_CONTAINER_TAG="native-runner-test"
+[ "$(native_agent_container_image)" = "romainecr.azurecr.io/ambience-agent-runner:native-runner-test" ]
+AGENT_CONTAINER_IMAGE="romainecr.azurecr.io/custom:tag"
+[ "$(native_agent_container_image)" = "romainecr.azurecr.io/custom:tag" ]
+unset AGENT_CONTAINER_IMAGE AGENT_CONTAINER_TAG
 
 mkdir -p "${TMP_DIR}/repo/mcp"
 native_install_preview_package "${TMP_DIR}/repo/mcp"

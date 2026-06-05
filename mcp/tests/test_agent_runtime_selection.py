@@ -103,7 +103,8 @@ def test_agent_job_spec_renders_selected_runtime() -> None:
         validation_url="https://slot.example",
         branch_name="glimmung/run-1",
         proxy_ip="10.0.0.5",
-        agent_container_tag="latest",
+        agent_container_tag="native-runner-test",
+        agent_container_image="romainecr.azurecr.io/ambience-agent-runner:native-runner-test",
         stage="implement",
         config_map_name="agent-config-implement",
         agent_runtime_json=snapshot(
@@ -127,6 +128,10 @@ def test_agent_job_spec_renders_selected_runtime() -> None:
     assert env["AGENT_PROVIDER"] == "codex"
     assert env["AGENT_MODEL"] == "gpt-5.5"
     assert env["AGENT_REASONING_EFFORT"] == "xhigh"
+    assert (
+        spec["spec"]["template"]["spec"]["containers"][0]["image"]
+        == "romainecr.azurecr.io/ambience-agent-runner:native-runner-test"
+    )
 
 
 def test_verify_agent_job_receives_selected_case_context() -> None:

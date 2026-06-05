@@ -473,6 +473,19 @@ native_image_tag_for_revision() {
   printf 'git-%s' "$revision"
 }
 
+native_agent_container_image() {
+  if [ -n "${AGENT_CONTAINER_IMAGE:-}" ]; then
+    printf '%s\n' "$AGENT_CONTAINER_IMAGE"
+    return 0
+  fi
+  if [ -n "${AGENT_CONTAINER_TAG:-}" ]; then
+    printf 'romainecr.azurecr.io/ambience-agent-runner:%s\n' "$AGENT_CONTAINER_TAG"
+    return 0
+  fi
+  echo "AGENT_CONTAINER_IMAGE or AGENT_CONTAINER_TAG must be set for inner agent jobs" >&2
+  return 2
+}
+
 native_remote_branch_revision() {
   local repo_slug="$1"
   local branch_name="$2"
