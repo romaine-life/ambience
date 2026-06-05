@@ -79,9 +79,10 @@ remaining Report API rename lands.
 
 The native runner registration was first smoke-tested end-to-end through
 Glimmung on 2026-05-04 with the earlier two-phase native runner. The current
-workflow shape is `prepare` → `llm-work` → `verify-case-01..10` →
-`evidence-gate`; use the Glimmung run graph as the source of truth for the
-active registered shape.
+workflow shape is `prepare` → `llm-work` → `llm-verify`; verification owns
+per-case evidence verdicts directly and downstream phases depend on verify
+success. Use the Glimmung run graph as the source of truth for the active
+registered shape.
 
 The native runner confirms the pushed agent branch directly through GitHub.
 It does not mutate validation namespace metadata for branch discovery.
@@ -104,12 +105,11 @@ the scripts do not invent `latest`.
 
 ## Retry And Resume
 
-The bounded verification case phase plus the evidence gate form the
-verification boundary with a recycle policy on `verify_fail` and
-`verify_malformed`. The app-owned step boundaries are the
-resume surface for future MCP/API dispatches; a caller that wants to resume
-from a particular point should pass `GLIMMUNG_RESUME_FROM_STEP=<step-slug>`
-when creating the next native attempt.
+The verification phase is the verification boundary: each case owns its
+evidence verdict, and a case-level `fail` or `error` stops the remaining cases.
+The app-owned step boundaries are the resume surface for future MCP/API
+dispatches; a caller that wants to resume from a particular point should pass
+`GLIMMUNG_RESUME_FROM_STEP=<step-slug>` when creating the next native attempt.
 
 ## Evidence
 

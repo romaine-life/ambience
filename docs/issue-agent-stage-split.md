@@ -28,8 +28,6 @@ llm-work
   └─ run-implementation (LLM, no GitHub, no kubectl, no Playwright)
        ↓
 verify-case-01..10     (bounded LLM evidence cases, no code edits, no GitHub-write)
-       ↓
-evidence-gate
 ```
 
 `issue-contract` exists so the test-plan and implementation jobs stay
@@ -205,7 +203,10 @@ verifier-claimed pass with a missing selected item flips to `fail` with
 wrapper also opens the reported local WebM with `inspect-video.mjs`, enforces
 the planned duration with a small capture tolerance, and writes a sampled-frame
 PNG. A verifier-claimed pass over an unopenable, remote-only, empty, or too
-short video flips to `fail` before evidence upload.
+short video flips to `fail` before evidence upload. A selected case verdict of
+`fail` or `error` fails that verification case and stops the remaining dynamic
+cases; downstream phases depend on the verification phase succeeding, not on a
+separate evidence gate.
 
 ## Wrapper changes
 

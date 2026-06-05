@@ -746,7 +746,7 @@ finalize() {
   if [ "$VERIFY_EXIT_CODE" -ne 0 ]; then
     add_reason "verify pod exited with ${VERIFY_EXIT_CODE}; see native step logs"
     if [ -s "$POD_LOG" ]; then
-      grep -E "::error::|Job failed|FATAL|panic:|aborted:|forbidden|exited without writing" "$POD_LOG" \
+      grep -E "::error::|Job failed|FATAL|panic:|aborted:|forbidden|Unauthorized|Missing bearer|unexpected status|turn.failed|BackoffLimitExceeded|exited without writing" "$POD_LOG" \
         | head -5 >>"$VERIFICATION_REASONS" || true
     fi
     write_verification "fail"
