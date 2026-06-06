@@ -1396,42 +1396,61 @@ func (r *Rain) paintFrontPlane() {
 	if speed <= 0 {
 		speed = 54
 	}
-	streams := int(math.Round(clamp01(r.cfg.FrontDensity) * float64(r.W) * 0.18))
-	if streams < 1 {
-		streams = 1
-	}
-	span := float64(r.H + length*2)
 	wind := r.currentWind()
-	rowStep, colStep := normalizedMotion(1, wind)
-	for i := 0; i < streams; i++ {
-		h0 := hash64(uint64(i)*0x94d049bb133111eb + 0xa54ff53a5f1d36f1)
-		h1 := hash64(uint64(i)*0xbf58476d1ce4e5b9 + 0x510e527fade682d1)
-		h2 := hash64(uint64(i)*0x9e3779b97f4a7c15 + 0x1f83d9abfb41bd6b)
-		phase := hashUnit(h0) * span
-		streamSpeed := speed * (0.72 + hashUnit(h1)*0.56)
-		headRow := math.Mod(phase+float64(r.tick)*streamSpeed, span) - float64(length)
-		baseCol := hashUnit(h2) * float64(r.W)
-		hue := math.Mod(r.currentHue()+(hashUnit(h1)*2-1)*r.cfg.HueSpread*0.35+360, 360)
-		light := r.cfg.LightnessMax + (1-r.cfg.LightnessMax)*0.25
-		base := hslToRGB(hue, r.cfg.Saturation*0.45, light)
-		for j := 0; j < length; j++ {
-			row := headRow - float64(j)*rowStep
-			col := baseCol + row*wind - float64(j)*colStep
-			gr := int(math.Floor(row))
-			if gr < 0 || gr >= r.H {
-				continue
+	life := int(math.Ceil((float64(r.H)+float64(length)*2)/speed)) + 1
+	if life < 3 {
+		life = 3
+	}
+	if life > 18 {
+		life = 18
+	}
+	eventsPerTick := clamp01(r.cfg.FrontDensity) * float64(r.W) * 0.038
+	for age := 0; age <= life; age++ {
+		birthTick := r.tick - age
+		if birthTick < 0 {
+			continue
+		}
+		birthHash := hash64(uint64(birthTick)*0x9e3779b97f4a7c15 + 0x8f1bbcdcaf1476d9)
+		eventCount := int(math.Floor(eventsPerTick))
+		if hashUnit(hash64(birthHash+0x632be59bd9b4e019)) < eventsPerTick-float64(eventCount) {
+			eventCount++
+		}
+		if eventCount == 0 && eventsPerTick > 0 && hashUnit(birthHash) < eventsPerTick {
+			eventCount = 1
+		}
+		for i := 0; i < eventCount; i++ {
+			h0 := hash64(birthHash + uint64(i)*0x94d049bb133111eb + 0xa54ff53a5f1d36f1)
+			h1 := hash64(birthHash + uint64(i)*0xbf58476d1ce4e5b9 + 0x510e527fade682d1)
+			h2 := hash64(birthHash + uint64(i)*0xd6e8feb86659fd93 + 0x1f83d9abfb41bd6b)
+			h3 := hash64(birthHash + uint64(i)*0x9e3779b97f4a7c15 + 0x243f6a8885a308d3)
+			eventSpeed := speed * (0.68 + hashUnit(h0)*0.64)
+			subFrame := hashUnit(h1) * eventSpeed
+			headRow := -float64(length) + subFrame + float64(age)*eventSpeed
+			eventWind := wind + (hashUnit(h2)*2-1)*0.22
+			rowStep, colStep := normalizedMotion(1, eventWind)
+			baseCol := hashUnit(h3) * float64(r.W)
+			hue := math.Mod(r.currentHue()+(hashUnit(h1)*2-1)*r.cfg.HueSpread*0.35+360, 360)
+			light := r.cfg.LightnessMax + (1-r.cfg.LightnessMax)*0.25
+			base := hslToRGB(hue, r.cfg.Saturation*0.45, light)
+			for j := 0; j < length; j++ {
+				row := headRow - float64(j)*rowStep
+				col := baseCol + row*eventWind - float64(j)*colStep
+				gr := int(math.Floor(row))
+				if gr < 0 || gr >= r.H {
+					continue
+				}
+				gc := int(math.Round(col))
+				if gc < 0 || gc >= r.W {
+					continue
+				}
+				tail := 1 - float64(j)/float64(length)
+				brightness := strength * (0.2 + 0.8*tail) * (0.85 + hashUnit(h0)*0.15)
+				c := base
+				c.R = uint8(float64(c.R) * brightness)
+				c.G = uint8(float64(c.G) * brightness)
+				c.B = uint8(float64(c.B) * brightness)
+				r.paintPixelMax(gr, gc, c)
 			}
-			gc := int(math.Round(col))
-			if gc < 0 || gc >= r.W {
-				continue
-			}
-			tail := 1 - float64(j)/float64(length)
-			brightness := strength * (0.2 + 0.8*tail) * (0.85 + hashUnit(h0)*0.15)
-			c := base
-			c.R = uint8(float64(c.R) * brightness)
-			c.G = uint8(float64(c.G) * brightness)
-			c.B = uint8(float64(c.B) * brightness)
-			r.paintPixelMax(gr, gc, c)
 		}
 	}
 }

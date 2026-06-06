@@ -163,14 +163,44 @@ func TestFrontPlaneBuildsNearWindowStreaksWithoutTrackedDrops(t *testing.T) {
 		FrontSpeed:    54,
 	})
 	r.calmTicks = 2
-	r.Step()
+	for i := 0; i < 4; i++ {
+		r.Step()
+	}
 
 	filled := countFilledPixels(r.Grid)
-	if filled < 80 {
-		t.Fatalf("front-plane rain filled %d grid cells, want at least 80", filled)
+	if filled < 50 {
+		t.Fatalf("front-plane rain filled %d grid cells, want at least 50", filled)
 	}
 	if len(r.drops) != 0 {
 		t.Fatalf("tracked drops = %d, want 0 for procedural front-plane streaks", len(r.drops))
+	}
+}
+
+func TestFrontPlaneDoesNotReuseExactPathSet(t *testing.T) {
+	r := NewRain(120, 60, 2, Config{
+		Wind:          0,
+		SpawnEvery:    1000000,
+		SheetDensity:  0,
+		FrontDensity:  0.7,
+		FrontStrength: 0.8,
+		FrontLength:   20,
+		FrontSpeed:    30,
+	})
+	r.calmTicks = 20
+	for i := 0; i < 6; i++ {
+		r.Step()
+	}
+	first := filledColumns(r.Grid)
+	for i := 0; i < 8; i++ {
+		r.Step()
+	}
+	second := filledColumns(r.Grid)
+
+	if len(first) < 4 || len(second) < 4 {
+		t.Fatalf("front-plane columns too sparse: first=%d second=%d", len(first), len(second))
+	}
+	if sameIntSet(first, second) {
+		t.Fatalf("front-plane reused the same occupied column set; want changing event paths")
 	}
 }
 
@@ -204,6 +234,30 @@ func countFilledPixels(grid [][]Pixel) int {
 		}
 	}
 	return filled
+}
+
+func filledColumns(grid [][]Pixel) map[int]bool {
+	cols := map[int]bool{}
+	for y := range grid {
+		for x := range grid[y] {
+			if grid[y][x].Filled {
+				cols[x] = true
+			}
+		}
+	}
+	return cols
+}
+
+func sameIntSet(a, b map[int]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestPersistedStateRestoreRoundTrip(t *testing.T) {
