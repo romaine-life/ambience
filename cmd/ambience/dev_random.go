@@ -32,15 +32,21 @@ func stabilizeRandomizedDevConfig(effect string, cfg map[string]any) {
 	}
 	clampFloatMin(cfg, "speed", 0.85)
 	clampFloatMax(cfg, "speed", 1.35)
+	clampFloatMax(cfg, "speed_jit", 0.2)
 	clampIntMin(cfg, "streak", 10)
+	clampFloatMin(cfg, "fade", 0.88)
 	clampIntMin(cfg, "spawn", 2)
 	clampIntMax(cfg, "spawn", 5)
 	clampIntMin(cfg, "burst", 3)
 	clampIntMax(cfg, "burst", 5)
+	clampFloatRange(cfg, "wind", -0.4, 0.4)
+	clampFloatMax(cfg, "wind_jit", 0.2)
+	clampFloatMax(cfg, "wind_drift", 0.2)
 	clampIntMin(cfg, "layers", 2)
 	clampFloatMin(cfg, "lbal", 0.45)
 	clampFloatMin(cfg, "sheet", 0.5)
 	clampIntMin(cfg, "sheet_len", 9)
+	clampFloatMin(cfg, "sheet_alpha", 0.25)
 	clampFloatMax(cfg, "sheet_alpha", 0.45)
 	clampFloatMax(cfg, "sheet_speed", 1.5)
 	clampRainHue(cfg)
@@ -64,6 +70,16 @@ func clampFloatMin(cfg map[string]any, key string, min float64) {
 func clampFloatMax(cfg map[string]any, key string, max float64) {
 	if v, ok := cfg[key].(float64); ok && v > max {
 		cfg[key] = max
+	}
+}
+
+func clampFloatRange(cfg map[string]any, key string, min, max float64) {
+	if v, ok := cfg[key].(float64); ok {
+		if v < min {
+			cfg[key] = min
+		} else if v > max {
+			cfg[key] = max
+		}
 	}
 }
 

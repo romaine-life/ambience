@@ -112,6 +112,9 @@ func TestRandomizedRainConfigKeepsReadableWeatherEnvelope(t *testing.T) {
 		if values["speed"] < 0.85 || values["speed"] > 1.35 || values["streak"] < 10 || values["spawn"] < 2 || values["spawn"] > 5 || values["burst"] < 3 || values["burst"] > 5 {
 			t.Fatalf("seed %d produced rain outside the 60 Hz foreground envelope: %v", seed, values)
 		}
+		if values["speed_jit"] > 0.2 || values["wind"] < -0.4 || values["wind"] > 0.4 || values["wind_jit"] > 0.2 || values["wind_drift"] > 0.2 || values["fade"] < 0.88 {
+			t.Fatalf("seed %d produced unstable rain motion: %v", seed, values)
+		}
 		if values["layers"] < 2 || values["lbal"] < 0.45 {
 			t.Fatalf("seed %d produced rain without enough depth: %v", seed, values)
 		}
