@@ -1426,7 +1426,7 @@ func (r *Rain) paintFrontPlane() {
 			eventSpeed := speed * (0.68 + hashUnit(h0)*0.64)
 			subFrame := hashUnit(h1) * eventSpeed
 			headRow := -float64(length) + subFrame + float64(age)*eventSpeed
-			eventWind := wind + (hashUnit(h2)*2-1)*0.22
+			eventWind := wind + (hashUnit(h2)*2-1)*0.035
 			rowStep, colStep := normalizedMotion(1, eventWind)
 			baseCol := hashUnit(h3) * float64(r.W)
 			hue := math.Mod(r.currentHue()+(hashUnit(h1)*2-1)*r.cfg.HueSpread*0.35+360, 360)

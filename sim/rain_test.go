@@ -2,6 +2,7 @@ package sim
 
 import (
 	"image/color"
+	"math"
 	"testing"
 )
 
@@ -201,6 +202,29 @@ func TestFrontPlaneDoesNotReuseExactPathSet(t *testing.T) {
 	}
 	if sameIntSet(first, second) {
 		t.Fatalf("front-plane reused the same occupied column set; want changing event paths")
+	}
+}
+
+func TestFrontPlaneDirectionStaysCoherentWithRainField(t *testing.T) {
+	r := NewRain(120, 60, 2, Config{
+		Wind:          0.18,
+		SpawnEvery:    1000000,
+		SheetDensity:  0,
+		FrontDensity:  0.8,
+		FrontStrength: 0.8,
+		FrontLength:   24,
+		FrontSpeed:    42,
+	})
+
+	wind := r.currentWind()
+	birthTick := uint64(12)
+	birthHash := hash64(birthTick*0x9e3779b97f4a7c15 + 0x8f1bbcdcaf1476d9)
+	for i := 0; i < 12; i++ {
+		h2 := hash64(birthHash + uint64(i)*0xd6e8feb86659fd93 + 0x1f83d9abfb41bd6b)
+		eventWind := wind + (hashUnit(h2)*2-1)*0.035
+		if diff := math.Abs(eventWind - wind); diff > 0.036 {
+			t.Fatalf("front-plane event wind drift = %.3f, want coherent with rain field", diff)
+		}
 	}
 }
 
