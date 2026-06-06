@@ -125,6 +125,26 @@ func TestDefaultRainBuildsFullerWeatherField(t *testing.T) {
 	}
 }
 
+func TestRainSheetBuildsTextureWithoutForegroundDrops(t *testing.T) {
+	r := NewRain(80, 40, 2, Config{
+		SpawnEvery:    1,
+		SheetDensity:  0.8,
+		SheetStrength: 0.5,
+		SheetLength:   10,
+		SheetSpeed:    1.5,
+	})
+	r.calmTicks = 2
+	r.Step()
+
+	filled := countFilledPixels(r.Grid)
+	if filled < 300 {
+		t.Fatalf("rain sheet filled %d grid cells, want at least 300", filled)
+	}
+	if len(r.drops) != 0 {
+		t.Fatalf("foreground drops = %d, want 0 while calm suppresses spawning", len(r.drops))
+	}
+}
+
 func TestHslToRGBBasicAnchors(t *testing.T) {
 	cases := []struct {
 		h, s, l             float64

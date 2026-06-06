@@ -66,6 +66,11 @@ type Config struct {
 	// DEPTH
 	Layers       int     `json:"layers"`
 	LayerBalance float64 `json:"lbal"`
+	// TEXTURE
+	SheetDensity  float64 `json:"sheet"`
+	SheetStrength float64 `json:"sheet_alpha"`
+	SheetLength   int     `json:"sheet_len"`
+	SheetSpeed    float64 `json:"sheet_speed"`
 	// LEVERS
 	HueDriftAmp  float64 `json:"hue_drift"`
 	WindDriftAmp float64 `json:"wind_drift"`
@@ -156,6 +161,15 @@ func (c Config) withDefaults() Config {
 	}
 	if c.LayerBalance <= 0 {
 		c.LayerBalance = 0.55
+	}
+	if c.SheetStrength <= 0 {
+		c.SheetStrength = 0.35
+	}
+	if c.SheetLength <= 0 {
+		c.SheetLength = 8
+	}
+	if c.SheetSpeed <= 0 {
+		c.SheetSpeed = 1.6
 	}
 	if c.DownpourDur <= 0 {
 		c.DownpourDur = 60
@@ -278,6 +292,14 @@ func RainSchema() EffectSchema {
 				Description: "1 = single layer. 2 = adds a dimmer/shorter/slower background layer for parallax depth. Next drop onward."},
 			{Key: "lbal", Label: "bg balance", Slot: SlotLever, Group: "depth", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0.55,
 				Description: "Fraction of drops assigned to the background layer. Ignored unless layers=2. Next drop onward."},
+			{Key: "sheet", Label: "sheet", Slot: SlotLever, Group: "texture", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
+				Description: "Procedural background rain texture density. 0 = only foreground drops; higher = fuller rain field."},
+			{Key: "sheet_alpha", Label: "sheet alpha", Slot: SlotLever, Group: "texture", Type: KnobFloat, Min: 0.1, Max: 1, Step: 0.05, Default: 0.35,
+				Description: "Brightness of the procedural rain sheet before foreground drops are painted."},
+			{Key: "sheet_len", Label: "sheet len", Slot: SlotLever, Group: "texture", Type: KnobInt, Min: 2, Max: 20, Step: 1, Default: 8,
+				Description: "Streak length for the procedural background sheet."},
+			{Key: "sheet_speed", Label: "sheet speed", Slot: SlotLever, Group: "texture", Type: KnobFloat, Min: 0.3, Max: 4, Step: 0.1, Default: 1.6,
+				Description: "Rows per tick for the procedural background sheet."},
 			{Key: "hue_drift", Label: "hue drift", Slot: SlotLever, Group: "drift", Type: KnobFloat, Min: 0, Max: 60, Step: 1, Default: 0,
 				Description: "Amplitude (±degrees) the base hue slowly wanders over ~30s cycles. 0 = static."},
 			{Key: "wind_drift", Label: "wind drift", Slot: SlotLever, Group: "drift", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
@@ -737,6 +759,7 @@ func (r *Rain) repaintLocked() {
 			r.Grid[y][x] = Pixel{}
 		}
 	}
+	r.paintSheet()
 	r.paintSplashes()
 	for _, d := range r.drops {
 		r.paintDrop(d)
@@ -1276,6 +1299,62 @@ func (r *Rain) paintSplashes() {
 	}
 }
 
+func (r *Rain) paintSheet() {
+	if r.cfg.SheetDensity <= 0 || r.W <= 0 || r.H <= 0 {
+		return
+	}
+	length := r.cfg.SheetLength
+	if length < 2 {
+		length = 2
+	}
+	if length > 40 {
+		length = 40
+	}
+	strength := clamp01(r.cfg.SheetStrength)
+	if strength <= 0 {
+		return
+	}
+	speed := r.cfg.SheetSpeed
+	if speed <= 0 {
+		speed = 1
+	}
+	streams := int(math.Round(clamp01(r.cfg.SheetDensity) * float64(r.W) * 0.85))
+	if streams < 1 {
+		streams = 1
+	}
+	span := float64(r.H + length*2)
+	wind := r.currentWind()
+	rowStep, colStep := normalizedMotion(1, wind)
+	for i := 0; i < streams; i++ {
+		h0 := hash64(uint64(i)*0x9e3779b97f4a7c15 + 0x6a09e667f3bcc909)
+		h1 := hash64(uint64(i)*0xc2b2ae3d27d4eb4f + 0xbb67ae8584caa73b)
+		h2 := hash64(uint64(i)*0x165667b19e3779f9 + 0x3c6ef372fe94f82b)
+		phase := hashUnit(h0) * span
+		streamSpeed := speed * (0.75 + hashUnit(h1)*0.5)
+		headRow := math.Mod(phase+float64(r.tick)*streamSpeed, span) - float64(length)
+		baseCol := hashUnit(h2) * float64(r.W)
+		hue := math.Mod(r.currentHue()+(hashUnit(h1)*2-1)*r.cfg.HueSpread*0.5+360, 360)
+		light := r.cfg.LightnessMin + hashUnit(h0)*(r.cfg.LightnessMax-r.cfg.LightnessMin)
+		base := hslToRGB(hue, r.cfg.Saturation*0.55, light)
+		for j := 0; j < length; j++ {
+			row := headRow - float64(j)*rowStep
+			col := baseCol + row*wind - float64(j)*colStep
+			gr := int(math.Floor(row))
+			if gr < 0 || gr >= r.H {
+				continue
+			}
+			gc := wrapInt(int(math.Round(col)), r.W)
+			tail := 1 - float64(j)/float64(length)
+			brightness := strength * (0.35 + 0.65*tail) * (0.75 + hashUnit(h2)*0.25)
+			c := base
+			c.R = uint8(float64(c.R) * brightness)
+			c.G = uint8(float64(c.G) * brightness)
+			c.B = uint8(float64(c.B) * brightness)
+			r.paintPixelMax(gr, gc, c)
+		}
+	}
+}
+
 // paintDrop lays down StreakLen cells from the drop's head backward along its
 // motion vector. Brightness decays by FadeFactor per position from the head.
 func (r *Rain) paintDrop(d drop) {
@@ -1298,11 +1377,39 @@ func (r *Rain) paintDrop(d drop) {
 }
 
 func (d drop) trailStep() (float64, float64) {
-	length := math.Hypot(d.vRow, d.vCol)
+	return normalizedMotion(d.vRow, d.vCol)
+}
+
+func normalizedMotion(vRow, vCol float64) (float64, float64) {
+	length := math.Hypot(vRow, vCol)
 	if length < 0.0001 {
 		return 1, 0
 	}
-	return d.vRow / length, d.vCol / length
+	return vRow / length, vCol / length
+}
+
+func hash64(x uint64) uint64 {
+	x ^= x >> 30
+	x *= 0xbf58476d1ce4e5b9
+	x ^= x >> 27
+	x *= 0x94d049bb133111eb
+	x ^= x >> 31
+	return x
+}
+
+func hashUnit(x uint64) float64 {
+	return float64(x>>11) * (1.0 / 9007199254740992.0)
+}
+
+func wrapInt(v, limit int) int {
+	if limit <= 0 {
+		return 0
+	}
+	v %= limit
+	if v < 0 {
+		v += limit
+	}
+	return v
 }
 
 func (r *Rain) paintPixelMax(row, col int, c color.RGBA) {
