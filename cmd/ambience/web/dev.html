@@ -44,7 +44,15 @@
 	const GRID_H = intParam('gridH', 80, 24, 360);
 	const FPS = intParam('fps', 10, 1, 60);
 	const STEP_MS = Math.max(1, Math.round(1000 / FPS));
-	const SESSION_ID = (crypto.randomUUID ? crypto.randomUUID() :
+	// Honor a caller-supplied session id from the URL so an external driver
+	// (the glimmung verifier, selfcheck-effect.sh) can address the SAME dev
+	// session it renders. POSTing /dev/trigger/<session>/<event> only affects
+	// this page when both sides agree on the id; without this, the page picked
+	// a private random id and every external trigger hit an orphan session.
+	// Fall back to a generated id for normal interactive use. Contract:
+	// dev-endpoints.md ("session is a query param the page assigns").
+	const SESSION_ID = URL_PARAMS.get('session') ||
+		(crypto.randomUUID ? crypto.randomUUID() :
 		Math.random().toString(36).slice(2) + Date.now().toString(36));
 	const SESSION_SHORT = SESSION_ID.replace(/-/g, '').slice(0, 8);
 

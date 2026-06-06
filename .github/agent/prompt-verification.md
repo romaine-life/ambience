@@ -30,7 +30,13 @@ Glimmung selects the concrete provider/model for this invocation through the
    - **`screenshot`**: hit `$VALIDATION_URL$url_path`, capture a PNG.
      Use `node /workspace/repo/scripts/agent/capture-screenshot.mjs`.
      If the entry has a `trigger_event`, POST to
-     `$VALIDATION_URL/dev/trigger/<session>/<trigger_event>` first.
+     `$VALIDATION_URL/dev/trigger/<session>/<trigger_event>` first, and
+     load the page with the **same** `?session=<session>` you triggered.
+     A frame alone is not proof the trigger fired: after POSTing, GET
+     `$VALIDATION_URL/dev/snapshot?session=<session>&effect=<slug>` and
+     confirm `<trigger_event>` appears in `appliedEvents`. If it does not,
+     the trigger never reached the session you are observing — record a
+     failure (`trigger_not_observed`); do not pass on the frame alone.
      Save under `/workspace/evidence/screenshots/`.
    - **`go-test`**: run the literal `command` field. Capture pass/fail
      and a stdout excerpt.
@@ -149,6 +155,9 @@ Allowed `abort_reason` values when `status` is `abort`:
 - `screenshot_missing` — couldn't capture a required PNG.
 - `claimed_result_not_observed` — picture/output doesn't match
   `must_show` / `expected_text`.
+- `trigger_not_observed` — a `trigger_event` was POSTed but never
+  registered in `/dev/snapshot?session=<session>` `appliedEvents`, so the
+  captured frame does not reflect the trigger.
 - `target_evidence_missing` — a `required_evidence.id` has no
   corresponding `evidence_results` entry.
 - `validation_env_unreachable` — `$VALIDATION_URL` doesn't respond.

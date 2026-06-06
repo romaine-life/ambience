@@ -442,8 +442,29 @@ enforce_issue_contract() {
           *)
             add_reason "issue contract: trigger ${event} for effect ${slug} returned HTTP ${status}"
             failed=1
+            continue
             ;;
         esac
+        # A 2xx only means the trigger endpoint *accepted* the event. Confirm it
+        # actually *registered* on the same dev session a page would render, via
+        # the snapshot's appliedEvents. This distinguishes "trigger applied" from
+        # "trigger lost/dropped" — without it, a verifier screenshot of a
+        # pristine, never-triggered sim can read as a pass (e.g. an "intro"
+        # resting look matches an untouched sim). Events apply on the next dev
+        # tick, so poll briefly.
+        local applied=0 attempt
+        for attempt in 1 2 3 4 5 6 7 8 9 10; do
+          if curl -sS "${VALIDATION_URL}/dev/snapshot?session=${session}&effect=${slug}" 2>/dev/null \
+              | jq -e --arg ev "$event" '(.appliedEvents // []) | any(.event == $ev)' >/dev/null 2>&1; then
+            applied=1
+            break
+          fi
+          sleep 0.3
+        done
+        if [ "$applied" -ne 1 ]; then
+          add_reason "issue contract: trigger ${event} for effect ${slug} was accepted (HTTP ${status}) but never registered as applied on its dev session (snapshot.appliedEvents) — a fired trigger must reach the session being observed"
+          failed=1
+        fi
       done < <(jq -r '.public_surface.trigger_events[]? // empty' "$contract" 2>/dev/null)
     fi
   fi
