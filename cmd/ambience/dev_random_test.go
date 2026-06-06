@@ -25,6 +25,7 @@ func TestRandomizedDevConfigStaysWithinSchemaBounds(t *testing.T) {
 		sim.LighthouseSchema(),
 		sim.RowboatSchema(),
 		sim.UnderwaterSchema(),
+		sim.MagicPortalSchema(),
 	}
 
 	for i, schema := range schemas {
@@ -50,6 +51,11 @@ func TestRandomizedDevConfigStaysWithinSchemaBounds(t *testing.T) {
 				t.Fatalf("%s %s = %v is not aligned to step %v from min %v", schema.Name, knob.Key, got, knob.Step, knob.Min)
 			}
 		}
+		if lmin, ok := values["lmin"]; ok {
+			if lmax, ok := values["lmax"]; ok && lmax < lmin {
+				t.Fatalf("%s randomized light bounds inverted: lmin=%v lmax=%v", schema.Name, lmin, lmax)
+			}
+		}
 	}
 }
 
@@ -70,6 +76,7 @@ func TestRandomizedDevConfigChangesAtLeastOneKnob(t *testing.T) {
 		sim.LighthouseSchema(),
 		sim.RowboatSchema(),
 		sim.UnderwaterSchema(),
+		sim.MagicPortalSchema(),
 	}
 
 	for i, schema := range schemas {
