@@ -102,7 +102,7 @@ IMPL_FILE="${EVIDENCE_DIR}/issue-agent-implementation.json"
 IMPL_MD_FILE="${EVIDENCE_DIR}/issue-agent-implementation.md"
 
 clone_repo() {
-  native_clone_repo "$REPO_SLUG" "$REPO_DIR" main
+  native_clone_repo "$REPO_SLUG" "$REPO_DIR" "$BRANCH_NAME"
 }
 
 copy_claude_ca() {

@@ -21,6 +21,7 @@ native_require_env \
 
 REPO_SLUG="${AMBIENCE_REPO_SLUG:-romaine-life/ambience}"
 REPO_DIR="${AMBIENCE_REPO_DIR:-/workspace/ambience}"
+WORKFLOW_REF="$(native_workflow_checkout_ref)"
 AGENT_CONTAINER_TAG="${AGENT_CONTAINER_TAG:-}"
 CLAUDE_NAMESPACE="${GLIMMUNG_INPUT_CLAUDE_NAMESPACE:-${CLAUDE_NAMESPACE:-tank-operator}}"
 CLAUDE_CA_NAMESPACE="${GLIMMUNG_INPUT_CLAUDE_CA_NAMESPACE:-${CLAUDE_CA_NAMESPACE:-tank-operator-sessions}}"
@@ -63,7 +64,7 @@ PROXY_IP_FILE="/tmp/issue-contract-proxy-ip"
 mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/videos"
 
 clone_repo() {
-  native_clone_repo "$REPO_SLUG" "$REPO_DIR" main
+  native_clone_repo "$REPO_SLUG" "$REPO_DIR" "$WORKFLOW_REF"
 }
 
 copy_claude_ca() {
