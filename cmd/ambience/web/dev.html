@@ -34,7 +34,16 @@
 	'use strict';
 	(function () {
 
-	const GRID_W = 160, GRID_H = 80;
+	const URL_PARAMS = new URLSearchParams(window.location.search);
+	function intParam(name, fallback, min, max) {
+		const n = parseInt(URL_PARAMS.get(name) || '', 10);
+		if (!Number.isFinite(n)) return fallback;
+		return Math.max(min, Math.min(max, n));
+	}
+	const GRID_W = intParam('gridW', 160, 32, 640);
+	const GRID_H = intParam('gridH', 80, 24, 360);
+	const FPS = intParam('fps', 10, 1, 60);
+	const STEP_MS = Math.max(1, Math.round(1000 / FPS));
 	const SESSION_ID = (crypto.randomUUID ? crypto.randomUUID() :
 		Math.random().toString(36).slice(2) + Date.now().toString(36));
 	const SESSION_SHORT = SESSION_ID.replace(/-/g, '').slice(0, 8);
@@ -50,12 +59,12 @@
 	let streamSeq = 0;
 	let latestConfig = null;
 	let es = null;
+	let initialQueryConfigApplied = false;
 
 	function effectFromLocation() {
-		const q = new URLSearchParams(window.location.search);
 		const parts = window.location.pathname.split('/').filter(Boolean);
 		if (parts.length >= 2 && parts[0] === 'dev') return parts[1];
-		return q.get('effect') || 'rain';
+		return URL_PARAMS.get('effect') || 'rain';
 	}
 	function newEffectInstance(name) {
 		const ctor = AmbienceSim.effects[name];
@@ -65,7 +74,14 @@
 	function availableEffects() {
 		return Object.keys(AmbienceSim.effects || {}).sort((a, b) => a.localeCompare(b));
 	}
-	function effectPath(name) { return '/dev/' + encodeURIComponent(name); }
+	function effectPath(name) {
+		const q = new URLSearchParams();
+		if (GRID_W !== 160) q.set('gridW', String(GRID_W));
+		if (GRID_H !== 80) q.set('gridH', String(GRID_H));
+		if (FPS !== 10) q.set('fps', String(FPS));
+		const suffix = q.toString();
+		return '/dev/' + encodeURIComponent(name) + (suffix ? '?' + suffix : '');
+	}
 
 	function resize() {
 		const dpr = window.devicePixelRatio || 1;
@@ -88,7 +104,7 @@
 			header: 'session clock', badge: { tone: 'muted', label: 'local' },
 			rows: [
 				{ k: 'sim.tick', v: '0' }, { k: 'effect', v: L(effect) }, { k: 'grid', v: GRID_W + ' × ' + GRID_H },
-				{ k: 'session', v: SESSION_SHORT }, { k: 'effects', v: '—' },
+				{ k: 'fps', v: String(FPS) }, { k: 'session', v: SESSION_SHORT }, { k: 'effects', v: '—' },
 			],
 			footer: { tone: 'muted', html: 'isolated dev session · changes stay local' },
 		},
@@ -101,17 +117,41 @@
 	});
 
 	// ── server IO (data layer) ─────────────────────────────────────────────
-	function currentQuery() {
-		const vals = chrome.currentValues();
+	function configQuery(values) {
 		const q = new URLSearchParams();
 		q.set('session', SESSION_ID);
 		q.set('effect', effect);
-		for (const k of chrome.getKnobs()) {
-			const v = vals[k.key];
-			if (v == null) continue;
-			q.set(k.key, k.type === 'int' ? String(Math.round(v)) : String(v));
+		q.set('gridW', String(GRID_W));
+		q.set('gridH', String(GRID_H));
+		if (values) {
+			for (const key of Object.keys(values)) {
+				const v = values[key];
+				if (v == null) continue;
+				q.set(key, String(v));
+			}
+		} else {
+			const vals = chrome.currentValues();
+			for (const k of chrome.getKnobs()) {
+				const v = vals[k.key];
+				if (v == null) continue;
+				q.set(k.key, k.type === 'int' ? String(Math.round(v)) : String(v));
+			}
 		}
 		return q.toString();
+	}
+	function currentQuery() { return configQuery(null); }
+	function initialQueryConfig(baseConfig) {
+		if (!baseConfig) return null;
+		const cfg = Object.assign({}, baseConfig);
+		let changed = false;
+		for (const key of Object.keys(baseConfig)) {
+			if (!URL_PARAMS.has(key)) continue;
+			const n = parseFloat(URL_PARAMS.get(key) || '');
+			if (!Number.isFinite(n)) continue;
+			cfg[key] = n;
+			changed = true;
+		}
+		return changed ? cfg : null;
 	}
 	let debounceT = null;
 	function schedule() {
@@ -122,10 +162,16 @@
 		try { await fetch('/dev/config?' + currentQuery(), { method: 'POST' }); }
 		catch (e) { console.error('config push', e); }
 	}
+	async function pushConfigValues(values) {
+		try { await fetch('/dev/config?' + configQuery(values), { method: 'POST' }); }
+		catch (e) { console.error('config push', e); }
+	}
 	async function fire(eventName) {
 		try {
 			await fetch('/dev/trigger/' + encodeURIComponent(SESSION_ID) + '/' + encodeURIComponent(eventName) +
-				'?effect=' + encodeURIComponent(effect), { method: 'POST' });
+				'?effect=' + encodeURIComponent(effect) +
+				'&gridW=' + encodeURIComponent(String(GRID_W)) +
+				'&gridH=' + encodeURIComponent(String(GRID_H)), { method: 'POST' });
 		} catch (e) { console.error('trigger', e); }
 	}
 	async function randomizeCurrentEffect() {
@@ -133,7 +179,9 @@
 		if (btn) btn.disabled = true;
 		try {
 			const resp = await fetch('/dev/randomize?session=' + encodeURIComponent(SESSION_ID) +
-				'&effect=' + encodeURIComponent(effect), { method: 'POST' });
+				'&effect=' + encodeURIComponent(effect) +
+				'&gridW=' + encodeURIComponent(String(GRID_W)) +
+				'&gridH=' + encodeURIComponent(String(GRID_H)), { method: 'POST' });
 			if (!resp.ok) throw new Error('randomize failed: ' + resp.status);
 			const cfg = await resp.json();
 			if (sim) sim.setConfig(cfg);
@@ -166,7 +214,7 @@
 				if (sim.outgoing && typeof sim.outgoing.destroy === 'function') sim.outgoing.destroy();
 				sim = sim.incoming;
 			}
-		}, 100);
+		}, STEP_MS);
 		(function draw() {
 			if (sim) sim.render(ctx, canvas.width, canvas.height);
 			requestAnimationFrame(draw);
@@ -198,6 +246,16 @@
 					ready = true;
 					latestConfig = snap.config || latestConfig;
 					if (snap.config) chrome.setValues(snap.config);
+					if (!initialQueryConfigApplied && snap.config) {
+						initialQueryConfigApplied = true;
+						const cfg = initialQueryConfig(snap.config);
+						if (cfg) {
+							latestConfig = cfg;
+							chrome.setValues(cfg);
+							if (sim) sim.setConfig(cfg);
+							pushConfigValues(cfg);
+						}
+					}
 				} catch (err) { console.error('bad snapshot', err); }
 				break;
 			case 'config':
@@ -219,7 +277,9 @@
 	function openDevStream(effectName) {
 		const streamID = ++streamSeq;
 		const stream = new EventSource('/dev/events?session=' + encodeURIComponent(SESSION_ID) +
-			'&effect=' + encodeURIComponent(effectName));
+			'&effect=' + encodeURIComponent(effectName) +
+			'&gridW=' + encodeURIComponent(String(GRID_W)) +
+			'&gridH=' + encodeURIComponent(String(GRID_H)));
 		stream.addEventListener('message', (e) => {
 			let cmd; try { cmd = JSON.parse(e.data); } catch (_) { return; }
 			handleDevCommand(cmd, streamID, effectName);
