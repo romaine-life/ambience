@@ -258,7 +258,7 @@ func registerStaticRoutes(mux *http.ServeMux, static staticAssets, lookup effect
 	// /sim.js is the browser namespace, shared helpers, transition wrapper,
 	// and subscription helper. Effect constructors are registered by
 	// /wasm_runtime.js from the Go/WASM runtime.
-	mux.HandleFunc("/sim.js", serveSimBundle(static))
+	mux.HandleFunc("/sim.js", serveStaticFile(static, "sim.js"))
 	mux.HandleFunc("/controls.js", serveStaticFile(static, "controls.js"))
 	// "Exposed" chrome — shared control/monitor presentation used by both
 	// index.html and dev.html, its stylesheet, and the wordmark font. There is
