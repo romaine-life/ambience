@@ -22,7 +22,94 @@ func randomizedDevConfig(schema sim.EffectSchema, seed int64) (json.RawMessage, 
 			cfg[knob.Key] = value
 		}
 	}
+	stabilizeRandomizedDevConfig(schema.Name, cfg)
 	return json.Marshal(cfg)
+}
+
+func stabilizeRandomizedDevConfig(effect string, cfg map[string]any) {
+	if effect != "rain" {
+		return
+	}
+	clampFloatMin(cfg, "speed", 1.5)
+	clampFloatMax(cfg, "speed", 2.4)
+	clampFloatMax(cfg, "speed_jit", 0.2)
+	clampIntMin(cfg, "streak", 10)
+	clampFloatMin(cfg, "fade", 0.88)
+	clampIntMin(cfg, "spawn", 2)
+	clampIntMax(cfg, "spawn", 5)
+	clampIntMin(cfg, "burst", 3)
+	clampIntMax(cfg, "burst", 5)
+	clampFloatRange(cfg, "wind", -0.4, 0.4)
+	clampFloatMax(cfg, "wind_jit", 0.2)
+	clampFloatMax(cfg, "wind_drift", 0.2)
+	clampIntMin(cfg, "layers", 2)
+	clampFloatMin(cfg, "lbal", 0.45)
+	clampFloatMin(cfg, "sheet", 0.5)
+	clampIntMin(cfg, "sheet_len", 9)
+	clampFloatMin(cfg, "sheet_alpha", 0.25)
+	clampFloatMax(cfg, "sheet_alpha", 0.45)
+	clampFloatMin(cfg, "sheet_speed", 1.3)
+	clampFloatMax(cfg, "sheet_speed", 2.0)
+	clampFloatMin(cfg, "front", 0.25)
+	clampFloatMax(cfg, "front", 0.55)
+	clampFloatMin(cfg, "front_alpha", 0.35)
+	clampFloatMax(cfg, "front_alpha", 0.7)
+	clampIntMin(cfg, "front_len", 18)
+	clampIntMax(cfg, "front_len", 32)
+	clampFloatMin(cfg, "front_speed", 40)
+	clampFloatMax(cfg, "front_speed", 72)
+	clampRainHue(cfg)
+	clampFloatMax(cfg, "hue_sp", 18)
+	clampFloatMax(cfg, "sat", 0.45)
+	clampFloatMax(cfg, "lmin", 0.45)
+	clampFloatMax(cfg, "lmax", 0.75)
+	clampFloatMax(cfg, "downpour_p", 0.0003)
+	clampFloatMax(cfg, "calm_p", 0.0003)
+	clampFloatMax(cfg, "gust_p", 0.0003)
+	clampFloatMax(cfg, "splash_p", 0.0006)
+	clampFloatMax(cfg, "downpour_mult", 4)
+}
+
+func clampFloatMin(cfg map[string]any, key string, min float64) {
+	if v, ok := cfg[key].(float64); ok && v < min {
+		cfg[key] = min
+	}
+}
+
+func clampFloatMax(cfg map[string]any, key string, max float64) {
+	if v, ok := cfg[key].(float64); ok && v > max {
+		cfg[key] = max
+	}
+}
+
+func clampFloatRange(cfg map[string]any, key string, min, max float64) {
+	if v, ok := cfg[key].(float64); ok {
+		if v < min {
+			cfg[key] = min
+		} else if v > max {
+			cfg[key] = max
+		}
+	}
+}
+
+func clampRainHue(cfg map[string]any) {
+	v, ok := cfg["hue"].(float64)
+	if !ok || (v >= 190 && v <= 240) {
+		return
+	}
+	cfg["hue"] = 204 + math.Mod(math.Abs(v), 28)
+}
+
+func clampIntMin(cfg map[string]any, key string, min int) {
+	if v, ok := cfg[key].(int); ok && v < min {
+		cfg[key] = min
+	}
+}
+
+func clampIntMax(cfg map[string]any, key string, max int) {
+	if v, ok := cfg[key].(int); ok && v > max {
+		cfg[key] = max
+	}
 }
 
 func randomizedKnobValue(rng *rand.Rand, knob sim.Knob) float64 {

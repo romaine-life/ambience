@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/romaine-life/ambience/rngutil"
 	"github.com/romaine-life/ambience/sim"
@@ -64,33 +65,43 @@ func randomEffectSceneConfig(effectType string, rng *rngutil.RNG) json.RawMessag
 }
 
 // generateRainScene produces a Scene using rng. Duration is randomized across
-// 1–4 hours (36k–144k ticks at 10 Hz). The config ranges are kept within
-// sim-safe bounds so any generated scene is guaranteed to look reasonable.
+// 1–4 hours. The config ranges are kept within sim-safe bounds so any
+// generated scene is guaranteed to look reasonable.
 func generateRainScene(rng *rngutil.RNG, startedAt int, durationTicks int) Scene {
 	_ = durationTicks
-	hue := rng.Float64() * 360
-	hueSpread := 10 + rng.Float64()*50     // 10–60°
-	sat := 0.4 + rng.Float64()*0.5         // 0.4–0.9
-	lmin := 0.2 + rng.Float64()*0.3        // 0.2–0.5
-	lmax := lmin + 0.2 + rng.Float64()*0.3 // lmin + 0.2..0.5
+	hue := 204 + rng.Float64()*28            // cool blue/cyan rain family
+	hueSpread := 4 + rng.Float64()*12        // 4–16°
+	sat := 0.18 + rng.Float64()*0.24         // 0.18–0.42
+	lmin := 0.28 + rng.Float64()*0.16        // 0.28–0.44
+	lmax := lmin + 0.20 + rng.Float64()*0.16 // lmin + 0.20..0.36
 
-	speed := 0.6 + rng.Float64()*1.4  // 0.6–2.0
-	spawnEvery := 3 + rng.Intn(8)     // 3–10
-	spawnBurst := 1 + rng.Intn(3)     // 1–3
-	streak := 3 + rng.Intn(8)         // 3–10
-	fade := 0.80 + rng.Float64()*0.15 // 0.80–0.95
-	wind := -0.4 + rng.Float64()*0.8  // -0.4..+0.4
-	windJit := rng.Float64() * 0.3
-	speedJit := rng.Float64() * 0.3
+	speed := 1.55 + rng.Float64()*0.75 // 1.55–2.30
+	spawnEvery := 3 + rng.Intn(3)      // 3–5
+	spawnBurst := 3 + rng.Intn(3)      // 3–5
+	streak := 10 + rng.Intn(5)         // 10–14
+	fade := 0.88 + rng.Float64()*0.08  // 0.88–0.96
+	wind := -0.35 + rng.Float64()*0.7  // -0.35..+0.35
+	windJit := rng.Float64() * 0.18
+	speedJit := rng.Float64() * 0.18
 
-	layers := 2 + rng.Intn(3)               // 2–4
-	layerBalance := 0.3 + rng.Float64()*0.4 // 0.3–0.7
+	layers := 2
+	layerBalance := 0.45 + rng.Float64()*0.20 // 0.45–0.65
 
-	// Event chances kept low; transitions should feel natural at 10 Hz.
-	downpourP := 0.0005 + rng.Float64()*0.001
-	calmP := 0.0005 + rng.Float64()*0.001
-	gustP := 0.0005 + rng.Float64()*0.001
-	splashP := 0.001 + rng.Float64()*0.002
+	sheetDensity := 0.52 + rng.Float64()*0.24
+	sheetStrength := 0.22 + rng.Float64()*0.16
+	sheetLength := 9 + rng.Intn(6)
+	sheetSpeed := 1.35 + rng.Float64()*0.55
+	frontDensity := 0.28 + rng.Float64()*0.22
+	frontStrength := 0.4 + rng.Float64()*0.25
+	frontLength := 18 + rng.Intn(13)
+	frontSpeed := 42 + rng.Float64()*28
+
+	// Per-tick event chances stay low at 60 Hz; events should punctuate the
+	// field rather than constantly re-shape it.
+	downpourP := 0.00008 + rng.Float64()*0.00017
+	calmP := 0.00008 + rng.Float64()*0.00017
+	gustP := 0.00008 + rng.Float64()*0.00017
+	splashP := 0.00016 + rng.Float64()*0.00034
 
 	cfg := sim.Config{
 		Wind:           wind,
@@ -108,6 +119,14 @@ func generateRainScene(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
 		LightnessMax:   lmax,
 		Layers:         layers,
 		LayerBalance:   layerBalance,
+		SheetDensity:   sheetDensity,
+		SheetStrength:  sheetStrength,
+		SheetLength:    sheetLength,
+		SheetSpeed:     sheetSpeed,
+		FrontDensity:   frontDensity,
+		FrontStrength:  frontStrength,
+		FrontLength:    frontLength,
+		FrontSpeed:     frontSpeed,
 		DownpourChance: downpourP,
 		CalmChance:     calmP,
 		GustChance:     gustP,
@@ -124,9 +143,9 @@ func generateRainScene(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
 }
 
 func sceneDurationTicks(rng *rngutil.RNG) int {
-	// Duration: 1–4 hours at 10 Hz. AMBIENCE_SCENE_TICKS overrides for local
-	// testing, e.g. set to 300 for 30 s scenes to watch transitions fire.
-	const ticksPerHour = 36000
+	// Duration: 1–4 hours. AMBIENCE_SCENE_TICKS overrides for local testing,
+	// e.g. set to 1800 for 30 s scenes to watch transitions fire at 60 Hz.
+	ticksPerHour := ticksFor(time.Hour)
 	dur := ticksPerHour + rng.Intn(3*ticksPerHour)
 	if v, err := strconv.Atoi(os.Getenv("AMBIENCE_SCENE_TICKS")); err == nil && v > 0 {
 		dur = v
@@ -156,9 +175,9 @@ func nameForRainConfig(cfg sim.Config) string {
 
 	var paceName string
 	switch {
-	case cfg.Speed < 0.9:
-		paceName = "slow"
 	case cfg.Speed < 1.4:
+		paceName = "slow"
+	case cfg.Speed < 2.0:
 		paceName = "steady"
 	default:
 		paceName = "fast"
@@ -166,9 +185,9 @@ func nameForRainConfig(cfg sim.Config) string {
 
 	var densityName string
 	switch {
-	case cfg.SpawnEvery >= 8:
-		densityName = "drizzle"
 	case cfg.SpawnEvery >= 5:
+		densityName = "drizzle"
+	case cfg.SpawnEvery >= 4:
 		densityName = "rain"
 	default:
 		densityName = "downpour"

@@ -52,14 +52,26 @@ import (
 )
 
 const (
-	gridW           = 160
-	gridH           = 80
-	tickRate        = 100 * time.Millisecond // ~10 Hz
+	targetFPS       = 60
+	gridW           = 320
+	gridH           = 180
+	tickRate        = time.Second / targetFPS
 	sseHeartbeat    = 10 * time.Second
 	defaultAddr     = ":8080"
 	devSessionIdle  = 60 * time.Second
 	devSessionSweep = 30 * time.Second
 )
+
+func ticksFor(d time.Duration) int {
+	if d <= 0 {
+		return 0
+	}
+	ticks := int((d + tickRate - 1) / tickRate)
+	if ticks < 1 {
+		return 1
+	}
+	return ticks
+}
 
 type appRole string
 

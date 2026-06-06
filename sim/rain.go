@@ -66,6 +66,15 @@ type Config struct {
 	// DEPTH
 	Layers       int     `json:"layers"`
 	LayerBalance float64 `json:"lbal"`
+	// TEXTURE
+	SheetDensity  float64 `json:"sheet"`
+	SheetStrength float64 `json:"sheet_alpha"`
+	SheetLength   int     `json:"sheet_len"`
+	SheetSpeed    float64 `json:"sheet_speed"`
+	FrontDensity  float64 `json:"front"`
+	FrontStrength float64 `json:"front_alpha"`
+	FrontLength   int     `json:"front_len"`
+	FrontSpeed    float64 `json:"front_speed"`
 	// LEVERS
 	HueDriftAmp  float64 `json:"hue_drift"`
 	WindDriftAmp float64 `json:"wind_drift"`
@@ -91,19 +100,19 @@ func NormalizeConfig(c Config) Config {
 
 func (c Config) withDefaults() Config {
 	if c.Speed <= 0 {
-		c.Speed = 1.0
+		c.Speed = 1.8
 	}
 	if c.SpawnEvery <= 0 {
-		c.SpawnEvery = 5
+		c.SpawnEvery = 3
 	}
 	if c.SpawnBurst <= 0 {
-		c.SpawnBurst = 1
+		c.SpawnBurst = 4
 	}
 	if c.StreakLen <= 0 {
-		c.StreakLen = 5
+		c.StreakLen = 12
 	}
 	if c.IntroDur <= 0 {
-		c.IntroDur = 60
+		c.IntroDur = 360
 	}
 	if c.IntroSparse < 1 {
 		c.IntroSparse = 8
@@ -119,12 +128,12 @@ func (c Config) withDefaults() Config {
 		c.IntroSeed = 4
 	}
 	if c.EndingStyle == 0 && c.EndingDur == 0 && c.EndingLinger == 0 && c.EndingSplashes == 0 {
-		c.EndingDur = 60
-		c.EndingLinger = 20
+		c.EndingDur = 360
+		c.EndingLinger = 120
 		c.EndingSplashes = 3
 	} else {
 		if c.EndingDur <= 0 {
-			c.EndingDur = 60
+			c.EndingDur = 360
 		}
 		if c.EndingLinger < 0 {
 			c.EndingLinger = 0
@@ -134,37 +143,58 @@ func (c Config) withDefaults() Config {
 		}
 	}
 	if c.FadeFactor <= 0 {
-		c.FadeFactor = 0.88
+		c.FadeFactor = 0.91
 	}
 	if c.Hue == 0 {
-		c.Hue = 210
+		c.Hue = 214
 	}
 	if c.Saturation <= 0 {
-		c.Saturation = 0.6
+		c.Saturation = 0.32
 	}
 	if c.LightnessMin <= 0 {
-		c.LightnessMin = 0.55
+		c.LightnessMin = 0.34
 	}
 	if c.LightnessMax <= 0 {
-		c.LightnessMax = 0.85
+		c.LightnessMax = 0.68
 	}
 	if c.LightnessMax < c.LightnessMin {
 		c.LightnessMin, c.LightnessMax = c.LightnessMax, c.LightnessMin
 	}
 	if c.Layers <= 0 {
-		c.Layers = 1
+		c.Layers = 2
+	}
+	if c.LayerBalance <= 0 {
+		c.LayerBalance = 0.55
+	}
+	if c.SheetStrength <= 0 {
+		c.SheetStrength = 0.3
+	}
+	if c.SheetLength <= 0 {
+		c.SheetLength = 11
+	}
+	if c.SheetSpeed <= 0 {
+		c.SheetSpeed = 1.65
+	}
+	if c.FrontStrength <= 0 {
+		c.FrontStrength = 0.55
+	}
+	if c.FrontLength <= 0 {
+		c.FrontLength = 24
+	}
+	if c.FrontSpeed <= 0 {
+		c.FrontSpeed = 54
 	}
 	if c.DownpourDur <= 0 {
-		c.DownpourDur = 60
+		c.DownpourDur = 360
 	}
 	if c.DownpourMult <= 0 {
-		c.DownpourMult = 4
+		c.DownpourMult = 3
 	}
 	if c.CalmDur <= 0 {
-		c.CalmDur = 50
+		c.CalmDur = 300
 	}
 	if c.GustDur <= 0 {
-		c.GustDur = 30
+		c.GustDur = 180
 	}
 	if c.GustStrength <= 0 {
 		c.GustStrength = 1.5
@@ -228,7 +258,7 @@ func RainSchema() EffectSchema {
 			// effect arrives, rather than how the steady-state body behaves.
 			{Key: "intro_style", Label: "intro style", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 0, Max: 3, Step: 1, Default: 0,
 				Description: "Start-pattern selector: 0=full drizzle, 1=left curtain, 2=center bloom, 3=right curtain. Fire intro to preview."},
-			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 10, Max: 240, Step: 5, Default: 60, Trigger: "intro",
+			{Key: "intro_dur", Label: "intro dur", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 60, Max: 1440, Step: 30, Default: 360, Trigger: "intro",
 				Description: "Ticks the introduction spends ramping from sparse first drops into full rain. Fire button previews the current setup."},
 			{Key: "intro_sparse", Label: "intro sparse", Slot: SlotSpawn, Group: "introduction", Type: KnobFloat, Min: 1, Max: 20, Step: 0.5, Default: 8,
 				Description: "How sparse the very first intro drops are relative to steady-state density. 1 = already full, larger = gentler build-in."},
@@ -239,9 +269,9 @@ func RainSchema() EffectSchema {
 			// Endings belong in the end slot: they shape how the field resolves.
 			{Key: "ending_style", Label: "ending style", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 3, Step: 1, Default: 0,
 				Description: "Outro selector: 0=full taper, 1=left lane, 2=center thread, 3=right lane. Fire ending to preview."},
-			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 10, Max: 240, Step: 5, Default: 60, Trigger: "ending",
+			{Key: "ending_dur", Label: "ending dur", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 60, Max: 1440, Step: 30, Default: 360, Trigger: "ending",
 				Description: "Ticks spent thinning the rain before the field settles. Fire button previews the current outro setup."},
-			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 120, Step: 5, Default: 20,
+			{Key: "ending_linger", Label: "ending linger", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 720, Step: 30, Default: 120,
 				Description: "Extra quiet ticks after spawns stop so the last drops and splashes can resolve before the next state."},
 			{Key: "ending_splashes", Label: "ending splashes", Slot: SlotEnd, Group: "ending", Type: KnobInt, Min: 0, Max: 12, Step: 1, Default: 3,
 				Description: "Residual splash beats spread across the outro so the rain can stop before the scene fully settles."},
@@ -249,55 +279,71 @@ func RainSchema() EffectSchema {
 				Description: "Slope of the rain: cols sideways per row of descent. 0 = straight down, ±1 = 45°. Next drop onward."},
 			{Key: "wind_jit", Label: "wind jitter", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
 				Description: "Per-drop random variation in wind (± this fraction of base). Adds organic scatter. Next drop onward."},
-			{Key: "speed", Label: "speed", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0.3, Max: 3, Step: 0.1, Default: 1.0,
+			{Key: "speed", Label: "speed", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0.3, Max: 3, Step: 0.05, Default: 1.8,
 				Description: "Base rows descended per tick. Rescales every in-flight drop proportionally."},
 			{Key: "speed_jit", Label: "speed jitter", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
 				Description: "Per-drop random variation in speed (± this fraction of base). Next drop onward."},
-			{Key: "streak", Label: "streak len", Slot: SlotLever, Group: "shape", Type: KnobInt, Min: 1, Max: 16, Step: 1, Default: 5,
+			{Key: "streak", Label: "streak len", Slot: SlotLever, Group: "shape", Type: KnobInt, Min: 1, Max: 16, Step: 1, Default: 12,
 				Description: "Pixels painted behind each drop's head, tracing a visible streak. Applied at paint time."},
-			{Key: "fade", Label: "fade", Slot: SlotLever, Group: "shape", Type: KnobFloat, Min: 0.5, Max: 1, Step: 0.01, Default: 0.88,
+			{Key: "fade", Label: "fade", Slot: SlotLever, Group: "shape", Type: KnobFloat, Min: 0.5, Max: 1, Step: 0.01, Default: 0.91,
 				Description: "Brightness multiplier per position along a streak. 1.0 = uniform, 0.5 = sharp tail fade. Applied at paint time."},
-			{Key: "spawn", Label: "spawn 1/", Slot: SlotLever, Group: "density", Type: KnobInt, Min: 1, Max: 30, Step: 1, Default: 5,
+			{Key: "spawn", Label: "spawn 1/", Slot: SlotLever, Group: "density", Type: KnobInt, Min: 1, Max: 30, Step: 1, Default: 3,
 				Description: "Rolls 1 in N per tick for a new drop. Smaller = denser rain."},
-			{Key: "burst", Label: "burst max", Slot: SlotLever, Group: "density", Type: KnobInt, Min: 1, Max: 8, Step: 1, Default: 1,
+			{Key: "burst", Label: "burst max", Slot: SlotLever, Group: "density", Type: KnobInt, Min: 1, Max: 8, Step: 1, Default: 4,
 				Description: "Max drops emitted per spawn event. 1 = no clumping; higher = drops in clusters."},
-			{Key: "hue", Label: "hue", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 359, Step: 1, Default: 210,
+			{Key: "hue", Label: "hue", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 359, Step: 1, Default: 214,
 				Description: "Base hue on the color wheel in degrees (0=red, 120=green, 240=blue). Next drop onward."},
-			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 180, Step: 1, Default: 0,
+			{Key: "hue_sp", Label: "hue spread", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 60, Step: 1, Default: 8,
 				Description: "Per-drop hue variation (± degrees). Larger = more color variety within the rain. Next drop onward."},
-			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 1, Step: 0.01, Default: 0.6,
+			{Key: "sat", Label: "saturation", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 1, Step: 0.01, Default: 0.32,
 				Description: "Color saturation. 0 = grayscale, 1 = fully vivid. Next drop onward."},
-			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.95, Step: 0.01, Default: 0.55,
+			{Key: "lmin", Label: "light min", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.95, Step: 0.01, Default: 0.34,
 				Description: "Minimum lightness for drop colors. Lower = allows darker drops. Next drop onward."},
-			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.95, Step: 0.01, Default: 0.85,
+			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.95, Step: 0.01, Default: 0.68,
 				Description: "Maximum lightness for drop colors. Higher = allows brighter drops. Next drop onward."},
-			{Key: "layers", Label: "layers", Slot: SlotLever, Group: "depth", Type: KnobInt, Min: 1, Max: 2, Step: 1, Default: 1,
+			{Key: "layers", Label: "layers", Slot: SlotLever, Group: "depth", Type: KnobInt, Min: 1, Max: 2, Step: 1, Default: 2,
 				Description: "1 = single layer. 2 = adds a dimmer/shorter/slower background layer for parallax depth. Next drop onward."},
-			{Key: "lbal", Label: "bg balance", Slot: SlotLever, Group: "depth", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0.4,
+			{Key: "lbal", Label: "bg balance", Slot: SlotLever, Group: "depth", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0.55,
 				Description: "Fraction of drops assigned to the background layer. Ignored unless layers=2. Next drop onward."},
+			{Key: "sheet", Label: "sheet", Slot: SlotLever, Group: "texture", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0.6,
+				Description: "Procedural background rain texture density. 0 = only foreground drops; higher = fuller rain field."},
+			{Key: "sheet_alpha", Label: "sheet alpha", Slot: SlotLever, Group: "texture", Type: KnobFloat, Min: 0.1, Max: 1, Step: 0.05, Default: 0.3,
+				Description: "Brightness of the procedural rain sheet before foreground drops are painted."},
+			{Key: "sheet_len", Label: "sheet len", Slot: SlotLever, Group: "texture", Type: KnobInt, Min: 2, Max: 20, Step: 1, Default: 11,
+				Description: "Streak length for the procedural background sheet."},
+			{Key: "sheet_speed", Label: "sheet speed", Slot: SlotLever, Group: "texture", Type: KnobFloat, Min: 0.3, Max: 3, Step: 0.05, Default: 1.65,
+				Description: "Rows per tick for the procedural background sheet."},
+			{Key: "front", Label: "front", Slot: SlotLever, Group: "front plane", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0.35,
+				Description: "Near-window rain streak density. This layer represents rain crossing the screen plane, not slow falling particles."},
+			{Key: "front_alpha", Label: "front alpha", Slot: SlotLever, Group: "front plane", Type: KnobFloat, Min: 0.1, Max: 1, Step: 0.05, Default: 0.55,
+				Description: "Brightness of front-plane rain flashes."},
+			{Key: "front_len", Label: "front len", Slot: SlotLever, Group: "front plane", Type: KnobInt, Min: 4, Max: 48, Step: 1, Default: 24,
+				Description: "Streak length for near-window rain flashes."},
+			{Key: "front_speed", Label: "front speed", Slot: SlotLever, Group: "front plane", Type: KnobFloat, Min: 8, Max: 100, Step: 1, Default: 54,
+				Description: "Rows per tick for front-plane rain. High values model monitor-height rain crossing in only a few frames."},
 			{Key: "hue_drift", Label: "hue drift", Slot: SlotLever, Group: "drift", Type: KnobFloat, Min: 0, Max: 60, Step: 1, Default: 0,
 				Description: "Amplitude (±degrees) the base hue slowly wanders over ~30s cycles. 0 = static."},
 			{Key: "wind_drift", Label: "wind drift", Slot: SlotLever, Group: "drift", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
 				Description: "Amplitude the effective wind sways around base. 0 = static; creates gentle direction changes."},
 
 			// DISCRETE EVENTS — per-tick probability of firing.
-			{Key: "downpour_p", Label: "downpour", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.01, Step: 0.0005, Default: 0, Trigger: "downpour",
+			{Key: "downpour_p", Label: "downpour", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.001, Step: 0.00005, Default: 0, Trigger: "downpour",
 				Description: "Per-tick probability of starting a downpour (temporary dense rain burst)."},
-			{Key: "calm_p", Label: "calm", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.01, Step: 0.0005, Default: 0, Trigger: "calm",
+			{Key: "calm_p", Label: "calm", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.001, Step: 0.00005, Default: 0, Trigger: "calm",
 				Description: "Per-tick probability of a calm event — drops stop spawning for a while."},
-			{Key: "gust_p", Label: "gust", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.01, Step: 0.0005, Default: 0, Trigger: "gust",
+			{Key: "gust_p", Label: "gust", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.001, Step: 0.00005, Default: 0, Trigger: "gust",
 				Description: "Per-tick probability of a wind gust — a sudden sideways push for a stretch of time."},
-			{Key: "splash_p", Label: "splash", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.05, Step: 0.002, Default: 0, Trigger: "splash",
+			{Key: "splash_p", Label: "splash", Slot: SlotEvent, Type: KnobFloat, Min: 0, Max: 0.003, Step: 0.0001, Default: 0, Trigger: "splash",
 				Description: "Per-tick probability of a splash — an expanding radial ring at a random point."},
 
 			// EVENT MODIFIERS — typical per-event values (each event randomizes ±30%).
-			{Key: "downpour_dur", Label: "downpour dur", Slot: SlotEventMod, Group: "downpour", Type: KnobInt, Min: 10, Max: 300, Step: 10, Default: 60,
+			{Key: "downpour_dur", Label: "downpour dur", Slot: SlotEventMod, Group: "downpour", Type: KnobInt, Min: 60, Max: 1800, Step: 30, Default: 360,
 				Description: "Typical downpour duration in ticks (actual value jitters ±30%)."},
-			{Key: "downpour_mult", Label: "downpour ×", Slot: SlotEventMod, Group: "downpour", Type: KnobFloat, Min: 1.5, Max: 10, Step: 0.5, Default: 4,
-				Description: "Spawn-rate multiplier during a downpour. 4 = four times denser than baseline."},
-			{Key: "calm_dur", Label: "calm dur", Slot: SlotEventMod, Group: "calm", Type: KnobInt, Min: 10, Max: 300, Step: 10, Default: 50,
+			{Key: "downpour_mult", Label: "downpour ×", Slot: SlotEventMod, Group: "downpour", Type: KnobFloat, Min: 1.5, Max: 10, Step: 0.5, Default: 3,
+				Description: "Spawn-rate multiplier during a downpour. 3 = three times denser than baseline."},
+			{Key: "calm_dur", Label: "calm dur", Slot: SlotEventMod, Group: "calm", Type: KnobInt, Min: 60, Max: 1800, Step: 30, Default: 300,
 				Description: "Typical calm duration in ticks (spawning pauses for this long ±30%)."},
-			{Key: "gust_dur", Label: "gust dur", Slot: SlotEventMod, Group: "gust", Type: KnobInt, Min: 5, Max: 100, Step: 5, Default: 30,
+			{Key: "gust_dur", Label: "gust dur", Slot: SlotEventMod, Group: "gust", Type: KnobInt, Min: 30, Max: 600, Step: 30, Default: 180,
 				Description: "Typical gust duration in ticks (how long the wind push lasts ±30%)."},
 			{Key: "gust_str", Label: "gust strength", Slot: SlotEventMod, Group: "gust", Type: KnobFloat, Min: 0.3, Max: 3, Step: 0.1, Default: 1.5,
 				Description: "Magnitude of the extra wind added during a gust. Sign is random per event."},
@@ -712,15 +758,7 @@ func (r *Rain) restoreParticlesLocked(drops []Drop, splashes []Splash) {
 		}
 	}
 
-	for y := range r.Grid {
-		for x := range r.Grid[y] {
-			r.Grid[y][x] = Pixel{}
-		}
-	}
-	r.paintSplashes()
-	for _, d := range r.drops {
-		r.paintDrop(d)
-	}
+	r.repaintLocked()
 }
 
 // GridCopy returns a snapshot of the current grid. The caller owns the
@@ -734,6 +772,20 @@ func (r *Rain) GridCopy() [][]Pixel {
 		copy(out[y], r.Grid[y])
 	}
 	return out
+}
+
+func (r *Rain) repaintLocked() {
+	for y := range r.Grid {
+		for x := range r.Grid[y] {
+			r.Grid[y][x] = Pixel{}
+		}
+	}
+	r.paintSheet()
+	r.paintSplashes()
+	for _, d := range r.drops {
+		r.paintDrop(d)
+	}
+	r.paintFrontPlane()
 }
 
 // TriggerEvent fires a discrete event immediately, bypassing probability.
@@ -801,6 +853,7 @@ func (r *Rain) appendLog(kind, desc string) {
 //  6. Advance every active drop; paint its head + streak trail.
 //  7. Cull drops whose trail has fully exited the bottom.
 //  8. Age/remove expired splashes.
+//  9. Repaint from the final post-step particle state.
 func (r *Rain) Step() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -888,7 +941,8 @@ func (r *Rain) Step() {
 		d.Row += d.vRow
 		d.Col += d.vCol
 		r.paintDrop(d)
-		tailRow := d.Row - float64(d.streakLen-1)*d.vRow
+		trailRowStep, _ := d.trailStep()
+		tailRow := d.Row - float64(d.streakLen-1)*trailRowStep
 		if tailRow < float64(r.H) && d.Row > -float64(d.streakLen) {
 			alive = append(alive, d)
 		}
@@ -904,6 +958,8 @@ func (r *Rain) Step() {
 		}
 	}
 	r.splashes = splashesAlive
+
+	r.repaintLocked()
 }
 
 // jitterInt returns an int in [base*(1-spread), base*(1+spread)], uniform.
@@ -916,12 +972,12 @@ func jitterInt(rng *rngutil.RNG, base int, spread float64) int {
 	return n
 }
 
-// currentHue returns the base hue drifted by the HueDriftAmp lever, using a
-// slow sine with fixed period (~30s at 10Hz). 0 amplitude = static.
+// currentHue returns the base hue drifted by the HueDriftAmp lever. The
+// coefficient is calibrated for the 60 Hz rain baseline; 0 amplitude = static.
 func (r *Rain) currentHue() float64 {
 	base := r.cfg.Hue
 	if r.cfg.HueDriftAmp > 0 {
-		base += r.cfg.HueDriftAmp * math.Sin(float64(r.tick)*0.02)
+		base += r.cfg.HueDriftAmp * math.Sin(float64(r.tick)*0.0035)
 	}
 	return math.Mod(base+360, 360)
 }
@@ -931,7 +987,7 @@ func (r *Rain) currentHue() float64 {
 func (r *Rain) currentWind() float64 {
 	w := r.cfg.Wind
 	if r.cfg.WindDriftAmp > 0 {
-		w += r.cfg.WindDriftAmp * math.Sin(float64(r.tick)*0.013+1.7)
+		w += r.cfg.WindDriftAmp * math.Sin(float64(r.tick)*0.0022+1.7)
 	}
 	w += r.gustWind
 	return w
@@ -1260,7 +1316,145 @@ func (r *Rain) paintSplashes() {
 			if gr < 0 || gr >= r.H || gc < 0 || gc >= r.W {
 				continue
 			}
-			r.Grid[gr][gc] = Pixel{Filled: true, C: c}
+			r.paintPixelMax(gr, gc, c)
+		}
+	}
+}
+
+func (r *Rain) paintSheet() {
+	if r.cfg.SheetDensity <= 0 || r.W <= 0 || r.H <= 0 {
+		return
+	}
+	length := r.cfg.SheetLength
+	if length < 2 {
+		length = 2
+	}
+	if length > 40 {
+		length = 40
+	}
+	strength := clamp01(r.cfg.SheetStrength)
+	if strength <= 0 {
+		return
+	}
+	speed := r.cfg.SheetSpeed
+	if speed <= 0 {
+		speed = 1
+	}
+	streams := int(math.Round(clamp01(r.cfg.SheetDensity) * float64(r.W) * 0.85))
+	if streams < 1 {
+		streams = 1
+	}
+	span := float64(r.H + length*2)
+	wind := r.currentWind()
+	rowStep, colStep := normalizedMotion(1, wind)
+	for i := 0; i < streams; i++ {
+		h0 := hash64(uint64(i)*0x9e3779b97f4a7c15 + 0x6a09e667f3bcc909)
+		h1 := hash64(uint64(i)*0xc2b2ae3d27d4eb4f + 0xbb67ae8584caa73b)
+		h2 := hash64(uint64(i)*0x165667b19e3779f9 + 0x3c6ef372fe94f82b)
+		phase := hashUnit(h0) * span
+		streamSpeed := speed * (0.75 + hashUnit(h1)*0.5)
+		headRow := math.Mod(phase+float64(r.tick)*streamSpeed, span) - float64(length)
+		baseCol := hashUnit(h2) * float64(r.W)
+		hue := math.Mod(r.currentHue()+(hashUnit(h1)*2-1)*r.cfg.HueSpread*0.5+360, 360)
+		light := r.cfg.LightnessMin + hashUnit(h0)*(r.cfg.LightnessMax-r.cfg.LightnessMin)
+		base := hslToRGB(hue, r.cfg.Saturation*0.55, light)
+		for j := 0; j < length; j++ {
+			row := headRow - float64(j)*rowStep
+			col := baseCol + row*wind - float64(j)*colStep
+			gr := int(math.Floor(row))
+			if gr < 0 || gr >= r.H {
+				continue
+			}
+			gc := wrapInt(int(math.Round(col)), r.W)
+			tail := 1 - float64(j)/float64(length)
+			brightness := strength * (0.35 + 0.65*tail) * (0.75 + hashUnit(h2)*0.25)
+			c := base
+			c.R = uint8(float64(c.R) * brightness)
+			c.G = uint8(float64(c.G) * brightness)
+			c.B = uint8(float64(c.B) * brightness)
+			r.paintPixelMax(gr, gc, c)
+		}
+	}
+}
+
+func (r *Rain) paintFrontPlane() {
+	if r.cfg.FrontDensity <= 0 || r.W <= 0 || r.H <= 0 {
+		return
+	}
+	length := r.cfg.FrontLength
+	if length < 4 {
+		length = 4
+	}
+	if length > 64 {
+		length = 64
+	}
+	strength := clamp01(r.cfg.FrontStrength)
+	if strength <= 0 {
+		return
+	}
+	speed := r.cfg.FrontSpeed
+	if speed <= 0 {
+		speed = 54
+	}
+	wind := r.currentWind()
+	life := int(math.Ceil((float64(r.H)+float64(length)*2)/speed)) + 1
+	if life < 3 {
+		life = 3
+	}
+	if life > 18 {
+		life = 18
+	}
+	eventsPerTick := clamp01(r.cfg.FrontDensity) * float64(r.W) * 0.038
+	for age := 0; age <= life; age++ {
+		birthTick := r.tick - age
+		if birthTick < 0 {
+			continue
+		}
+		birthHash := hash64(uint64(birthTick)*0x9e3779b97f4a7c15 + 0x8f1bbcdcaf1476d9)
+		eventCount := int(math.Floor(eventsPerTick))
+		if hashUnit(hash64(birthHash+0x632be59bd9b4e019)) < eventsPerTick-float64(eventCount) {
+			eventCount++
+		}
+		if eventCount == 0 && eventsPerTick > 0 && hashUnit(birthHash) < eventsPerTick {
+			eventCount = 1
+		}
+		for i := 0; i < eventCount; i++ {
+			h0 := hash64(birthHash + uint64(i)*0x94d049bb133111eb + 0xa54ff53a5f1d36f1)
+			h1 := hash64(birthHash + uint64(i)*0xbf58476d1ce4e5b9 + 0x510e527fade682d1)
+			h2 := hash64(birthHash + uint64(i)*0xd6e8feb86659fd93 + 0x1f83d9abfb41bd6b)
+			h3 := hash64(birthHash + uint64(i)*0x9e3779b97f4a7c15 + 0x243f6a8885a308d3)
+			eventSpeed := speed * (0.68 + hashUnit(h0)*0.64)
+			subFrame := hashUnit(h1) * eventSpeed
+			headRow := -float64(length) + subFrame + float64(age)*eventSpeed
+			eventWind := wind + (hashUnit(h2)*2-1)*0.035
+			rowStep, colStep := normalizedMotion(1, eventWind)
+			baseCol := hashUnit(h3) * float64(r.W)
+			hue := math.Mod(r.currentHue()+(hashUnit(h1)*2-1)*r.cfg.HueSpread*0.35+360, 360)
+			light := r.cfg.LightnessMax + (1-r.cfg.LightnessMax)*0.25
+			base := hslToRGB(hue, r.cfg.Saturation*0.45, light)
+			exposureLen := length + int(math.Round(math.Min(eventSpeed*0.65, float64(length)*1.5)))
+			if exposureLen > 72 {
+				exposureLen = 72
+			}
+			for j := 0; j < exposureLen; j++ {
+				row := headRow - float64(j)*rowStep
+				col := baseCol + row*eventWind - float64(j)*colStep
+				gr := int(math.Floor(row))
+				if gr < 0 || gr >= r.H {
+					continue
+				}
+				gc := int(math.Round(col))
+				if gc < 0 || gc >= r.W {
+					continue
+				}
+				tail := math.Pow(1-float64(j)/float64(exposureLen), 1.7)
+				brightness := strength * (0.08 + 0.62*tail) * (0.85 + hashUnit(h0)*0.15)
+				c := base
+				c.R = uint8(float64(c.R) * brightness)
+				c.G = uint8(float64(c.G) * brightness)
+				c.B = uint8(float64(c.B) * brightness)
+				r.paintPixelMax(gr, gc, c)
+			}
 		}
 	}
 }
@@ -1268,9 +1462,10 @@ func (r *Rain) paintSplashes() {
 // paintDrop lays down StreakLen cells from the drop's head backward along its
 // motion vector. Brightness decays by FadeFactor per position from the head.
 func (r *Rain) paintDrop(d drop) {
+	rowStep, colStep := d.trailStep()
 	for i := 0; i < d.streakLen; i++ {
-		row := d.Row - float64(i)*d.vRow
-		col := d.Col - float64(i)*d.vCol
+		row := d.Row - float64(i)*rowStep
+		col := d.Col - float64(i)*colStep
 		gr := int(math.Floor(row))
 		gc := int(math.Round(col))
 		if gr < 0 || gr >= r.H || gc < 0 || gc >= r.W {
@@ -1281,8 +1476,65 @@ func (r *Rain) paintDrop(d drop) {
 		c.R = uint8(float64(c.R) * brightness)
 		c.G = uint8(float64(c.G) * brightness)
 		c.B = uint8(float64(c.B) * brightness)
-		r.Grid[gr][gc] = Pixel{Filled: true, C: c}
+		r.paintPixelMax(gr, gc, c)
 	}
+}
+
+func (d drop) trailStep() (float64, float64) {
+	return normalizedMotion(d.vRow, d.vCol)
+}
+
+func normalizedMotion(vRow, vCol float64) (float64, float64) {
+	length := math.Hypot(vRow, vCol)
+	if length < 0.0001 {
+		return 1, 0
+	}
+	return vRow / length, vCol / length
+}
+
+func hash64(x uint64) uint64 {
+	x ^= x >> 30
+	x *= 0xbf58476d1ce4e5b9
+	x ^= x >> 27
+	x *= 0x94d049bb133111eb
+	x ^= x >> 31
+	return x
+}
+
+func hashUnit(x uint64) float64 {
+	return float64(x>>11) * (1.0 / 9007199254740992.0)
+}
+
+func wrapInt(v, limit int) int {
+	if limit <= 0 {
+		return 0
+	}
+	v %= limit
+	if v < 0 {
+		v += limit
+	}
+	return v
+}
+
+func (r *Rain) paintPixelMax(row, col int, c color.RGBA) {
+	if row < 0 || row >= r.H || col < 0 || col >= r.W {
+		return
+	}
+	p := &r.Grid[row][col]
+	if !p.Filled {
+		*p = Pixel{Filled: true, C: c}
+		return
+	}
+	if c.R > p.C.R {
+		p.C.R = c.R
+	}
+	if c.G > p.C.G {
+		p.C.G = c.G
+	}
+	if c.B > p.C.B {
+		p.C.B = c.B
+	}
+	p.C.A = 255
 }
 
 // spawnDrop rolls per-drop jitter (speed, wind, hue, lightness) + layer,

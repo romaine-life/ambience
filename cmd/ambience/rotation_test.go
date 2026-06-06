@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -50,14 +51,14 @@ func TestRotationPolicyAllowedFiltersUnknown(t *testing.T) {
 	}
 }
 
-func TestRotationPolicyAllowedDefaultsToRegistry(t *testing.T) {
+func TestRotationPolicyAllowedEmptyMeansRegistryFallback(t *testing.T) {
 	p := rotationPolicy{}
 	got := p.resolvedAllowedEffects()
 	if len(got) == 0 {
-		t.Fatal("expected non-empty default pool")
+		t.Fatal("expected non-empty registry fallback pool")
 	}
 	if len(got) != len(effectRegistry) {
-		t.Fatalf("default pool len = %d, want %d (full registry)", len(got), len(effectRegistry))
+		t.Fatalf("fallback pool len = %d, want %d (full registry)", len(got), len(effectRegistry))
 	}
 }
 
@@ -156,6 +157,29 @@ func TestRainSceneRotationKeepsDriftCapability(t *testing.T) {
 	}
 	if !configsEqualJSON(to, before.NextScene.Config) {
 		t.Fatalf("rain transition target = %s, want promoted scene config %s", to, before.NextScene.Config)
+	}
+}
+
+func TestGeneratedRainScenesStayInWeatherFieldRange(t *testing.T) {
+	rng := rngutil.New(44)
+	for i := 0; i < 64; i++ {
+		scene := generateRainScene(rng, i*100, ticksFor(time.Hour))
+		var cfg sim.Config
+		if err := json.Unmarshal(scene.Config, &cfg); err != nil {
+			t.Fatalf("decode generated rain config %d: %v", i, err)
+		}
+		if cfg.Speed < 1.5 || cfg.Speed > 2.35 || cfg.SpawnEvery < 3 || cfg.SpawnEvery > 5 || cfg.SpawnBurst < 3 || cfg.SpawnBurst > 5 || cfg.StreakLen < 10 {
+			t.Fatalf("generated rain outside 60 Hz foreground range %d: %+v", i, cfg)
+		}
+		if cfg.Layers < 2 || cfg.LayerBalance < 0.45 {
+			t.Fatalf("generated rain lacks background depth %d: %+v", i, cfg)
+		}
+		if cfg.SheetDensity < 0.5 || cfg.SheetStrength <= 0 || cfg.SheetLength < 9 || cfg.SheetSpeed < 1.3 {
+			t.Fatalf("generated rain lacks atmospheric sheet %d: %+v", i, cfg)
+		}
+		if cfg.FrontDensity < 0.25 || cfg.FrontStrength < 0.35 || cfg.FrontLength < 18 || cfg.FrontSpeed < 40 {
+			t.Fatalf("generated rain lacks near-window front plane %d: %+v", i, cfg)
+		}
 	}
 }
 
@@ -462,8 +486,8 @@ func TestLoadRotationPolicyFromEnvDefault(t *testing.T) {
 	if p.CadenceTicks != defaultRotationCadenceTicks {
 		t.Fatalf("default cadence = %d; want %d", p.CadenceTicks, defaultRotationCadenceTicks)
 	}
-	if len(p.Allowed) != 0 {
-		t.Fatalf("default allowed = %v; want empty (registry fallback)", p.Allowed)
+	if len(p.Allowed) != 1 || p.Allowed[0] != "rain" {
+		t.Fatalf("default allowed = %v; want [rain]", p.Allowed)
 	}
 }
 

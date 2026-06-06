@@ -154,6 +154,17 @@ func TestNewDevSessionFirefliesSnapshotType(t *testing.T) {
 	}
 }
 
+func TestNewDevSessionWithGridSnapshotDimensions(t *testing.T) {
+	session, err := newDevSessionWithGrid("rain", 320, 180)
+	if err != nil {
+		t.Fatalf("newDevSessionWithGrid: %v", err)
+	}
+	snap := session.snapshot()
+	if snap.GridW != 320 || snap.GridH != 180 {
+		t.Fatalf("snapshot grid = %dx%d, want 320x180", snap.GridW, snap.GridH)
+	}
+}
+
 func TestNewDevSessionDustSnapshotType(t *testing.T) {
 	session, err := newDevSession("dust")
 	if err != nil {

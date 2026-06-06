@@ -196,9 +196,14 @@ func renderEffectPage(effect string, meta socialPageMeta) string {
 }
 
 func newDevSession(effectType string) (*devSession, error) {
+	return newDevSessionWithGrid(effectType, gridW, gridH)
+}
+
+func newDevSessionWithGrid(effectType string, w, h int) (*devSession, error) {
 	effectType = normalizeDevEffect(effectType)
+	w, h = normalizeDevGrid(w, h)
 	seed := freshSeed()
-	effect, err := newEffectRuntime(effectType, gridW, gridH, seed, nil)
+	effect, err := newEffectRuntime(effectType, w, h, seed, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -229,12 +234,14 @@ func configsEqualJSON(left, right json.RawMessage) bool {
 	return reflect.DeepEqual(a, b)
 }
 
-func devSessionKey(effectType, sessionID string) string {
-	return normalizeDevEffect(effectType) + "\n" + sessionID
+func devSessionKey(effectType, sessionID string, w, h int) string {
+	w, h = normalizeDevGrid(w, h)
+	return fmt.Sprintf("%s\n%s\n%dx%d", normalizeDevEffect(effectType), sessionID, w, h)
 }
 
-func getOrCreateDevSession(effectType, sessionID string) (*devSession, error) {
-	key := devSessionKey(effectType, sessionID)
+func getOrCreateDevSession(effectType, sessionID string, w, h int) (*devSession, error) {
+	w, h = normalizeDevGrid(w, h)
+	key := devSessionKey(effectType, sessionID, w, h)
 	if v, ok := devSessions.Load(key); ok {
 		s := v.(*devSession)
 		s.mu.Lock()
@@ -242,7 +249,7 @@ func getOrCreateDevSession(effectType, sessionID string) (*devSession, error) {
 		s.mu.Unlock()
 		return s, nil
 	}
-	s, err := newDevSession(effectType)
+	s, err := newDevSessionWithGrid(effectType, w, h)
 	if err != nil {
 		return nil, err
 	}
@@ -259,6 +266,44 @@ func getOrCreateDevSession(effectType, sessionID string) (*devSession, error) {
 	}
 	go s.run(ctx)
 	return s, nil
+}
+
+func normalizeDevGrid(w, h int) (int, int) {
+	if w < 32 {
+		w = 32
+	}
+	if h < 24 {
+		h = 24
+	}
+	if w > 640 {
+		w = 640
+	}
+	if h > 360 {
+		h = 360
+	}
+	return w, h
+}
+
+func devGridFromValues(values url.Values) (int, int) {
+	return parseBoundedInt(values.Get("gridW"), gridW, 32, 640),
+		parseBoundedInt(values.Get("gridH"), gridH, 24, 360)
+}
+
+func parseBoundedInt(raw string, fallback, minValue, maxValue int) int {
+	if raw == "" {
+		return fallback
+	}
+	var n int
+	if _, err := fmt.Sscanf(raw, "%d", &n); err != nil {
+		return fallback
+	}
+	if n < minValue {
+		return minValue
+	}
+	if n > maxValue {
+		return maxValue
+	}
+	return n
 }
 
 func sweepDevSessions() {
@@ -468,7 +513,8 @@ func devSessionFromRequest(req *http.Request) (*devSession, string, string, erro
 		return nil, "", "", fmt.Errorf("session param required")
 	}
 	effectType := normalizeDevEffect(req.URL.Query().Get("effect"))
-	s, err := getOrCreateDevSession(effectType, sessionID)
+	devW, devH := devGridFromValues(req.URL.Query())
+	s, err := getOrCreateDevSession(effectType, sessionID, devW, devH)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -543,7 +589,8 @@ func serveDevSessionTrigger(w http.ResponseWriter, req *http.Request) {
 	}
 	sessionID, event := parts[0], parts[1]
 	effectType := normalizeDevEffect(req.URL.Query().Get("effect"))
-	s, err := getOrCreateDevSession(effectType, sessionID)
+	devW, devH := devGridFromValues(req.URL.Query())
+	s, err := getOrCreateDevSession(effectType, sessionID, devW, devH)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

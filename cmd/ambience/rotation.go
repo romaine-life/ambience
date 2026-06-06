@@ -20,10 +20,15 @@ import (
 	"github.com/romaine-life/ambience/rngutil"
 )
 
-// defaultRotationCadenceTicks is 10 minutes at 10 Hz — the middle of the
+// defaultRotationCadenceTicks is 10 minutes — the middle of the
 // 5–15 minute window the issue called out as "long enough to feel coherent,
 // short enough to see variety."
-const defaultRotationCadenceTicks = 6000
+var defaultRotationCadenceTicks = ticksFor(10 * time.Minute)
+
+// defaultRotationEffects is the live-effect allowlist. Keep the full registry
+// available through /dev for Glimmung exploration, but only promote effects
+// here after they have been retuned against the current visual baseline.
+var defaultRotationEffects = []string{"rain"}
 
 type rotationPolicy struct {
 	Enabled      bool
@@ -39,6 +44,7 @@ func loadRotationPolicyFromEnv() rotationPolicy {
 	p := rotationPolicy{
 		Enabled:      true,
 		CadenceTicks: defaultRotationCadenceTicks,
+		Allowed:      append([]string(nil), defaultRotationEffects...),
 	}
 	if raw := strings.TrimSpace(os.Getenv("AMBIENCE_ROTATION_ENABLED")); raw != "" {
 		v, err := strconv.ParseBool(raw)
@@ -61,6 +67,7 @@ func loadRotationPolicyFromEnv() rotationPolicy {
 		}
 	}
 	if raw := strings.TrimSpace(os.Getenv("AMBIENCE_ROTATION_EFFECTS")); raw != "" {
+		p.Allowed = nil
 		for _, item := range strings.Split(raw, ",") {
 			name := strings.TrimSpace(strings.ToLower(item))
 			if name != "" {

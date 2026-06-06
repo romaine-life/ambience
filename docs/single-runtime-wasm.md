@@ -46,7 +46,7 @@ To experiment in a browser page:
 <script>
 await AmbienceSim.wasm.ready();
 const Rain = AmbienceSim.effects.rain;
-const rain = new Rain(160, 80, {});
+const rain = new Rain(320, 180, {});
 </script>
 ```
 

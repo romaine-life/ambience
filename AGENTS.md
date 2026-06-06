@@ -51,7 +51,7 @@ Release/deploy workflows publish the fingerprint-tagged images used by deploys.
 
 ```
 cmd/ambience (Go)     HTTP server. Runs the shared atmosphere goroutine
-  │                   at 10 Hz — decides when discrete events fire
+  │                   at 60 Hz — decides when discrete events fire
   │                   (downpour/calm/gust/splash) and broadcasts state
   │                   commands. Does NOT stream pixel frames.
   │                   Embeds web/ and serves it.
@@ -200,7 +200,7 @@ blocking product progress.
 ## Atmosphere model
 
 The server does NOT broadcast pixel frames. Instead, each atmosphere is a
-server-side sim running at 10 Hz whose job is to DECIDE when discrete
+server-side sim running at 60 Hz whose job is to DECIDE when discrete
 events fire and when to rotate scenes. Clients run their own sims locally
 and apply five kinds of commands:
 

@@ -2,6 +2,7 @@ package sim
 
 import (
 	"image/color"
+	"math"
 	"testing"
 )
 
@@ -26,6 +27,18 @@ func TestNewRainAppliesDefaults(t *testing.T) {
 	}
 	if r.cfg.Layers == 0 {
 		t.Errorf("expected default Layers")
+	}
+	if r.cfg.LayerBalance == 0 {
+		t.Errorf("expected default LayerBalance")
+	}
+	if r.cfg.Speed < 1.5 || r.cfg.Speed > 2.0 {
+		t.Errorf("expected 60 Hz rain default speed in faster foreground range, got %.2f", r.cfg.Speed)
+	}
+	if r.cfg.SpawnEvery != 3 || r.cfg.SpawnBurst != 4 {
+		t.Errorf("expected restrained foreground rain defaults, got spawnEvery=%d burst=%d", r.cfg.SpawnEvery, r.cfg.SpawnBurst)
+	}
+	if r.cfg.FrontSpeed < 40 {
+		t.Errorf("expected front-plane speed default to model near-window rain, got %.2f", r.cfg.FrontSpeed)
 	}
 }
 
@@ -83,6 +96,138 @@ func TestStepPaintsDropHeadAndTrail(t *testing.T) {
 	}
 }
 
+func TestFastDropPaintsContiguousGridTrail(t *testing.T) {
+	r := NewRain(20, 20, 1, Config{
+		Speed:      3,
+		StreakLen:  5,
+		FadeFactor: 0.9,
+		SpawnEvery: 1000000, // disable spawns
+	})
+	r.drops = append(r.drops, drop{
+		Row: 0, Col: 10,
+		Color: staticRed, vRow: 3, vCol: 0,
+		streakLen: 5,
+	})
+	r.Step()
+
+	for y := 0; y <= 3; y++ {
+		if !r.Grid[y][10].Filled {
+			t.Fatalf("expected fast drop to paint contiguous row %d in column 10", y)
+		}
+	}
+}
+
+func TestDefaultRainBuildsFullerWeatherField(t *testing.T) {
+	r := NewRain(160, 80, 2, Config{
+		SheetDensity:  0.6,
+		SheetStrength: 0.3,
+		SheetLength:   11,
+		SheetSpeed:    1.2,
+	})
+	for i := 0; i < 160; i++ {
+		r.Step()
+	}
+
+	filled := countFilledPixels(r.Grid)
+	if filled < 1000 {
+		t.Fatalf("default rain filled %d grid cells after warmup, want at least 1000", filled)
+	}
+}
+
+func TestRainSheetBuildsTextureWithoutForegroundDrops(t *testing.T) {
+	r := NewRain(80, 40, 2, Config{
+		SpawnEvery:    1,
+		SheetDensity:  0.8,
+		SheetStrength: 0.5,
+		SheetLength:   10,
+		SheetSpeed:    1.5,
+	})
+	r.calmTicks = 2
+	r.Step()
+
+	filled := countFilledPixels(r.Grid)
+	if filled < 300 {
+		t.Fatalf("rain sheet filled %d grid cells, want at least 300", filled)
+	}
+	if len(r.drops) != 0 {
+		t.Fatalf("foreground drops = %d, want 0 while calm suppresses spawning", len(r.drops))
+	}
+}
+
+func TestFrontPlaneBuildsNearWindowStreaksWithoutTrackedDrops(t *testing.T) {
+	r := NewRain(80, 40, 2, Config{
+		SpawnEvery:    1000000,
+		SheetDensity:  0,
+		FrontDensity:  0.8,
+		FrontStrength: 0.7,
+		FrontLength:   24,
+		FrontSpeed:    54,
+	})
+	r.calmTicks = 2
+	for i := 0; i < 4; i++ {
+		r.Step()
+	}
+
+	filled := countFilledPixels(r.Grid)
+	if filled < 50 {
+		t.Fatalf("front-plane rain filled %d grid cells, want at least 50", filled)
+	}
+	if len(r.drops) != 0 {
+		t.Fatalf("tracked drops = %d, want 0 for procedural front-plane streaks", len(r.drops))
+	}
+}
+
+func TestFrontPlaneDoesNotReuseExactPathSet(t *testing.T) {
+	r := NewRain(120, 60, 2, Config{
+		Wind:          0,
+		SpawnEvery:    1000000,
+		SheetDensity:  0,
+		FrontDensity:  0.7,
+		FrontStrength: 0.8,
+		FrontLength:   20,
+		FrontSpeed:    30,
+	})
+	r.calmTicks = 20
+	for i := 0; i < 6; i++ {
+		r.Step()
+	}
+	first := filledColumns(r.Grid)
+	for i := 0; i < 8; i++ {
+		r.Step()
+	}
+	second := filledColumns(r.Grid)
+
+	if len(first) < 4 || len(second) < 4 {
+		t.Fatalf("front-plane columns too sparse: first=%d second=%d", len(first), len(second))
+	}
+	if sameIntSet(first, second) {
+		t.Fatalf("front-plane reused the same occupied column set; want changing event paths")
+	}
+}
+
+func TestFrontPlaneDirectionStaysCoherentWithRainField(t *testing.T) {
+	r := NewRain(120, 60, 2, Config{
+		Wind:          0.18,
+		SpawnEvery:    1000000,
+		SheetDensity:  0,
+		FrontDensity:  0.8,
+		FrontStrength: 0.8,
+		FrontLength:   24,
+		FrontSpeed:    42,
+	})
+
+	wind := r.currentWind()
+	birthTick := uint64(12)
+	birthHash := hash64(birthTick*0x9e3779b97f4a7c15 + 0x8f1bbcdcaf1476d9)
+	for i := 0; i < 12; i++ {
+		h2 := hash64(birthHash + uint64(i)*0xd6e8feb86659fd93 + 0x1f83d9abfb41bd6b)
+		eventWind := wind + (hashUnit(h2)*2-1)*0.035
+		if diff := math.Abs(eventWind - wind); diff > 0.036 {
+			t.Fatalf("front-plane event wind drift = %.3f, want coherent with rain field", diff)
+		}
+	}
+}
+
 func TestHslToRGBBasicAnchors(t *testing.T) {
 	cases := []struct {
 		h, s, l             float64
@@ -101,6 +246,42 @@ func TestHslToRGBBasicAnchors(t *testing.T) {
 				tc.h, tc.s, tc.l, got, tc.wantR, tc.wantG, tc.wantB)
 		}
 	}
+}
+
+func countFilledPixels(grid [][]Pixel) int {
+	filled := 0
+	for y := range grid {
+		for x := range grid[y] {
+			if grid[y][x].Filled {
+				filled++
+			}
+		}
+	}
+	return filled
+}
+
+func filledColumns(grid [][]Pixel) map[int]bool {
+	cols := map[int]bool{}
+	for y := range grid {
+		for x := range grid[y] {
+			if grid[y][x].Filled {
+				cols[x] = true
+			}
+		}
+	}
+	return cols
+}
+
+func sameIntSet(a, b map[int]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestPersistedStateRestoreRoundTrip(t *testing.T) {
