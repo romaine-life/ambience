@@ -30,8 +30,8 @@ func stabilizeRandomizedDevConfig(effect string, cfg map[string]any) {
 	if effect != "rain" {
 		return
 	}
-	clampFloatMin(cfg, "speed", 0.85)
-	clampFloatMax(cfg, "speed", 1.35)
+	clampFloatMin(cfg, "speed", 1.5)
+	clampFloatMax(cfg, "speed", 2.4)
 	clampFloatMax(cfg, "speed_jit", 0.2)
 	clampIntMin(cfg, "streak", 10)
 	clampFloatMin(cfg, "fade", 0.88)
@@ -48,7 +48,8 @@ func stabilizeRandomizedDevConfig(effect string, cfg map[string]any) {
 	clampIntMin(cfg, "sheet_len", 9)
 	clampFloatMin(cfg, "sheet_alpha", 0.25)
 	clampFloatMax(cfg, "sheet_alpha", 0.45)
-	clampFloatMax(cfg, "sheet_speed", 1.5)
+	clampFloatMin(cfg, "sheet_speed", 1.3)
+	clampFloatMax(cfg, "sheet_speed", 2.0)
 	clampRainHue(cfg)
 	clampFloatMax(cfg, "hue_sp", 18)
 	clampFloatMax(cfg, "sat", 0.45)

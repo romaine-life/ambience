@@ -96,7 +96,7 @@ func NormalizeConfig(c Config) Config {
 
 func (c Config) withDefaults() Config {
 	if c.Speed <= 0 {
-		c.Speed = 1.05
+		c.Speed = 1.8
 	}
 	if c.SpawnEvery <= 0 {
 		c.SpawnEvery = 3
@@ -169,7 +169,7 @@ func (c Config) withDefaults() Config {
 		c.SheetLength = 11
 	}
 	if c.SheetSpeed <= 0 {
-		c.SheetSpeed = 1.2
+		c.SheetSpeed = 1.65
 	}
 	if c.DownpourDur <= 0 {
 		c.DownpourDur = 360
@@ -266,7 +266,7 @@ func RainSchema() EffectSchema {
 				Description: "Slope of the rain: cols sideways per row of descent. 0 = straight down, ±1 = 45°. Next drop onward."},
 			{Key: "wind_jit", Label: "wind jitter", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
 				Description: "Per-drop random variation in wind (± this fraction of base). Adds organic scatter. Next drop onward."},
-			{Key: "speed", Label: "speed", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0.3, Max: 2, Step: 0.05, Default: 1.05,
+			{Key: "speed", Label: "speed", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0.3, Max: 3, Step: 0.05, Default: 1.8,
 				Description: "Base rows descended per tick. Rescales every in-flight drop proportionally."},
 			{Key: "speed_jit", Label: "speed jitter", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
 				Description: "Per-drop random variation in speed (± this fraction of base). Next drop onward."},
@@ -298,7 +298,7 @@ func RainSchema() EffectSchema {
 				Description: "Brightness of the procedural rain sheet before foreground drops are painted."},
 			{Key: "sheet_len", Label: "sheet len", Slot: SlotLever, Group: "texture", Type: KnobInt, Min: 2, Max: 20, Step: 1, Default: 11,
 				Description: "Streak length for the procedural background sheet."},
-			{Key: "sheet_speed", Label: "sheet speed", Slot: SlotLever, Group: "texture", Type: KnobFloat, Min: 0.3, Max: 3, Step: 0.05, Default: 1.2,
+			{Key: "sheet_speed", Label: "sheet speed", Slot: SlotLever, Group: "texture", Type: KnobFloat, Min: 0.3, Max: 3, Step: 0.05, Default: 1.65,
 				Description: "Rows per tick for the procedural background sheet."},
 			{Key: "hue_drift", Label: "hue drift", Slot: SlotLever, Group: "drift", Type: KnobFloat, Min: 0, Max: 60, Step: 1, Default: 0,
 				Description: "Amplitude (±degrees) the base hue slowly wanders over ~30s cycles. 0 = static."},

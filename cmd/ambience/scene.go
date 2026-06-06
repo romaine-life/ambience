@@ -75,12 +75,12 @@ func generateRainScene(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
 	lmin := 0.28 + rng.Float64()*0.16        // 0.28–0.44
 	lmax := lmin + 0.20 + rng.Float64()*0.16 // lmin + 0.20..0.36
 
-	speed := 0.9 + rng.Float64()*0.35 // 0.90–1.25
-	spawnEvery := 3 + rng.Intn(3)     // 3–5
-	spawnBurst := 3 + rng.Intn(3)     // 3–5
-	streak := 10 + rng.Intn(5)        // 10–14
-	fade := 0.88 + rng.Float64()*0.08 // 0.88–0.96
-	wind := -0.35 + rng.Float64()*0.7 // -0.35..+0.35
+	speed := 1.55 + rng.Float64()*0.75 // 1.55–2.30
+	spawnEvery := 3 + rng.Intn(3)      // 3–5
+	spawnBurst := 3 + rng.Intn(3)      // 3–5
+	streak := 10 + rng.Intn(5)         // 10–14
+	fade := 0.88 + rng.Float64()*0.08  // 0.88–0.96
+	wind := -0.35 + rng.Float64()*0.7  // -0.35..+0.35
 	windJit := rng.Float64() * 0.18
 	speedJit := rng.Float64() * 0.18
 
@@ -90,7 +90,7 @@ func generateRainScene(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
 	sheetDensity := 0.52 + rng.Float64()*0.24
 	sheetStrength := 0.22 + rng.Float64()*0.16
 	sheetLength := 9 + rng.Intn(6)
-	sheetSpeed := 0.95 + rng.Float64()*0.55
+	sheetSpeed := 1.35 + rng.Float64()*0.55
 
 	// Per-tick event chances stay low at 60 Hz; events should punctuate the
 	// field rather than constantly re-shape it.
@@ -167,9 +167,9 @@ func nameForRainConfig(cfg sim.Config) string {
 
 	var paceName string
 	switch {
-	case cfg.Speed < 0.9:
-		paceName = "slow"
 	case cfg.Speed < 1.4:
+		paceName = "slow"
+	case cfg.Speed < 2.0:
 		paceName = "steady"
 	default:
 		paceName = "fast"

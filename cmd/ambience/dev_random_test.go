@@ -109,7 +109,7 @@ func TestRandomizedRainConfigKeepsReadableWeatherEnvelope(t *testing.T) {
 			t.Fatalf("unmarshal randomized rain config seed %d: %v", seed, err)
 		}
 
-		if values["speed"] < 0.85 || values["speed"] > 1.35 || values["streak"] < 10 || values["spawn"] < 2 || values["spawn"] > 5 || values["burst"] < 3 || values["burst"] > 5 {
+		if values["speed"] < 1.5 || values["speed"] > 2.4 || values["streak"] < 10 || values["spawn"] < 2 || values["spawn"] > 5 || values["burst"] < 3 || values["burst"] > 5 {
 			t.Fatalf("seed %d produced rain outside the 60 Hz foreground envelope: %v", seed, values)
 		}
 		if values["speed_jit"] > 0.2 || values["wind"] < -0.4 || values["wind"] > 0.4 || values["wind_jit"] > 0.2 || values["wind_drift"] > 0.2 || values["fade"] < 0.88 {
@@ -118,7 +118,7 @@ func TestRandomizedRainConfigKeepsReadableWeatherEnvelope(t *testing.T) {
 		if values["layers"] < 2 || values["lbal"] < 0.45 {
 			t.Fatalf("seed %d produced rain without enough depth: %v", seed, values)
 		}
-		if values["sheet"] < 0.5 || values["sheet_len"] < 9 || values["sheet_speed"] > 1.5 {
+		if values["sheet"] < 0.5 || values["sheet_len"] < 9 || values["sheet_speed"] < 1.3 || values["sheet_speed"] > 2.0 {
 			t.Fatalf("seed %d produced rain without enough atmospheric sheet: %v", seed, values)
 		}
 		if values["hue"] < 190 || values["hue"] > 240 || values["sat"] > 0.45 || values["lmax"] > 0.75 {

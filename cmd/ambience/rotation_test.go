@@ -168,13 +168,13 @@ func TestGeneratedRainScenesStayInWeatherFieldRange(t *testing.T) {
 		if err := json.Unmarshal(scene.Config, &cfg); err != nil {
 			t.Fatalf("decode generated rain config %d: %v", i, err)
 		}
-		if cfg.Speed < 0.85 || cfg.Speed > 1.3 || cfg.SpawnEvery < 3 || cfg.SpawnEvery > 5 || cfg.SpawnBurst < 3 || cfg.SpawnBurst > 5 || cfg.StreakLen < 10 {
+		if cfg.Speed < 1.5 || cfg.Speed > 2.35 || cfg.SpawnEvery < 3 || cfg.SpawnEvery > 5 || cfg.SpawnBurst < 3 || cfg.SpawnBurst > 5 || cfg.StreakLen < 10 {
 			t.Fatalf("generated rain outside 60 Hz foreground range %d: %+v", i, cfg)
 		}
 		if cfg.Layers < 2 || cfg.LayerBalance < 0.45 {
 			t.Fatalf("generated rain lacks background depth %d: %+v", i, cfg)
 		}
-		if cfg.SheetDensity < 0.5 || cfg.SheetStrength <= 0 || cfg.SheetLength < 9 || cfg.SheetSpeed < 0.9 {
+		if cfg.SheetDensity < 0.5 || cfg.SheetStrength <= 0 || cfg.SheetLength < 9 || cfg.SheetSpeed < 1.3 {
 			t.Fatalf("generated rain lacks atmospheric sheet %d: %+v", i, cfg)
 		}
 	}

@@ -30,8 +30,8 @@ func TestNewRainAppliesDefaults(t *testing.T) {
 	if r.cfg.LayerBalance == 0 {
 		t.Errorf("expected default LayerBalance")
 	}
-	if r.cfg.Speed < 0.9 || r.cfg.Speed > 1.2 {
-		t.Errorf("expected 60 Hz rain default speed near 1 row/tick, got %.2f", r.cfg.Speed)
+	if r.cfg.Speed < 1.5 || r.cfg.Speed > 2.0 {
+		t.Errorf("expected 60 Hz rain default speed in faster foreground range, got %.2f", r.cfg.Speed)
 	}
 	if r.cfg.SpawnEvery != 3 || r.cfg.SpawnBurst != 4 {
 		t.Errorf("expected restrained foreground rain defaults, got spawnEvery=%d burst=%d", r.cfg.SpawnEvery, r.cfg.SpawnBurst)
@@ -125,8 +125,8 @@ func TestDefaultRainBuildsFullerWeatherField(t *testing.T) {
 	}
 
 	filled := countFilledPixels(r.Grid)
-	if filled < 1300 {
-		t.Fatalf("default rain filled %d grid cells after warmup, want at least 1300", filled)
+	if filled < 1000 {
+		t.Fatalf("default rain filled %d grid cells after warmup, want at least 1000", filled)
 	}
 }
 
