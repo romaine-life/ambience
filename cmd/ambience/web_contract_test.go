@@ -176,22 +176,35 @@ func TestDevEffectSwitchIgnoresStaleStreams(t *testing.T) {
 	}
 }
 
-func TestChromeBottomLogLayoutStaysResponsive(t *testing.T) {
+// The event log used to share the bottom feed bar with the broadcast track,
+// where it floated over the bottom of the pixel world. It now docks in the
+// right-hand authority rail beneath the clock (previously dead space) and is
+// collapsible, so it no longer blocks the world. The bottom feed carries only
+// the broadcast track. Log lines must still wrap, since the rail is narrower
+// than the old bottom bar, and the body must stay bounded + scrollable so the
+// authority column can't run off the viewport.
+func TestChromeEventLogDocksInAuthorityRail(t *testing.T) {
 	jsBytes, err := os.ReadFile(filepath.Join("web", "chrome.js"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	js := string(jsBytes)
 	for _, want := range []string{
-		`class: 'd5__trkwrap'`,
-		`class: 'logline__msg'`,
+		`class: 'd5__trkwrap'`,                       // broadcast track wrapper stays
+		`class: 'logline__msg'`,                      // log lines still rendered
+		`class: 'd5__log'`,                           // event-log container
+		`(refs.teleEl || root).appendChild(logWrap)`, // ...docked in the authority rail
+		`class: 'd5__logtoggle'`,                     // collapse affordance
+		`classList.toggle('is-collapsed'`,            // collapse behavior
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("chrome.js bottom feed layout missing %q", want)
+			t.Fatalf("chrome.js event-log rail layout missing %q", want)
 		}
 	}
-	if strings.Contains(js, `class: 'd5__trk', style: 'flex:1;min-width:0'`) {
-		t.Fatal("track wrapper must not reuse d5__trk; nested track flex rules make the feed unstable")
+	// The bottom feed must carry only the track — the log must not be re-nested
+	// into it (that is the layout that floated over the world).
+	if !strings.Contains(js, `const feed = h('div', { class: 'd5__feed' }, trkWrap);`) {
+		t.Fatal("bottom feed must contain only the broadcast track (trkWrap)")
 	}
 
 	cssBytes, err := os.ReadFile(filepath.Join("web", "chrome.css"))
@@ -200,13 +213,17 @@ func TestChromeBottomLogLayoutStaysResponsive(t *testing.T) {
 	}
 	css := string(cssBytes)
 	for _, want := range []string{
-		`.d5__trkwrap { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }`,
-		`.d5__log { flex: 0 0 clamp(220px, 25vw, 340px); min-width: 0; display: flex; flex-direction: column; gap: 3px; }`,
-		`.logline__msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }`,
-		`@media (max-width: 760px)`,
+		`.logline__msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }`, // wraps in the narrow rail
+		`.d5__log.is-collapsed .d5__logbody { display: none; }`,             // collapsible
+		`max-height: 200px;`,        // bounded log body
+		`@media (max-width: 760px)`, // still responsive
 	} {
 		if !strings.Contains(css, want) {
-			t.Fatalf("chrome.css responsive log layout missing %q", want)
+			t.Fatalf("chrome.css event-log rail layout missing %q", want)
 		}
+	}
+	// The log must no longer be a fixed-basis column of the bottom feed.
+	if strings.Contains(css, `.d5__log { flex: 0 0 clamp(`) {
+		t.Fatal(".d5__log must dock in the rail, not be a fixed-basis bottom-feed column")
 	}
 }

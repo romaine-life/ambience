@@ -165,7 +165,9 @@ window.AmbienceChrome = (function () {
 		ctl.appendChild(ctlBody);
 		root.appendChild(ctl);
 
-		// bottom feed
+		// bottom feed — broadcast track only. The event log used to share this
+		// bar and floated over the bottom of the pixel world; it now lives in the
+		// right rail (below the authority clock) where there was dead space.
 		const trk = h('div', { class: 'd5__trk', id: 'd5Trk' });
 		refs.trk = trk;
 		const trkWrap = h('div', { class: 'd5__trkwrap' },
@@ -177,16 +179,34 @@ window.AmbienceChrome = (function () {
 			refs.nextBtn = nextBtn;
 			trkWrap.appendChild(nextBtn);
 		}
-		const logBody = h('div', { class: 'd5__logbody', id: 'd5Log' });
-		refs.logBody = logBody;
-		const feed = h('div', { class: 'd5__feed' }, trkWrap,
-			h('div', { class: 'd5__log' },
-				h('div', { class: 'd5__loghead' },
-					h('span', { class: 'd5__feedlbl' }, 'event log'),
-					h('button', { class: 'd5__logclear', title: 'clear the event log', on: { click: () => { logBody.innerHTML = ''; } } }, 'clear')),
-				logBody));
+		const feed = h('div', { class: 'd5__feed' }, trkWrap);
 		refs.feed = feed;
 		root.appendChild(feed);
+
+		// event log — docked in the right rail beneath the authority clock so it
+		// reads as authority telemetry and stops covering the world. Collapsible:
+		// the caret (or header) hides the body for an unobstructed view.
+		const logBody = h('div', { class: 'd5__logbody', id: 'd5Log' });
+		refs.logBody = logBody;
+		const logToggle = h('button', { class: 'd5__logtoggle', 'aria-expanded': 'true',
+			title: 'collapse the event log', html: icon('chevD', 11) });
+		const logClear = h('button', { class: 'd5__logclear', title: 'clear the event log',
+			on: { click: (e) => { e.stopPropagation(); logBody.innerHTML = ''; scheduleChromeLayout(C); } } }, 'clear');
+		const logHead = h('div', { class: 'd5__teleh d5__teleh--state d5__loghead' },
+			h('span', { class: 'd5__logheadlbl' }, logToggle, h('span', null, 'event log')),
+			logClear);
+		const logWrap = h('div', { class: 'd5__log' }, logHead, logBody);
+		refs.log = logWrap;
+		function toggleLog() {
+			C.logCollapsed = !C.logCollapsed;
+			logWrap.classList.toggle('is-collapsed', C.logCollapsed);
+			logToggle.setAttribute('aria-expanded', String(!C.logCollapsed));
+			logToggle.title = (C.logCollapsed ? 'expand' : 'collapse') + ' the event log';
+			scheduleChromeLayout(C);
+		}
+		logToggle.addEventListener('click', (e) => { e.stopPropagation(); toggleLog(); });
+		logHead.addEventListener('click', toggleLog);
+		(refs.teleEl || root).appendChild(logWrap);
 
 		C.host.appendChild(root);
 		window.addEventListener('resize', () => scheduleChromeLayout(C), { passive: true });
@@ -244,7 +264,7 @@ window.AmbienceChrome = (function () {
 			renderTrack(items) { renderTrack(C, items); },
 			setNextEnabled(on) { if (refs.nextBtn) refs.nextBtn.disabled = !on; },
 			appendLog(entry) { appendLog(C, entry); },
-			clearLog() { refs.logBody.innerHTML = ''; },
+			clearLog() { refs.logBody.innerHTML = ''; scheduleChromeLayout(C); },
 			flashPanel() { flashPanel(C); },
 			setAuth(state, info) { setAuth(C, state, info || {}); },
 			setSummoned(on) { setSummoned(C, on); },
@@ -275,8 +295,24 @@ window.AmbienceChrome = (function () {
 		if (!ctl || !id || !C.summoned) return;
 		const tele = C.refs.teleEl;
 		const narrow = window.innerWidth <= 760;
-		const idBox = id.getBoundingClientRect();
 		const rootBox = C.refs.root ? C.refs.root.getBoundingClientRect() : { top: 0 };
+
+		// Bound the right-rail event log FIRST so the authority column has a
+		// known height before we measure it. On narrow the rail stacks above the
+		// control surface, so an unbounded log would shove (or overlap) it; the
+		// body scrolls within the cap instead.
+		const logBody = C.refs.logBody;
+		if (logBody) {
+			if (C.logCollapsed) {
+				logBody.style.maxHeight = '';
+			} else {
+				const bodyTop = logBody.getBoundingClientRect().top;
+				const cap = narrow ? 120 : 260;
+				logBody.style.maxHeight = Math.max(40, Math.min(cap, window.innerHeight - bodyTop - 24)) + 'px';
+			}
+		}
+
+		const idBox = id.getBoundingClientRect();
 		const feedBox = C.refs.feed ? C.refs.feed.getBoundingClientRect() : { height: 80 };
 		let stackBottom = idBox.bottom;
 		if (tele) {
@@ -501,6 +537,10 @@ window.AmbienceChrome = (function () {
 			h('span', { class: 'logline__msg' }, entry.text || '')));
 		while (box.children.length > 60) box.removeChild(box.firstChild);
 		if (stick) box.scrollTop = box.scrollHeight;
+		// The rail's height changes as lines stream in; re-flow so the narrow
+		// layout (tele stacked above the control surface) never overlaps. rAF-
+		// batched, so a burst of entries coalesces into one layout pass.
+		scheduleChromeLayout(C);
 	}
 	function flashPanel(C) {
 		const el = C.refs.ctl; if (!el) return;
