@@ -25,6 +25,11 @@ import (
 // short enough to see variety."
 const defaultRotationCadenceTicks = 6000
 
+// defaultRotationEffects is the live-effect allowlist. Keep the full registry
+// available through /dev for Glimmung exploration, but only promote effects
+// here after they have been retuned against the current visual baseline.
+var defaultRotationEffects = []string{"rain"}
+
 type rotationPolicy struct {
 	Enabled      bool
 	CadenceTicks int
@@ -39,6 +44,7 @@ func loadRotationPolicyFromEnv() rotationPolicy {
 	p := rotationPolicy{
 		Enabled:      true,
 		CadenceTicks: defaultRotationCadenceTicks,
+		Allowed:      append([]string(nil), defaultRotationEffects...),
 	}
 	if raw := strings.TrimSpace(os.Getenv("AMBIENCE_ROTATION_ENABLED")); raw != "" {
 		v, err := strconv.ParseBool(raw)
@@ -61,6 +67,7 @@ func loadRotationPolicyFromEnv() rotationPolicy {
 		}
 	}
 	if raw := strings.TrimSpace(os.Getenv("AMBIENCE_ROTATION_EFFECTS")); raw != "" {
+		p.Allowed = nil
 		for _, item := range strings.Split(raw, ",") {
 			name := strings.TrimSpace(strings.ToLower(item))
 			if name != "" {

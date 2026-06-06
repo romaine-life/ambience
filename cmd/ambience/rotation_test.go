@@ -51,14 +51,14 @@ func TestRotationPolicyAllowedFiltersUnknown(t *testing.T) {
 	}
 }
 
-func TestRotationPolicyAllowedDefaultsToRegistry(t *testing.T) {
+func TestRotationPolicyAllowedEmptyMeansRegistryFallback(t *testing.T) {
 	p := rotationPolicy{}
 	got := p.resolvedAllowedEffects()
 	if len(got) == 0 {
-		t.Fatal("expected non-empty default pool")
+		t.Fatal("expected non-empty registry fallback pool")
 	}
 	if len(got) != len(effectRegistry) {
-		t.Fatalf("default pool len = %d, want %d (full registry)", len(got), len(effectRegistry))
+		t.Fatalf("fallback pool len = %d, want %d (full registry)", len(got), len(effectRegistry))
 	}
 }
 
@@ -480,8 +480,8 @@ func TestLoadRotationPolicyFromEnvDefault(t *testing.T) {
 	if p.CadenceTicks != defaultRotationCadenceTicks {
 		t.Fatalf("default cadence = %d; want %d", p.CadenceTicks, defaultRotationCadenceTicks)
 	}
-	if len(p.Allowed) != 0 {
-		t.Fatalf("default allowed = %v; want empty (registry fallback)", p.Allowed)
+	if len(p.Allowed) != 1 || p.Allowed[0] != "rain" {
+		t.Fatalf("default allowed = %v; want [rain]", p.Allowed)
 	}
 }
 
