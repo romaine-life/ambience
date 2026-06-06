@@ -22,7 +22,38 @@ func randomizedDevConfig(schema sim.EffectSchema, seed int64) (json.RawMessage, 
 			cfg[knob.Key] = value
 		}
 	}
+	stabilizeRandomizedDevConfig(schema.Name, cfg)
 	return json.Marshal(cfg)
+}
+
+func stabilizeRandomizedDevConfig(effect string, cfg map[string]any) {
+	if effect != "rain" {
+		return
+	}
+	clampFloatMin(cfg, "speed", 2.1)
+	clampIntMin(cfg, "streak", 10)
+	clampIntMax(cfg, "spawn", 2)
+	clampIntMin(cfg, "burst", 6)
+	clampIntMin(cfg, "layers", 2)
+	clampFloatMin(cfg, "lbal", 0.5)
+}
+
+func clampFloatMin(cfg map[string]any, key string, min float64) {
+	if v, ok := cfg[key].(float64); ok && v < min {
+		cfg[key] = min
+	}
+}
+
+func clampIntMin(cfg map[string]any, key string, min int) {
+	if v, ok := cfg[key].(int); ok && v < min {
+		cfg[key] = min
+	}
+}
+
+func clampIntMax(cfg map[string]any, key string, max int) {
+	if v, ok := cfg[key].(int); ok && v > max {
+		cfg[key] = max
+	}
 }
 
 func randomizedKnobValue(rng *rand.Rand, knob sim.Knob) float64 {

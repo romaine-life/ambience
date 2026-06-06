@@ -74,17 +74,17 @@ func generateRainScene(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
 	lmin := 0.2 + rng.Float64()*0.3        // 0.2–0.5
 	lmax := lmin + 0.2 + rng.Float64()*0.3 // lmin + 0.2..0.5
 
-	speed := 0.6 + rng.Float64()*1.4  // 0.6–2.0
-	spawnEvery := 3 + rng.Intn(8)     // 3–10
-	spawnBurst := 1 + rng.Intn(3)     // 1–3
-	streak := 3 + rng.Intn(8)         // 3–10
-	fade := 0.80 + rng.Float64()*0.15 // 0.80–0.95
+	speed := 2.2 + rng.Float64()*0.8  // 2.2–3.0
+	spawnEvery := 1 + rng.Intn(2)     // 1–2
+	spawnBurst := 6 + rng.Intn(3)     // 6–8
+	streak := 10 + rng.Intn(6)        // 10–15
+	fade := 0.86 + rng.Float64()*0.12 // 0.86–0.98
 	wind := -0.4 + rng.Float64()*0.8  // -0.4..+0.4
 	windJit := rng.Float64() * 0.3
 	speedJit := rng.Float64() * 0.3
 
-	layers := 2 + rng.Intn(3)               // 2–4
-	layerBalance := 0.3 + rng.Float64()*0.4 // 0.3–0.7
+	layers := 2
+	layerBalance := 0.5 + rng.Float64()*0.25 // 0.50–0.75
 
 	// Event chances kept low; transitions should feel natural at 10 Hz.
 	downpourP := 0.0005 + rng.Float64()*0.001

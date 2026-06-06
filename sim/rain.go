@@ -91,16 +91,16 @@ func NormalizeConfig(c Config) Config {
 
 func (c Config) withDefaults() Config {
 	if c.Speed <= 0 {
-		c.Speed = 1.0
+		c.Speed = 2.6
 	}
 	if c.SpawnEvery <= 0 {
-		c.SpawnEvery = 5
+		c.SpawnEvery = 1
 	}
 	if c.SpawnBurst <= 0 {
-		c.SpawnBurst = 1
+		c.SpawnBurst = 8
 	}
 	if c.StreakLen <= 0 {
-		c.StreakLen = 5
+		c.StreakLen = 12
 	}
 	if c.IntroDur <= 0 {
 		c.IntroDur = 60
@@ -152,7 +152,10 @@ func (c Config) withDefaults() Config {
 		c.LightnessMin, c.LightnessMax = c.LightnessMax, c.LightnessMin
 	}
 	if c.Layers <= 0 {
-		c.Layers = 1
+		c.Layers = 2
+	}
+	if c.LayerBalance <= 0 {
+		c.LayerBalance = 0.55
 	}
 	if c.DownpourDur <= 0 {
 		c.DownpourDur = 60
@@ -249,17 +252,17 @@ func RainSchema() EffectSchema {
 				Description: "Slope of the rain: cols sideways per row of descent. 0 = straight down, ±1 = 45°. Next drop onward."},
 			{Key: "wind_jit", Label: "wind jitter", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
 				Description: "Per-drop random variation in wind (± this fraction of base). Adds organic scatter. Next drop onward."},
-			{Key: "speed", Label: "speed", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0.3, Max: 3, Step: 0.1, Default: 1.0,
+			{Key: "speed", Label: "speed", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0.3, Max: 3, Step: 0.1, Default: 2.6,
 				Description: "Base rows descended per tick. Rescales every in-flight drop proportionally."},
 			{Key: "speed_jit", Label: "speed jitter", Slot: SlotLever, Group: "motion", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
 				Description: "Per-drop random variation in speed (± this fraction of base). Next drop onward."},
-			{Key: "streak", Label: "streak len", Slot: SlotLever, Group: "shape", Type: KnobInt, Min: 1, Max: 16, Step: 1, Default: 5,
+			{Key: "streak", Label: "streak len", Slot: SlotLever, Group: "shape", Type: KnobInt, Min: 1, Max: 16, Step: 1, Default: 12,
 				Description: "Pixels painted behind each drop's head, tracing a visible streak. Applied at paint time."},
 			{Key: "fade", Label: "fade", Slot: SlotLever, Group: "shape", Type: KnobFloat, Min: 0.5, Max: 1, Step: 0.01, Default: 0.88,
 				Description: "Brightness multiplier per position along a streak. 1.0 = uniform, 0.5 = sharp tail fade. Applied at paint time."},
-			{Key: "spawn", Label: "spawn 1/", Slot: SlotLever, Group: "density", Type: KnobInt, Min: 1, Max: 30, Step: 1, Default: 5,
+			{Key: "spawn", Label: "spawn 1/", Slot: SlotLever, Group: "density", Type: KnobInt, Min: 1, Max: 30, Step: 1, Default: 1,
 				Description: "Rolls 1 in N per tick for a new drop. Smaller = denser rain."},
-			{Key: "burst", Label: "burst max", Slot: SlotLever, Group: "density", Type: KnobInt, Min: 1, Max: 8, Step: 1, Default: 1,
+			{Key: "burst", Label: "burst max", Slot: SlotLever, Group: "density", Type: KnobInt, Min: 1, Max: 8, Step: 1, Default: 8,
 				Description: "Max drops emitted per spawn event. 1 = no clumping; higher = drops in clusters."},
 			{Key: "hue", Label: "hue", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0, Max: 359, Step: 1, Default: 210,
 				Description: "Base hue on the color wheel in degrees (0=red, 120=green, 240=blue). Next drop onward."},
@@ -271,9 +274,9 @@ func RainSchema() EffectSchema {
 				Description: "Minimum lightness for drop colors. Lower = allows darker drops. Next drop onward."},
 			{Key: "lmax", Label: "light max", Slot: SlotLever, Group: "color", Type: KnobFloat, Min: 0.05, Max: 0.95, Step: 0.01, Default: 0.85,
 				Description: "Maximum lightness for drop colors. Higher = allows brighter drops. Next drop onward."},
-			{Key: "layers", Label: "layers", Slot: SlotLever, Group: "depth", Type: KnobInt, Min: 1, Max: 2, Step: 1, Default: 1,
+			{Key: "layers", Label: "layers", Slot: SlotLever, Group: "depth", Type: KnobInt, Min: 1, Max: 2, Step: 1, Default: 2,
 				Description: "1 = single layer. 2 = adds a dimmer/shorter/slower background layer for parallax depth. Next drop onward."},
-			{Key: "lbal", Label: "bg balance", Slot: SlotLever, Group: "depth", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0.4,
+			{Key: "lbal", Label: "bg balance", Slot: SlotLever, Group: "depth", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0.55,
 				Description: "Fraction of drops assigned to the background layer. Ignored unless layers=2. Next drop onward."},
 			{Key: "hue_drift", Label: "hue drift", Slot: SlotLever, Group: "drift", Type: KnobFloat, Min: 0, Max: 60, Step: 1, Default: 0,
 				Description: "Amplitude (±degrees) the base hue slowly wanders over ~30s cycles. 0 = static."},
@@ -712,15 +715,7 @@ func (r *Rain) restoreParticlesLocked(drops []Drop, splashes []Splash) {
 		}
 	}
 
-	for y := range r.Grid {
-		for x := range r.Grid[y] {
-			r.Grid[y][x] = Pixel{}
-		}
-	}
-	r.paintSplashes()
-	for _, d := range r.drops {
-		r.paintDrop(d)
-	}
+	r.repaintLocked()
 }
 
 // GridCopy returns a snapshot of the current grid. The caller owns the
@@ -734,6 +729,18 @@ func (r *Rain) GridCopy() [][]Pixel {
 		copy(out[y], r.Grid[y])
 	}
 	return out
+}
+
+func (r *Rain) repaintLocked() {
+	for y := range r.Grid {
+		for x := range r.Grid[y] {
+			r.Grid[y][x] = Pixel{}
+		}
+	}
+	r.paintSplashes()
+	for _, d := range r.drops {
+		r.paintDrop(d)
+	}
 }
 
 // TriggerEvent fires a discrete event immediately, bypassing probability.
@@ -801,6 +808,7 @@ func (r *Rain) appendLog(kind, desc string) {
 //  6. Advance every active drop; paint its head + streak trail.
 //  7. Cull drops whose trail has fully exited the bottom.
 //  8. Age/remove expired splashes.
+//  9. Repaint from the final post-step particle state.
 func (r *Rain) Step() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -888,7 +896,8 @@ func (r *Rain) Step() {
 		d.Row += d.vRow
 		d.Col += d.vCol
 		r.paintDrop(d)
-		tailRow := d.Row - float64(d.streakLen-1)*d.vRow
+		trailRowStep, _ := d.trailStep()
+		tailRow := d.Row - float64(d.streakLen-1)*trailRowStep
 		if tailRow < float64(r.H) && d.Row > -float64(d.streakLen) {
 			alive = append(alive, d)
 		}
@@ -904,6 +913,8 @@ func (r *Rain) Step() {
 		}
 	}
 	r.splashes = splashesAlive
+
+	r.repaintLocked()
 }
 
 // jitterInt returns an int in [base*(1-spread), base*(1+spread)], uniform.
@@ -1260,7 +1271,7 @@ func (r *Rain) paintSplashes() {
 			if gr < 0 || gr >= r.H || gc < 0 || gc >= r.W {
 				continue
 			}
-			r.Grid[gr][gc] = Pixel{Filled: true, C: c}
+			r.paintPixelMax(gr, gc, c)
 		}
 	}
 }
@@ -1268,9 +1279,10 @@ func (r *Rain) paintSplashes() {
 // paintDrop lays down StreakLen cells from the drop's head backward along its
 // motion vector. Brightness decays by FadeFactor per position from the head.
 func (r *Rain) paintDrop(d drop) {
+	rowStep, colStep := d.trailStep()
 	for i := 0; i < d.streakLen; i++ {
-		row := d.Row - float64(i)*d.vRow
-		col := d.Col - float64(i)*d.vCol
+		row := d.Row - float64(i)*rowStep
+		col := d.Col - float64(i)*colStep
 		gr := int(math.Floor(row))
 		gc := int(math.Round(col))
 		if gr < 0 || gr >= r.H || gc < 0 || gc >= r.W {
@@ -1281,8 +1293,37 @@ func (r *Rain) paintDrop(d drop) {
 		c.R = uint8(float64(c.R) * brightness)
 		c.G = uint8(float64(c.G) * brightness)
 		c.B = uint8(float64(c.B) * brightness)
-		r.Grid[gr][gc] = Pixel{Filled: true, C: c}
+		r.paintPixelMax(gr, gc, c)
 	}
+}
+
+func (d drop) trailStep() (float64, float64) {
+	length := math.Hypot(d.vRow, d.vCol)
+	if length < 0.0001 {
+		return 1, 0
+	}
+	return d.vRow / length, d.vCol / length
+}
+
+func (r *Rain) paintPixelMax(row, col int, c color.RGBA) {
+	if row < 0 || row >= r.H || col < 0 || col >= r.W {
+		return
+	}
+	p := &r.Grid[row][col]
+	if !p.Filled {
+		*p = Pixel{Filled: true, C: c}
+		return
+	}
+	if c.R > p.C.R {
+		p.C.R = c.R
+	}
+	if c.G > p.C.G {
+		p.C.G = c.G
+	}
+	if c.B > p.C.B {
+		p.C.B = c.B
+	}
+	p.C.A = 255
 }
 
 // spawnDrop rolls per-drop jitter (speed, wind, hue, lightness) + layer,

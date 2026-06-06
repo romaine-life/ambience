@@ -96,6 +96,28 @@ func TestRandomizedDevConfigChangesAtLeastOneKnob(t *testing.T) {
 	}
 }
 
+func TestRandomizedRainConfigKeepsReadableWeatherEnvelope(t *testing.T) {
+	schema := sim.RainSchema()
+	for seed := int64(1); seed <= 128; seed++ {
+		data, err := randomizedDevConfig(schema, seed)
+		if err != nil {
+			t.Fatalf("randomizedDevConfig seed %d: %v", seed, err)
+		}
+
+		var values map[string]float64
+		if err := json.Unmarshal(data, &values); err != nil {
+			t.Fatalf("unmarshal randomized rain config seed %d: %v", seed, err)
+		}
+
+		if values["speed"] < 2.1 || values["streak"] < 10 || values["spawn"] > 2 || values["burst"] < 6 {
+			t.Fatalf("seed %d produced sparse/slow rain: %v", seed, values)
+		}
+		if values["layers"] < 2 || values["lbal"] < 0.5 {
+			t.Fatalf("seed %d produced rain without enough depth: %v", seed, values)
+		}
+	}
+}
+
 func valueAlignedToStep(knob sim.Knob, value float64) bool {
 	if knob.Step <= 0 {
 		if knob.Type == sim.KnobInt {

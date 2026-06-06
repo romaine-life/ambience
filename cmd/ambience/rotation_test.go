@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -156,6 +157,23 @@ func TestRainSceneRotationKeepsDriftCapability(t *testing.T) {
 	}
 	if !configsEqualJSON(to, before.NextScene.Config) {
 		t.Fatalf("rain transition target = %s, want promoted scene config %s", to, before.NextScene.Config)
+	}
+}
+
+func TestGeneratedRainScenesStayInWeatherFieldRange(t *testing.T) {
+	rng := rngutil.New(44)
+	for i := 0; i < 64; i++ {
+		scene := generateRainScene(rng, i*100, 36000)
+		var cfg sim.Config
+		if err := json.Unmarshal(scene.Config, &cfg); err != nil {
+			t.Fatalf("decode generated rain config %d: %v", i, err)
+		}
+		if cfg.Speed < 2.2 || cfg.SpawnEvery > 2 || cfg.SpawnBurst < 6 || cfg.StreakLen < 10 {
+			t.Fatalf("generated sparse/slow rain config %d: %+v", i, cfg)
+		}
+		if cfg.Layers < 2 || cfg.LayerBalance < 0.5 {
+			t.Fatalf("generated rain lacks background depth %d: %+v", i, cfg)
+		}
 	}
 }
 

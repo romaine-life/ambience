@@ -27,6 +27,15 @@ func TestNewRainAppliesDefaults(t *testing.T) {
 	if r.cfg.Layers == 0 {
 		t.Errorf("expected default Layers")
 	}
+	if r.cfg.LayerBalance == 0 {
+		t.Errorf("expected default LayerBalance")
+	}
+	if r.cfg.Speed < 2.5 {
+		t.Errorf("expected rain default to move briskly, got speed %.2f", r.cfg.Speed)
+	}
+	if r.cfg.SpawnEvery > 1 || r.cfg.SpawnBurst < 8 {
+		t.Errorf("expected dense default rain, got spawnEvery=%d burst=%d", r.cfg.SpawnEvery, r.cfg.SpawnBurst)
+	}
 }
 
 func TestEndingDefaultsStillAllowExplicitZeroKnobs(t *testing.T) {
@@ -83,6 +92,39 @@ func TestStepPaintsDropHeadAndTrail(t *testing.T) {
 	}
 }
 
+func TestFastDropPaintsContiguousGridTrail(t *testing.T) {
+	r := NewRain(20, 20, 1, Config{
+		Speed:      3,
+		StreakLen:  5,
+		FadeFactor: 0.9,
+		SpawnEvery: 1000000, // disable spawns
+	})
+	r.drops = append(r.drops, drop{
+		Row: 0, Col: 10,
+		Color: staticRed, vRow: 3, vCol: 0,
+		streakLen: 5,
+	})
+	r.Step()
+
+	for y := 0; y <= 3; y++ {
+		if !r.Grid[y][10].Filled {
+			t.Fatalf("expected fast drop to paint contiguous row %d in column 10", y)
+		}
+	}
+}
+
+func TestDefaultRainBuildsFullerWeatherField(t *testing.T) {
+	r := NewRain(160, 80, 2, Config{})
+	for i := 0; i < 160; i++ {
+		r.Step()
+	}
+
+	filled := countFilledPixels(r.Grid)
+	if filled < 1100 {
+		t.Fatalf("default rain filled %d grid cells after warmup, want at least 1100", filled)
+	}
+}
+
 func TestHslToRGBBasicAnchors(t *testing.T) {
 	cases := []struct {
 		h, s, l             float64
@@ -101,6 +143,18 @@ func TestHslToRGBBasicAnchors(t *testing.T) {
 				tc.h, tc.s, tc.l, got, tc.wantR, tc.wantG, tc.wantB)
 		}
 	}
+}
+
+func countFilledPixels(grid [][]Pixel) int {
+	filled := 0
+	for y := range grid {
+		for x := range grid[y] {
+			if grid[y][x].Filled {
+				filled++
+			}
+		}
+	}
+	return filled
 }
 
 func TestPersistedStateRestoreRoundTrip(t *testing.T) {
