@@ -952,6 +952,16 @@ emit() {
     "$(cat "$SCREENSHOTS_MD")" \
     "$(cat "$SUMMARY_MD")" \
     "$(cat "$EVIDENCE_ARTIFACTS")"
+
+  # Per-case teardown. The verdict + evidence are already emitted/uploaded,
+  # so free this case's working set before the next case reuses the
+  # long-lived outer pod. Without this the single verify pod accumulates
+  # all N cases' videos, extracted evidence tarballs, and pod logs and is
+  # evicted (ephemeral storage) or OOM-killed — the run 14.1 failure mode.
+  # The top-of-script mkdir re-creates the structure for the next case.
+  rm -rf "${EVIDENCE_DIR:?}/"* 2>/dev/null || true
+  : >"$POD_LOG" 2>/dev/null || true
+  : >"$EVENTS_LOG" 2>/dev/null || true
 }
 
 if native_selected_step; then

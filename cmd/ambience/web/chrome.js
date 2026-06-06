@@ -135,7 +135,9 @@ window.AmbienceChrome = (function () {
 			idrow.appendChild(h('button', { class: 'modeswitch', title: opts.routeJump.title || '',
 				on: { click: opts.routeJump.onClick } }, opts.routeJump.label));
 		}
-		root.appendChild(h('div', { class: 'd5__id' }, idrow, sceneWrap, lineEl));
+		const idEl = h('div', { class: 'd5__id' }, idrow, sceneWrap, lineEl);
+		refs.idEl = idEl;
+		root.appendChild(idEl);
 
 		// telemetry
 		root.appendChild(buildTele(C, opts.tele || {}));
@@ -166,7 +168,7 @@ window.AmbienceChrome = (function () {
 		// bottom feed
 		const trk = h('div', { class: 'd5__trk', id: 'd5Trk' });
 		refs.trk = trk;
-		const trkWrap = h('div', { class: 'd5__trk', style: 'flex:1;min-width:0' },
+		const trkWrap = h('div', { class: 'd5__trkwrap' },
 			h('span', { class: 'd5__feedlbl' }, opts.feedLabel || 'effects'), trk);
 		if (opts.showNext) {
 			const nextBtn = h('button', { class: 'd5__nextbtn', disabled: true, title: 'advance the broadcast',
@@ -177,14 +179,18 @@ window.AmbienceChrome = (function () {
 		}
 		const logBody = h('div', { class: 'd5__logbody', id: 'd5Log' });
 		refs.logBody = logBody;
-		root.appendChild(h('div', { class: 'd5__feed' }, trkWrap,
+		const feed = h('div', { class: 'd5__feed' }, trkWrap,
 			h('div', { class: 'd5__log' },
 				h('div', { class: 'd5__loghead' },
 					h('span', { class: 'd5__feedlbl' }, 'event log'),
 					h('button', { class: 'd5__logclear', title: 'clear the event log', on: { click: () => { logBody.innerHTML = ''; } } }, 'clear')),
-				logBody)));
+				logBody));
+		refs.feed = feed;
+		root.appendChild(feed);
 
 		C.host.appendChild(root);
+		window.addEventListener('resize', () => scheduleChromeLayout(C), { passive: true });
+		if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => scheduleChromeLayout(C));
 
 		// outside-click closes preset popover
 		window.addEventListener('mousedown', (e) => {
@@ -200,12 +206,13 @@ window.AmbienceChrome = (function () {
 		// ── controller API ───────────────────────────────────────────────────
 		const api = {
 			refs,
-			setLine(text) { refs.lineEl.textContent = text; },
+			setLine(text) { refs.lineEl.textContent = text; scheduleChromeLayout(C); },
 			setScene(name) {
 				refs.sceneWrap.innerHTML = '';
 				refs.sceneWrap.appendChild(pixelText(effectLabel(name), { size: 18, scale: 2, weight: 800, color: '#ffffff' }));
+				scheduleChromeLayout(C);
 			},
-			setTele(k, v) { if (refs.teleRows && refs.teleRows[k]) refs.teleRows[k].textContent = v; },
+			setTele(k, v) { if (refs.teleRows && refs.teleRows[k]) { refs.teleRows[k].textContent = v; scheduleChromeLayout(C); } },
 			setTeleTone(k, tone) {
 				if (!refs.teleRows || !refs.teleRows[k]) return;
 				const el = refs.teleRows[k];
@@ -247,7 +254,50 @@ window.AmbienceChrome = (function () {
 		C.api = api;
 		setupHint(C);
 		setSummoned(C, C.summoned);
+		scheduleChromeLayout(C);
 		return api;
+	}
+
+	// Keep the left control surface below the variable-height identity block.
+	// The scene name is rendered as scaled bitmap text, and the intro line can
+	// wrap differently once the Archivo font resolves.
+	const MIN_CTL_TOP = 198;
+	const CTL_GAP = 16;
+	const FEED_GAP = 18;
+	const MIN_CTL_HEIGHT = 96;
+	function scheduleChromeLayout(C) {
+		if (C._layoutFrame) cancelAnimationFrame(C._layoutFrame);
+		C._layoutFrame = requestAnimationFrame(() => layoutChrome(C));
+	}
+	function layoutChrome(C) {
+		C._layoutFrame = null;
+		const ctl = C.refs.ctl, id = C.refs.idEl;
+		if (!ctl || !id || !C.summoned) return;
+		const tele = C.refs.teleEl;
+		const narrow = window.innerWidth <= 760;
+		const idBox = id.getBoundingClientRect();
+		const rootBox = C.refs.root ? C.refs.root.getBoundingClientRect() : { top: 0 };
+		const feedBox = C.refs.feed ? C.refs.feed.getBoundingClientRect() : { height: 80 };
+		let stackBottom = idBox.bottom;
+		if (tele) {
+			if (narrow) {
+				const teleTop = Math.ceil(idBox.bottom - rootBox.top + CTL_GAP);
+				tele.style.top = teleTop + 'px';
+				tele.style.left = '';
+				tele.style.right = '';
+				tele.style.width = '';
+				stackBottom = tele.getBoundingClientRect().bottom;
+			} else {
+				tele.style.top = '';
+				tele.style.left = '';
+				tele.style.right = '';
+				tele.style.width = '';
+			}
+		}
+		const top = Math.max(MIN_CTL_TOP, Math.ceil(stackBottom - rootBox.top + CTL_GAP));
+		const bottomReserve = Math.ceil(feedBox.height + FEED_GAP);
+		ctl.style.top = top + 'px';
+		ctl.style.maxHeight = Math.max(MIN_CTL_HEIGHT, window.innerHeight - top - bottomReserve) + 'px';
 	}
 
 	// ── telemetry ────────────────────────────────────────────────────────
@@ -448,7 +498,7 @@ window.AmbienceChrome = (function () {
 		const kind = entry.kind || 'trigger';
 		box.appendChild(h('div', { class: 'logline logline--' + kind },
 			h('span', { class: 'logline__t' }, entry.t != null ? entry.t : ''),
-			h('span', null, entry.text || '')));
+			h('span', { class: 'logline__msg' }, entry.text || '')));
 		while (box.children.length > 60) box.removeChild(box.firstChild);
 		if (stick) box.scrollTop = box.scrollHeight;
 	}
@@ -529,6 +579,7 @@ window.AmbienceChrome = (function () {
 		if (on) {
 			const d5 = C.refs.root;
 			d5.classList.remove('d5--' + C.transition); void d5.offsetWidth; d5.classList.add('d5--' + C.transition);
+			scheduleChromeLayout(C);
 			runWorldDip(C);
 		}
 	}
