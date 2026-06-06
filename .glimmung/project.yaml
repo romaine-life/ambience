@@ -1,0 +1,51 @@
+# Ambience's declarative Glimmung project configuration.
+#
+# This is the complete authored-config source of truth for the `ambience`
+# project row in Postgres. It is reconciled into the durable row by the project
+# sync path (`POST /v1/projects/ambience/sync`) using the same durable replace
+# semantics as workflow registration. See glimmung's docs/durable-project-config.md.
+#
+# Authored config only. Reconciler-owned status keys (e.g.
+# managed_auth_origin_status) live in the durable `projects.status` column and
+# are NEVER authored here; the sync path strips any that leak in and never
+# overwrites the status column.
+#
+# A full sync replaces authored config wholesale, so this document must carry
+# EVERY authored field — a partial file would drop the others. Validate any
+# change before merge with `check_project_updates(project=ambience, ref=<branch>)`
+# and confirm the only intended drift is what you changed.
+name: ambience
+github_repo: romaine-life/ambience
+
+metadata:
+  # Warmed standby DNS records for native test slots
+  # (ambience-slot-1.ambience.dev.romaine.life, …).
+  native_standby_dns:
+    count: 5
+    slot_prefix: ambience-slot
+
+  # Per-slot Helm install. webOverride is enabled so the edge pod serves web
+  # assets from a writable override dir (the static hot-swap target below).
+  test_slot_helm:
+    enabled: true
+    chart_path: chart/ambience
+    values:
+      edge.webOverride.enabled: "true"
+
+  # No-rollout hot-swap contract for test slots. Ambience serves its embedded
+  # web/ bundle but, on warm/hot slots, an override dir wins per request
+  # (cmd/ambience/static.go) — so static assets swap live with no image build
+  # and no restart. The edge pod's distroless app container has no shell/tar,
+  # so the copy target is the `web-sync` alpine sidecar that shares the override
+  # emptyDir (see chart/ambience/templates/edge-deployment.yaml).
+  #
+  # `source`/`target` are honored today by the contract read
+  # (get_test_slot_hot_swap_contract). The developer apply endpoint's static
+  # path (apply_test_slot_hot_swap artifact_kind=static) additionally consumes
+  # container + pod_selector; those land with that endpoint change.
+  test_slot_hot_swap:
+    enabled: true
+    static:
+      enabled: true
+      source: cmd/ambience/web
+      target: /var/run/ambience-web-override
