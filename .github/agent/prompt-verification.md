@@ -27,6 +27,12 @@ Glimmung selects the concrete provider/model for this invocation through the
      loaded and recording has started.
      Save under `/workspace/evidence/videos/`. Then inspect that exact
      WebM with `node /workspace/repo/scripts/agent/inspect-video.mjs`.
+     If the entry also has `terminal_state_path`, run
+     `node /workspace/repo/scripts/agent/capture-observation.mjs` for the
+     same effect/session/trigger before deciding pass/fail. That observer
+     trace is the proof that the trigger reached the session and the
+     terminal state held; the WebM is supporting motion evidence, not the
+     source of truth for terminal timing.
    - **`screenshot`**: hit `$VALIDATION_URL$url_path`, capture a PNG.
      Use `node /workspace/repo/scripts/agent/capture-screenshot.mjs`.
      If the entry has a `trigger_event`, POST to
@@ -57,7 +63,9 @@ Glimmung selects the concrete provider/model for this invocation through the
 The agent container ships playwright + chromium and the
 `scripts/agent/capture-video.mjs`,
 `scripts/agent/inspect-video.mjs`, and
-`scripts/agent/capture-screenshot.mjs` helpers. The
+`scripts/agent/capture-screenshot.mjs` helpers. Terminal lifecycle cases
+also use `scripts/agent/capture-observation.mjs` to trigger a dev session,
+wait for a state predicate or lifecycle marker, and save a frozen frame. The
 `PLAYWRIGHT_PACKAGE_PATH` env var is already set in the image so
 `import "playwright"` resolves correctly. Typical video call:
 
@@ -94,6 +102,22 @@ node /workspace/repo/scripts/agent/capture-video.mjs \
   --wait-ms 6000
 ```
 
+Terminal lifecycle observation:
+
+```sh
+SESSION=verify-ending
+node /workspace/repo/scripts/agent/capture-observation.mjs \
+  --base-url "$VALIDATION_URL" \
+  --effect distant-storm \
+  --session "$SESSION" \
+  --trigger ending \
+  --state-path endingTicks \
+  --state-equals 0 \
+  --hold-ticks 12 \
+  --output /workspace/evidence/observations/dev-distant-storm-ending.json \
+  --screenshot /workspace/evidence/screenshots/dev-distant-storm-ending-terminal.png
+```
+
 Do not start `python -m http.server`, Node static servers, or any other local
 server to inspect captured videos. Do not navigate Playwright to
 `127.0.0.1` for evidence playback. Use `inspect-video.mjs` directly against
@@ -124,6 +148,14 @@ test-plan items; this job owns only the selected verification case.
       "observed_text": null
     },
     {
+      "id": "dev-distant-storm-ending",
+      "status": "pass",
+      "video": "videos/dev-distant-storm-ending.webm",
+      "screenshot": "screenshots/dev-distant-storm-ending-terminal.png",
+      "observation": "observations/dev-distant-storm-ending.json",
+      "observed_text": "ending trigger applied and terminal state held"
+    },
+    {
       "id": "dev-distant-storm-still",
       "status": "pass",
       "screenshot": "screenshots/dev-distant-storm.png",
@@ -145,6 +177,10 @@ include the matching `video` or `screenshot` path on that result. The
 wrapper recomputes pass/fail for the selected case — a verifier `pass`
 with a missing selected item flips to `fail` with
 `target_evidence_missing`.
+For terminal lifecycle video cases that declare `terminal_state_path`, also
+include `observation: "observations/<id>.json"` on the selected result; the
+wrapper rejects a terminal pass without a local observation trace whose
+`applied` and `observed` fields are true.
 
 Use `evidence` for every browser artifact you captured. Use
 `content_type: "video/webm"` for WebM files and `image/png` for PNGs.

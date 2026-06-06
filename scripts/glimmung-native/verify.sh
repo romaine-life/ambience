@@ -92,7 +92,7 @@ printf '[]\n' >"$EVIDENCE_ARTIFACTS"
 : >"$SUMMARY_MD"
 : >"$EVENTS_LOG"
 printf 'active\n' >"$VERIFICATION_CASE_STATUS_FILE"
-mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/videos"
+mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/videos" "$EVIDENCE_DIR/observations"
 
 # Stage handoff files — written by prepare_context from glimmung inputs.
 ISSUE_CONTRACT_FILE="${EVIDENCE_DIR}/issue-agent-contract.json"
@@ -517,6 +517,7 @@ enforce_evidence_contract() {
           elif $match[0].status != "pass" then "not_pass:" + ($r.id // "")
           elif kind($r.kind) == "video" and (($match[0].video // "") == "") then "missing_video:" + ($r.id // "")
           elif kind($r.kind) == "screenshot" and (($match[0].screenshot // "") == "") then "missing_screenshot:" + ($r.id // "")
+          elif (($r.terminal_state_path // "") != "") and (($match[0].observation // "") == "") then "missing_observation:" + ($r.id // "")
           else empty
           end
       ' || true
@@ -526,7 +527,7 @@ enforce_evidence_contract() {
     jq -r '
       .evidence_results[]?
       | select(.status == "pass")
-      | (.video?, .screenshot?)
+      | (.video?, .screenshot?, .observation?)
       | select(type == "string" and length > 0)
     ' "$verify" 2>/dev/null \
       | while IFS= read -r ref; do
@@ -555,6 +556,72 @@ ${missing_files}"
     done <<<"$missing"
     return 1
   fi
+  return 0
+}
+
+enforce_terminal_observation_artifact() {
+  local verify="${EVIDENCE_DIR}/issue-agent-verification.json"
+  if [ ! -s "$VERIFICATION_CASE_FILE" ] || [ ! -s "$verify" ]; then
+    add_reason "terminal observation: missing handoff JSON; cannot inspect selected observation"
+    return 1
+  fi
+  if ! jq -e '(.required_evidence.terminal_state_path // "") != ""' "$VERIFICATION_CASE_FILE" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local evidence_id ref observation_path expected_path expected_equals expected_hold failures
+  evidence_id="$(jq -r '.required_evidence.id // ""' "$VERIFICATION_CASE_FILE" 2>/dev/null || true)"
+  expected_path="$(jq -r '.required_evidence.terminal_state_path // ""' "$VERIFICATION_CASE_FILE" 2>/dev/null || true)"
+  expected_equals="$(jq -r '.required_evidence.terminal_state_equals // "true"' "$VERIFICATION_CASE_FILE" 2>/dev/null || true)"
+  expected_hold="$(jq -r '.required_evidence.hold_ticks // 0 | tonumber? // 0' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '0')"
+  ref="$(
+    jq -r --arg id "$evidence_id" '
+      .evidence_results[]?
+      | select((.id // "") == $id and (.status // "") == "pass")
+      | .observation // empty
+    ' "$verify" 2>/dev/null | head -1
+  )"
+  if [ -z "$ref" ]; then
+    add_reason "terminal observation: selected evidence ${evidence_id:-unknown} did not report an observation path"
+    return 1
+  fi
+  case "$ref" in
+    http://*|https://*|blob://*|/v1/artifacts/*)
+      add_reason "terminal observation: selected evidence ${evidence_id:-unknown} reported non-local observation ref ${ref}"
+      return 1
+      ;;
+  esac
+  observation_path="$(evidence_ref_path "$ref")"
+  if [ ! -s "$observation_path" ]; then
+    add_reason "terminal observation: selected evidence ${evidence_id:-unknown} points at missing or empty observation ${ref}"
+    return 1
+  fi
+
+  failures="$(
+    jq -r \
+      --arg path "$expected_path" \
+      --arg equals "$expected_equals" \
+      --argjson hold "${expected_hold:-0}" \
+      '
+        if (.applied != true) then "not_applied"
+        elif (.observed != true) then "not_observed"
+        elif ((.statePath // "") != $path) then "wrong_state_path:" + (.statePath // "")
+        elif ((.stateEquals // "true" | tostring) != ($equals | tostring)) then "wrong_state_equals:" + (.stateEquals // "" | tostring)
+        elif (((.holdTicks // 0) | tonumber? // 0) < $hold) then "hold_too_short:" + ((.holdTicks // 0) | tostring)
+        elif (((.heldUntilTick // 0) | tonumber? // 0) < (((.observedTick // 0) | tonumber? // 0) + $hold)) then "held_until_before_required_tick"
+        else empty
+        end
+      ' "$observation_path" 2>/dev/null || printf 'invalid_json'
+  )"
+  if [ -n "$failures" ]; then
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      add_reason "terminal observation: ${evidence_id:-unknown}: $line"
+    done <<<"$failures"
+    return 1
+  fi
+
+  echo "inspected terminal observation ${evidence_id:-unknown}: ${ref}"
   return 0
 }
 
@@ -693,6 +760,20 @@ write_evidence_artifacts() {
     done < <(find "${EVIDENCE_DIR}/videos" -maxdepth 1 -type f \( -name '*.webm' -o -name '*.mp4' -o -name '*.mov' \) | sort)
   fi
 
+  if compgen -G "${EVIDENCE_DIR}/observations/*.json" >/dev/null; then
+    while IFS= read -r file; do
+      local base size
+      base="$(basename "$file")"
+      size="$(wc -c <"$file" | tr -d ' ')"
+      jq -nc \
+        --arg ref "observations/$base" \
+        --arg label "${base%.json}" \
+        --argjson size "${size:-0}" \
+        '{kind:"artifact", ref:$ref, label:$label, content_type:"application/json", size_bytes:$size}' \
+        >>"$file_artifacts"
+    done < <(find "${EVIDENCE_DIR}/observations" -maxdepth 1 -type f -name '*.json' | sort)
+  fi
+
   if [ ! -s "$verifier" ]; then
     verifier="$empty_verifier"
   fi
@@ -727,7 +808,8 @@ write_evidence_artifacts() {
           ($v.evidence // [])[]?,
           ($v.evidence_artifacts // [])[]?,
           (($v.evidence_results // [])[]? | select((.video // "") != "") | {kind:"video", ref:.video, label:(.label // .id // ""), content_type:"video/webm", duration_ms:(.duration_ms // 0)}),
-          (($v.evidence_results // [])[]? | select((.screenshot // "") != "") | {kind:"screenshot", ref:.screenshot, label:(.label // .id // ""), content_type:"image/png"})
+          (($v.evidence_results // [])[]? | select((.screenshot // "") != "") | {kind:"screenshot", ref:.screenshot, label:(.label // .id // ""), content_type:"image/png"}),
+          (($v.evidence_results // [])[]? | select((.observation // "") != "") | {kind:"artifact", ref:.observation, label:(.label // .id // ""), content_type:"application/json"})
         ] + .
       )
     | map(clean)
@@ -823,6 +905,11 @@ finalize() {
     return 0
   fi
 
+  if ! enforce_terminal_observation_artifact; then
+    write_verification "fail"
+    return 0
+  fi
+
   write_verification "pass"
   write_summary
 }
@@ -833,15 +920,20 @@ upload_evidence() {
   local container_url="${AGENT_SCREENSHOT_CONTAINER_URL:-https://glimmung.romaine.life/v1/artifacts}"
   local max_screenshots="${MAX_SCREENSHOTS:-20}"
   local max_videos="${MAX_VIDEOS:-10}"
-  local screenshot_prefix video_prefix screenshot_staging video_staging screenshot_total screenshot_taken video_total video_taken upload_ok
+  local max_observations="${MAX_OBSERVATIONS:-10}"
+  local screenshot_prefix video_prefix observation_prefix screenshot_staging video_staging observation_staging screenshot_total screenshot_taken video_total video_taken observation_total observation_taken upload_ok
   screenshot_prefix="runs/${GLIMMUNG_PROJECT}/${GLIMMUNG_RUN_ID}/screenshots"
   video_prefix="runs/${GLIMMUNG_PROJECT}/${GLIMMUNG_RUN_ID}/videos"
+  observation_prefix="runs/${GLIMMUNG_PROJECT}/${GLIMMUNG_RUN_ID}/observations"
   screenshot_staging="$(mktemp -d)"
   video_staging="$(mktemp -d)"
+  observation_staging="$(mktemp -d)"
   screenshot_total=0
   screenshot_taken=0
   video_total=0
   video_taken=0
+  observation_total=0
+  observation_taken=0
   upload_ok=true
 
   if compgen -G "${EVIDENCE_DIR}/screenshots/*.png" >/dev/null; then
@@ -898,8 +990,35 @@ upload_evidence() {
     done < <(find "$video_staging" -maxdepth 1 -type f | sort)
   fi
 
-  if [ "$screenshot_total" -eq 0 ] && [ "$video_total" -eq 0 ]; then
-    rm -rf "$screenshot_staging" "$video_staging"
+  if compgen -G "${EVIDENCE_DIR}/observations/*.json" >/dev/null; then
+    while IFS= read -r file; do
+      observation_total=$((observation_total + 1))
+      if [ "$observation_taken" -lt "$max_observations" ]; then
+        cp "$file" "$observation_staging/"
+        observation_taken=$((observation_taken + 1))
+      fi
+    done < <(find "${EVIDENCE_DIR}/observations" -maxdepth 1 -type f -name '*.json' | sort)
+
+    while IFS= read -r file; do
+      local base
+      [ -e "$file" ] || continue
+      base="$(basename "$file")"
+      if ! az storage blob upload \
+          --account-name "$storage_account" \
+          --container-name "$container" \
+          --name "${observation_prefix}/${base}" \
+          --file "$file" \
+          --auth-mode login \
+          --overwrite true \
+          --content-type "application/json"; then
+        upload_ok=false
+        echo "observation upload failed for ${base}; report body will point at native logs"
+      fi
+    done < <(find "$observation_staging" -maxdepth 1 -type f | sort)
+  fi
+
+  if [ "$screenshot_total" -eq 0 ] && [ "$video_total" -eq 0 ] && [ "$observation_total" -eq 0 ]; then
+    rm -rf "$screenshot_staging" "$video_staging" "$observation_staging"
     return 0
   fi
 
@@ -926,6 +1045,21 @@ upload_evidence() {
       echo ""
     fi
 
+    if [ "$observation_taken" -gt 0 ]; then
+      echo "### Observations"
+      echo ""
+      if [ "$observation_total" -gt "$observation_taken" ]; then
+        echo "_Showing first ${observation_taken} of ${observation_total} observations._"
+        echo ""
+      fi
+      for file in "$observation_staging"/*.json; do
+        [ -e "$file" ] || continue
+        base="$(basename "$file")"
+        echo "- [${base}](${container_url}/${observation_prefix}/${base})"
+      done
+      echo ""
+    fi
+
     if [ "$screenshot_taken" -gt 0 ]; then
       echo "### Screenshots"
       echo ""
@@ -943,7 +1077,7 @@ upload_evidence() {
       done
     fi
   } >"$SCREENSHOTS_MD"
-  rm -rf "$screenshot_staging" "$video_staging"
+  rm -rf "$screenshot_staging" "$video_staging" "$observation_staging"
 }
 
 write_summary() {

@@ -373,7 +373,7 @@ func TestDevSessionAppliedEventsRingBounded(t *testing.T) {
 		t.Fatalf("newDevSession: %v", err)
 	}
 	for i := 0; i < devAppliedEventsCap+10; i++ {
-		s.recordApplied(i, "pulse")
+		s.recordApplied(i, "pulse", "")
 	}
 	if got := len(s.snapshot().AppliedEvents); got != devAppliedEventsCap {
 		t.Fatalf("applied ring len = %d, want %d", got, devAppliedEventsCap)

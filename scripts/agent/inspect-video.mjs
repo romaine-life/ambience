@@ -47,6 +47,8 @@ const manifest = readArg("--manifest");
 const minDurationMs = Number(readArg("--min-duration-ms", "0"));
 const width = Number(readArg("--width", "1280"));
 const height = Number(readArg("--height", "720"));
+const frame = readArg("--frame", "sample");
+const frameSeconds = readArg("--frame-seconds");
 
 if (!file) {
   throw new Error("--file is required");
@@ -106,7 +108,17 @@ try {
     );
   }
 
-  const seekTo = Math.max(0, Math.min(loaded.duration - 0.25, loaded.duration * 0.75));
+  let seekTo;
+  if (frameSeconds) {
+    seekTo = Number(frameSeconds);
+  } else if (frame === "final") {
+    seekTo = loaded.duration - 0.25;
+  } else if (frame === "start") {
+    seekTo = 0;
+  } else {
+    seekTo = loaded.duration * 0.75;
+  }
+  seekTo = Math.max(0, Math.min(loaded.duration - 0.25, seekTo));
   await page.$eval("video", (video, target) => {
     return new Promise((resolve, reject) => {
       const timer = window.setTimeout(() => {
@@ -145,6 +157,7 @@ try {
     duration_ms: durationMs,
     width: loaded.width,
     height: loaded.height,
+    inspected_frame: frameSeconds ? "time" : frame,
     inspected_frame_seconds: Number(seekTo.toFixed(3)),
     screenshot: screenshot ? evidenceRefFor(path.resolve(screenshot)) : undefined,
   };

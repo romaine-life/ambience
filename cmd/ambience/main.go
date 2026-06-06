@@ -27,6 +27,8 @@
 //	GET  /dev/events?session=&effect=
 //	POST /dev/config?session=&effect=
 //	POST /dev/randomize?session=&effect=
+//	POST /dev/observe?session=&effect=&trigger=&state_path=&state_equals=
+//	GET  /dev/frame?session=&effect=&observation=
 //	POST /dev/trigger/:session/:event?effect=
 //	                            — fire a discrete event on the dev atmosphere
 //	GET  /effects/<effect>/schema — JSON schema for the dev knob panel
@@ -310,6 +312,8 @@ func registerDevRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/dev/events", serveDevSessionEvents)
 	mux.HandleFunc("/dev/config", serveDevSessionConfig)
 	mux.HandleFunc("/dev/randomize", serveDevSessionRandomize)
+	mux.HandleFunc("/dev/observe", serveDevSessionObserve)
+	mux.HandleFunc("/dev/frame", serveDevSessionFrame)
 	mux.HandleFunc("/dev/trigger/", serveDevSessionTrigger)
 }
 

@@ -68,7 +68,7 @@ else
 fi
 
 node scripts/agent/capture-video.mjs "${capture_args[@]}"
-node scripts/agent/inspect-video.mjs --file "${WEBM}" --screenshot "${SHOT}" --min-duration-ms "$((RECORD_MS - 1500))"
+node scripts/agent/inspect-video.mjs --file "${WEBM}" --screenshot "${SHOT}" --frame final --min-duration-ms "$((RECORD_MS - 1500))"
 
 echo "[selfcheck] done."
 echo "[selfcheck] clip:        ${WEBM}"

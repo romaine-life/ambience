@@ -13,6 +13,8 @@ shared broadcast.
 | `/dev/events` | GET (SSE) | Per-session command stream (snapshot/config/trigger/scene/metric). |
 | `/dev/config` | POST | Override the dev atmosphere's config. Body is the effect-specific config JSON or query-string-encoded knobs depending on the registered config parser. Returns 204 on success. |
 | `/dev/trigger/<session>/<event>` | POST | Fire a discrete event in the named session. `session` is the dev-session identifier. To observe the effect, load the page with the matching `?session=<session>` — the dev page honors that query param so an external driver addresses the same session it triggers (a fired trigger only affects the page when both sides agree on the id). `event` is the effect-specific event name (e.g. `lightning-flash`, `ignite`, `gust`, `downpour`). |
+| `/dev/observe` | POST | Verification-only lifecycle observer. It can trigger an event, wait for a lifecycle log marker and/or state predicate, require the predicate to hold for `hold_ticks`, then store a frozen grid frame and return a JSON trace with `appliedEvents`, ticks, config, final state, `observationId`, and `frameUrl`. |
+| `/dev/frame` | GET | Returns an `image/png` for a frozen observation frame from `/dev/observe` via `?session=<session>&effect=<effect>&observation=<observationId>`. |
 | `/effects/<effect>/schema` | GET | JSON schema for the effect's dev-panel knobs (used by the dev page to render controls). |
 
 ## Verification recipe
@@ -53,7 +55,26 @@ node scripts/agent/capture-screenshot.mjs \
   --url "$VALIDATION_URL/dev/<effect>?session=$SESSION" \
   --output /workspace/evidence/screenshots/dev-<effect>-flash.png \
   --full-page --wait-ms 1000
+
+# 5. Terminal lifecycle proof: trigger, wait for state, then freeze a frame
+node scripts/agent/capture-observation.mjs \
+  --base-url "$VALIDATION_URL" \
+  --effect "<effect>" \
+  --session "$SESSION" \
+  --trigger ending \
+  --state-path endingTicks \
+  --state-equals 0 \
+  --hold-ticks 12 \
+  --output /workspace/evidence/observations/dev-<effect>-ending.json \
+  --screenshot /workspace/evidence/screenshots/dev-<effect>-ending-terminal.png
 ```
+
+`/dev/observe` is the preferred proof path for terminal lifecycle claims. A
+video can still accompany the run so reviewers see motion, but terminal
+correctness should come from the observer trace: the trigger reached the named
+session, the state predicate became true, it held for the requested ticks, and
+the frozen PNG came from that observed state. Do not infer terminal correctness
+from an arbitrary video timestamp when a state predicate is available.
 
 ## Server readiness
 

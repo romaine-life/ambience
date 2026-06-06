@@ -50,7 +50,11 @@ Glimmung selects the concrete provider/model for this invocation through the
       `ending` leaves the gate at/below its terminal brightness **and
       stays there** on later ticks; a transient event returns to
       baseline. This makes "the world reverted instead of ending" a
-      failing test. Run it and include the test name in your output.
+      failing test. Also expose a stable machine predicate in the
+      snapshot state for that terminal condition (for example
+      `gateDark == true` or `endingTicks == 0` after the trigger is
+      applied) so `/dev/observe` can prove completion without guessing a
+      video timestamp. Run it and include the test name in your output.
    b. **Visual self-check (localhost only).** Build and run your
       in-progress code locally and watch it with the same browser tooling
       the verification stage uses, pointed at `127.0.0.1` — never the
@@ -68,6 +72,12 @@ Glimmung selects the concrete provider/model for this invocation through the
       it does not match, **fix the code** — do not write a passing JSON
       over a behavior you could not observe. Artifacts stay under `/tmp`;
       do not add them to the branch.
+   c. **Dev observer check for terminal lifecycle.** When you add or
+      change a terminal lifecycle state, exercise `/dev/observe` (or
+      `scripts/agent/capture-observation.mjs`) against your local server
+      with the terminal state predicate and include the predicate in
+      `behavior_evidence`. This is the verifier's source of truth for
+      "done"; the video is reviewer context.
 7. Write `/workspace/evidence/issue-agent-implementation.json` and
    `/workspace/evidence/issue-agent-implementation.md` per the schemas
    below. **The JSON file is required.**
@@ -89,7 +99,8 @@ Glimmung selects the concrete provider/model for this invocation through the
   },
   "behavior_evidence": {
     "lifecycle_assertions": "pass: TestMagicPortalEndingTerminal — gate stays dark past outro expiry",
-    "visual_selfcheck": "localhost /dev/magic-portal ending: final frame gate dark, matches contract resting_state"
+    "visual_selfcheck": "localhost /dev/magic-portal ending: final frame gate dark, matches contract resting_state",
+    "terminal_observer": "pass: /dev/observe trigger=ending state_path=gateDark state_equals=true hold_ticks=12"
   }
 }
 ```
@@ -97,7 +108,9 @@ Glimmung selects the concrete provider/model for this invocation through the
 `behavior_evidence` is required whenever you changed rendering, lifecycle,
 or event behavior (step 6). Use `"n/a: no visual/temporal change"` for both
 fields when the change is purely non-visual (logic, schema, server wiring).
-Never report a `visual_selfcheck` you did not actually run.
+Use `"n/a: no terminal lifecycle change"` for `terminal_observer` when no
+terminal state was added or changed. Never report a `visual_selfcheck` or
+`terminal_observer` you did not actually run.
 
 Allowed `abort_reason` values when `status` is `abort`:
 
