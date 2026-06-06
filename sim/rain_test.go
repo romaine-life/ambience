@@ -36,6 +36,9 @@ func TestNewRainAppliesDefaults(t *testing.T) {
 	if r.cfg.SpawnEvery != 3 || r.cfg.SpawnBurst != 4 {
 		t.Errorf("expected restrained foreground rain defaults, got spawnEvery=%d burst=%d", r.cfg.SpawnEvery, r.cfg.SpawnBurst)
 	}
+	if r.cfg.FrontSpeed < 40 {
+		t.Errorf("expected front-plane speed default to model near-window rain, got %.2f", r.cfg.FrontSpeed)
+	}
 }
 
 func TestEndingDefaultsStillAllowExplicitZeroKnobs(t *testing.T) {
@@ -147,6 +150,27 @@ func TestRainSheetBuildsTextureWithoutForegroundDrops(t *testing.T) {
 	}
 	if len(r.drops) != 0 {
 		t.Fatalf("foreground drops = %d, want 0 while calm suppresses spawning", len(r.drops))
+	}
+}
+
+func TestFrontPlaneBuildsNearWindowStreaksWithoutTrackedDrops(t *testing.T) {
+	r := NewRain(80, 40, 2, Config{
+		SpawnEvery:    1000000,
+		SheetDensity:  0,
+		FrontDensity:  0.8,
+		FrontStrength: 0.7,
+		FrontLength:   24,
+		FrontSpeed:    54,
+	})
+	r.calmTicks = 2
+	r.Step()
+
+	filled := countFilledPixels(r.Grid)
+	if filled < 80 {
+		t.Fatalf("front-plane rain filled %d grid cells, want at least 80", filled)
+	}
+	if len(r.drops) != 0 {
+		t.Fatalf("tracked drops = %d, want 0 for procedural front-plane streaks", len(r.drops))
 	}
 }
 

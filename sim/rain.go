@@ -71,6 +71,10 @@ type Config struct {
 	SheetStrength float64 `json:"sheet_alpha"`
 	SheetLength   int     `json:"sheet_len"`
 	SheetSpeed    float64 `json:"sheet_speed"`
+	FrontDensity  float64 `json:"front"`
+	FrontStrength float64 `json:"front_alpha"`
+	FrontLength   int     `json:"front_len"`
+	FrontSpeed    float64 `json:"front_speed"`
 	// LEVERS
 	HueDriftAmp  float64 `json:"hue_drift"`
 	WindDriftAmp float64 `json:"wind_drift"`
@@ -170,6 +174,15 @@ func (c Config) withDefaults() Config {
 	}
 	if c.SheetSpeed <= 0 {
 		c.SheetSpeed = 1.65
+	}
+	if c.FrontStrength <= 0 {
+		c.FrontStrength = 0.55
+	}
+	if c.FrontLength <= 0 {
+		c.FrontLength = 24
+	}
+	if c.FrontSpeed <= 0 {
+		c.FrontSpeed = 54
 	}
 	if c.DownpourDur <= 0 {
 		c.DownpourDur = 360
@@ -300,6 +313,14 @@ func RainSchema() EffectSchema {
 				Description: "Streak length for the procedural background sheet."},
 			{Key: "sheet_speed", Label: "sheet speed", Slot: SlotLever, Group: "texture", Type: KnobFloat, Min: 0.3, Max: 3, Step: 0.05, Default: 1.65,
 				Description: "Rows per tick for the procedural background sheet."},
+			{Key: "front", Label: "front", Slot: SlotLever, Group: "front plane", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0.35,
+				Description: "Near-window rain streak density. This layer represents rain crossing the screen plane, not slow falling particles."},
+			{Key: "front_alpha", Label: "front alpha", Slot: SlotLever, Group: "front plane", Type: KnobFloat, Min: 0.1, Max: 1, Step: 0.05, Default: 0.55,
+				Description: "Brightness of front-plane rain flashes."},
+			{Key: "front_len", Label: "front len", Slot: SlotLever, Group: "front plane", Type: KnobInt, Min: 4, Max: 48, Step: 1, Default: 24,
+				Description: "Streak length for near-window rain flashes."},
+			{Key: "front_speed", Label: "front speed", Slot: SlotLever, Group: "front plane", Type: KnobFloat, Min: 8, Max: 100, Step: 1, Default: 54,
+				Description: "Rows per tick for front-plane rain. High values model monitor-height rain crossing in only a few frames."},
 			{Key: "hue_drift", Label: "hue drift", Slot: SlotLever, Group: "drift", Type: KnobFloat, Min: 0, Max: 60, Step: 1, Default: 0,
 				Description: "Amplitude (±degrees) the base hue slowly wanders over ~30s cycles. 0 = static."},
 			{Key: "wind_drift", Label: "wind drift", Slot: SlotLever, Group: "drift", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
@@ -764,6 +785,7 @@ func (r *Rain) repaintLocked() {
 	for _, d := range r.drops {
 		r.paintDrop(d)
 	}
+	r.paintFrontPlane()
 }
 
 // TriggerEvent fires a discrete event immediately, bypassing probability.
@@ -1346,6 +1368,65 @@ func (r *Rain) paintSheet() {
 			gc := wrapInt(int(math.Round(col)), r.W)
 			tail := 1 - float64(j)/float64(length)
 			brightness := strength * (0.35 + 0.65*tail) * (0.75 + hashUnit(h2)*0.25)
+			c := base
+			c.R = uint8(float64(c.R) * brightness)
+			c.G = uint8(float64(c.G) * brightness)
+			c.B = uint8(float64(c.B) * brightness)
+			r.paintPixelMax(gr, gc, c)
+		}
+	}
+}
+
+func (r *Rain) paintFrontPlane() {
+	if r.cfg.FrontDensity <= 0 || r.W <= 0 || r.H <= 0 {
+		return
+	}
+	length := r.cfg.FrontLength
+	if length < 4 {
+		length = 4
+	}
+	if length > 64 {
+		length = 64
+	}
+	strength := clamp01(r.cfg.FrontStrength)
+	if strength <= 0 {
+		return
+	}
+	speed := r.cfg.FrontSpeed
+	if speed <= 0 {
+		speed = 54
+	}
+	streams := int(math.Round(clamp01(r.cfg.FrontDensity) * float64(r.W) * 0.18))
+	if streams < 1 {
+		streams = 1
+	}
+	span := float64(r.H + length*2)
+	wind := r.currentWind()
+	rowStep, colStep := normalizedMotion(1, wind)
+	for i := 0; i < streams; i++ {
+		h0 := hash64(uint64(i)*0x94d049bb133111eb + 0xa54ff53a5f1d36f1)
+		h1 := hash64(uint64(i)*0xbf58476d1ce4e5b9 + 0x510e527fade682d1)
+		h2 := hash64(uint64(i)*0x9e3779b97f4a7c15 + 0x1f83d9abfb41bd6b)
+		phase := hashUnit(h0) * span
+		streamSpeed := speed * (0.72 + hashUnit(h1)*0.56)
+		headRow := math.Mod(phase+float64(r.tick)*streamSpeed, span) - float64(length)
+		baseCol := hashUnit(h2) * float64(r.W)
+		hue := math.Mod(r.currentHue()+(hashUnit(h1)*2-1)*r.cfg.HueSpread*0.35+360, 360)
+		light := r.cfg.LightnessMax + (1-r.cfg.LightnessMax)*0.25
+		base := hslToRGB(hue, r.cfg.Saturation*0.45, light)
+		for j := 0; j < length; j++ {
+			row := headRow - float64(j)*rowStep
+			col := baseCol + row*wind - float64(j)*colStep
+			gr := int(math.Floor(row))
+			if gr < 0 || gr >= r.H {
+				continue
+			}
+			gc := int(math.Round(col))
+			if gc < 0 || gc >= r.W {
+				continue
+			}
+			tail := 1 - float64(j)/float64(length)
+			brightness := strength * (0.2 + 0.8*tail) * (0.85 + hashUnit(h0)*0.15)
 			c := base
 			c.R = uint8(float64(c.R) * brightness)
 			c.G = uint8(float64(c.G) * brightness)

@@ -177,6 +177,9 @@ func TestGeneratedRainScenesStayInWeatherFieldRange(t *testing.T) {
 		if cfg.SheetDensity < 0.5 || cfg.SheetStrength <= 0 || cfg.SheetLength < 9 || cfg.SheetSpeed < 1.3 {
 			t.Fatalf("generated rain lacks atmospheric sheet %d: %+v", i, cfg)
 		}
+		if cfg.FrontDensity < 0.25 || cfg.FrontStrength < 0.35 || cfg.FrontLength < 18 || cfg.FrontSpeed < 40 {
+			t.Fatalf("generated rain lacks near-window front plane %d: %+v", i, cfg)
+		}
 	}
 }
 

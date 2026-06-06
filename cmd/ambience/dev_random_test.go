@@ -121,6 +121,9 @@ func TestRandomizedRainConfigKeepsReadableWeatherEnvelope(t *testing.T) {
 		if values["sheet"] < 0.5 || values["sheet_len"] < 9 || values["sheet_speed"] < 1.3 || values["sheet_speed"] > 2.0 {
 			t.Fatalf("seed %d produced rain without enough atmospheric sheet: %v", seed, values)
 		}
+		if values["front"] < 0.25 || values["front"] > 0.55 || values["front_alpha"] < 0.35 || values["front_alpha"] > 0.7 || values["front_len"] < 18 || values["front_len"] > 32 || values["front_speed"] < 40 || values["front_speed"] > 72 {
+			t.Fatalf("seed %d produced rain outside front-plane envelope: %v", seed, values)
+		}
 		if values["hue"] < 190 || values["hue"] > 240 || values["sat"] > 0.45 || values["lmax"] > 0.75 {
 			t.Fatalf("seed %d produced rain outside restrained palette: %v", seed, values)
 		}

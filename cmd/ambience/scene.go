@@ -91,6 +91,10 @@ func generateRainScene(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
 	sheetStrength := 0.22 + rng.Float64()*0.16
 	sheetLength := 9 + rng.Intn(6)
 	sheetSpeed := 1.35 + rng.Float64()*0.55
+	frontDensity := 0.28 + rng.Float64()*0.22
+	frontStrength := 0.4 + rng.Float64()*0.25
+	frontLength := 18 + rng.Intn(13)
+	frontSpeed := 42 + rng.Float64()*28
 
 	// Per-tick event chances stay low at 60 Hz; events should punctuate the
 	// field rather than constantly re-shape it.
@@ -119,6 +123,10 @@ func generateRainScene(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
 		SheetStrength:  sheetStrength,
 		SheetLength:    sheetLength,
 		SheetSpeed:     sheetSpeed,
+		FrontDensity:   frontDensity,
+		FrontStrength:  frontStrength,
+		FrontLength:    frontLength,
+		FrontSpeed:     frontSpeed,
 		DownpourChance: downpourP,
 		CalmChance:     calmP,
 		GustChance:     gustP,
