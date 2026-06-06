@@ -58,29 +58,45 @@ func TestBrowserRenderingStaysPixelGrid(t *testing.T) {
 	}
 }
 
-// The "Exposed" chrome is summoned/dismissed with Esc rather than a collapsible
-// panel. The live monitor is world-first (chrome dismissed on load — Esc reveals
-// it); the dev workbench shows its chrome on load. Both pages mount the shared
-// chrome (window.AmbienceChrome) instead of the old per-page control panel.
+// The "Exposed" chrome is summoned/dismissed with Esc. The dev workbench shows
+// its chrome on load (summoned: true). The live monitor is world-first
+// (dismissed by default) but honors a #monitor / ?monitor / ?chrome=open deep
+// link so the operator schematic is shareable, deep-linkable, and capturable
+// headlessly without a keypress. Both pages mount the shared chrome
+// (window.AmbienceChrome) instead of the old per-page control panel.
 func TestChromeSummonDefaults(t *testing.T) {
-	cases := []struct {
-		page         string
-		wantSummoned string
-	}{
-		{"index.html", "summoned: false"},
-		{"dev.html", "summoned: true"},
-	}
-	for _, tc := range cases {
-		bodyBytes, err := os.ReadFile(filepath.Join("web", tc.page))
+	for _, page := range []string{"index.html", "dev.html"} {
+		bodyBytes, err := os.ReadFile(filepath.Join("web", page))
 		if err != nil {
 			t.Fatal(err)
 		}
-		body := string(bodyBytes)
-		if !strings.Contains(body, "window.AmbienceChrome.mount(") {
-			t.Fatalf("%s must mount the shared Exposed chrome", tc.page)
+		if !strings.Contains(string(bodyBytes), "window.AmbienceChrome.mount(") {
+			t.Fatalf("%s must mount the shared Exposed chrome", page)
 		}
-		if !strings.Contains(body, tc.wantSummoned) {
-			t.Fatalf("%s must mount chrome with %q", tc.page, tc.wantSummoned)
+	}
+
+	dev, err := os.ReadFile(filepath.Join("web", "dev.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dev), "summoned: true") {
+		t.Fatal("dev.html must mount the chrome summoned on load")
+	}
+
+	index, err := os.ReadFile(filepath.Join("web", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexBody := string(index)
+	// The mount flag is derived (world-first default, deep-link opens it), not a
+	// literal true/false, so assert the derivation and the deep-link wiring.
+	for _, want := range []string{
+		"const monitorDeepLink",
+		"'#monitor'",
+		"summoned: monitorDeepLink",
+	} {
+		if !strings.Contains(indexBody, want) {
+			t.Fatalf("index.html live monitor must be world-first with a deep-link open; missing %q", want)
 		}
 	}
 }

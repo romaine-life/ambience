@@ -64,8 +64,9 @@ readiness signal (running `go run ./cmd/ambience` in-pod), poll
 `/snapshot` until it returns 200; that endpoint is among the first
 the server registers and it has no per-session state requirement.
 
-A first-class `/healthz` endpoint is tracked separately as a small
-follow-up.
+The server also registers first-class `/healthz` (liveness) and `/readyz`
+(readiness) endpoints — the chart's edge probes use them — so prefer those
+for container/HTTP readiness; `/snapshot` stays a convenient local signal.
 
 ## Captured-video inspection
 

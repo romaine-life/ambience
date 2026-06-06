@@ -78,10 +78,18 @@
 	let authProvider = '', microsoftTenant = '', microsoftClientId = '';
 
 	// ── chrome controller ──────────────────────────────────────────────────
+	// World-first by default: the live monitor loads with the chrome dismissed.
+	// A deep link opens the "Exposed" schematic on load — #monitor (or ?monitor /
+	// ?chrome=open) — so the operator view is shareable, deep-linkable, and
+	// capturable headlessly without a keypress.
+	const monitorParams = new URLSearchParams(window.location.search);
+	const monitorDeepLink = window.location.hash === '#monitor'
+		|| monitorParams.has('monitor')
+		|| monitorParams.get('chrome') === 'open';
 	const chrome = window.AmbienceChrome.mount({
 		host: document.getElementById('chrome'),
 		hint: document.getElementById('summonHint'),
-		canvas, mode: 'live', gridW: GRID_W, gridH: GRID_H, summoned: false, locked: true,
+		canvas, mode: 'live', gridW: GRID_W, gridH: GRID_H, summoned: monitorDeepLink, locked: true,
 		line: 'the live broadcast — every screen in step. controls mirror the world; intervening is admin-gated.',
 		routeJump: { label: 'dev →', title: 'open the dev tuning sandbox', onClick: () => { window.location.href = '/dev'; } },
 		ctl: { title: 'control surface', modeLabel: 'live · admin', note: '' },
