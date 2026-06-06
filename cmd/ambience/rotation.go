@@ -20,10 +20,10 @@ import (
 	"github.com/romaine-life/ambience/rngutil"
 )
 
-// defaultRotationCadenceTicks is 10 minutes at 10 Hz — the middle of the
+// defaultRotationCadenceTicks is 10 minutes — the middle of the
 // 5–15 minute window the issue called out as "long enough to feel coherent,
 // short enough to see variety."
-const defaultRotationCadenceTicks = 6000
+var defaultRotationCadenceTicks = ticksFor(10 * time.Minute)
 
 // defaultRotationEffects is the live-effect allowlist. Keep the full registry
 // available through /dev for Glimmung exploration, but only promote effects

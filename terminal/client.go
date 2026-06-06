@@ -44,8 +44,8 @@ type Config struct {
 	// GridW, GridH control the local sim's grid dimensions in pixels. Larger
 	// grids = more drops + wider visible strip. Defaults suit a narrow strip.
 	GridW, GridH int
-	// TickRate — how often the local sim advances. Defaults to 100ms (10Hz),
-	// matching the server's atmosphere tick.
+	// TickRate — how often the local sim advances. Defaults to the server's
+	// 60 Hz atmosphere tick.
 	TickRate time.Duration
 	// OnError is an optional callback for logging transient errors (e.g.
 	// disconnected SSE). If nil, errors are silent.
@@ -58,8 +58,8 @@ type Config struct {
 	// RecordEvery — save one frame every N ticks. 0 disables recording
 	// even when RecordDir is set.
 	RecordEvery int
-	// DelayTicks is the authority-clock playback delay. Defaults to 50 ticks,
-	// matching the browser client.
+	// DelayTicks is the authority-clock playback delay. Defaults to 300 ticks,
+	// matching the browser client's five-second buffer.
 	DelayTicks int
 }
 
@@ -78,6 +78,12 @@ type commandWire struct {
 	Tick  int             `json:"tick"`
 	Event string          `json:"event,omitempty"`
 	Data  json.RawMessage `json:"data,omitempty"`
+}
+
+type clockWire struct {
+	Tick                int     `json:"tick"`
+	TickRateMs          float64 `json:"tickRateMs"`
+	SuggestedDelayTicks *int    `json:"suggestedDelayTicks"`
 }
 
 type queuedCommand struct {
@@ -99,7 +105,7 @@ type playbackClock struct {
 
 func newPlaybackClock(tickRate time.Duration, delayTicks int) playbackClock {
 	if tickRate <= 0 {
-		tickRate = 100 * time.Millisecond
+		tickRate = defaultTickRate
 	}
 	if delayTicks < 0 {
 		delayTicks = 0
@@ -111,6 +117,15 @@ func newPlaybackClock(tickRate time.Duration, delayTicks int) playbackClock {
 		hardCatchupDrift: 100,
 		maxCatchupSteps:  5,
 		now:              time.Now,
+	}
+}
+
+func (p *playbackClock) configure(tickRate time.Duration, delayTicks int) {
+	if tickRate > 0 {
+		p.tickRate = tickRate
+	}
+	if delayTicks >= 0 {
+		p.delayTicks = delayTicks
 	}
 }
 
@@ -190,8 +205,10 @@ type DebugState struct {
 // Clients with grids much larger than this scale Speed + SpawnBurst so a
 // full-surface overlay doesn't look like a sparse drizzle.
 const (
-	refGridW = 40
-	refGridH = 30
+	defaultTickRate   = time.Second / 60
+	defaultDelayTicks = 300
+	refGridW          = 40
+	refGridH          = 30
 )
 
 // Client is an ambience subscriber + local sim + sixel renderer.
@@ -267,10 +284,10 @@ func New(cfg Config) *Client {
 		cfg.GridH = 20
 	}
 	if cfg.TickRate <= 0 {
-		cfg.TickRate = 100 * time.Millisecond
+		cfg.TickRate = defaultTickRate
 	}
 	if cfg.DelayTicks <= 0 {
-		cfg.DelayTicks = 50
+		cfg.DelayTicks = defaultDelayTicks
 	}
 	if cfg.ServerURL == "" {
 		cfg.ServerURL = "https://ambience.romaine.life"
@@ -403,12 +420,34 @@ func (c *Client) applyCommand(payload string) {
 	case "snapshot":
 		c.applyCommandNow(cmd, data)
 	case "clock":
+		c.applyClock(data)
 		return
 	case "config", "trigger":
 		c.queueCommand(cmd, data)
 	default:
 		return
 	}
+}
+
+func (c *Client) applyClock(data json.RawMessage) {
+	var clk clockWire
+	if len(data) > 0 {
+		_ = json.Unmarshal(data, &clk)
+	}
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if clk.Tick > 0 {
+		c.playbackClock.noteAuthorityTick(clk.Tick, time.Time{})
+	}
+	tickRate := time.Duration(0)
+	if clk.TickRateMs > 0 {
+		tickRate = time.Duration(clk.TickRateMs * float64(time.Millisecond))
+	}
+	delayTicks := -1
+	if clk.SuggestedDelayTicks != nil && *clk.SuggestedDelayTicks >= 0 {
+		delayTicks = *clk.SuggestedDelayTicks
+	}
+	c.playbackClock.configure(tickRate, delayTicks)
 }
 
 func (c *Client) queueCommand(cmd commandWire, data json.RawMessage) {

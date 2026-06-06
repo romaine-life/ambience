@@ -40,9 +40,9 @@
 		if (!Number.isFinite(n)) return fallback;
 		return Math.max(min, Math.min(max, n));
 	}
-	const GRID_W = intParam('gridW', 160, 32, 640);
-	const GRID_H = intParam('gridH', 80, 24, 360);
-	const FPS = intParam('fps', 10, 1, 60);
+	const GRID_W = intParam('gridW', 320, 32, 640);
+	const GRID_H = intParam('gridH', 180, 24, 360);
+	const FPS = intParam('fps', 60, 1, 60);
 	const STEP_MS = Math.max(1, Math.round(1000 / FPS));
 	// Honor a caller-supplied session id from the URL so an external driver
 	// (the glimmung verifier, selfcheck-effect.sh) can address the SAME dev
@@ -84,9 +84,9 @@
 	}
 	function effectPath(name) {
 		const q = new URLSearchParams();
-		if (GRID_W !== 160) q.set('gridW', String(GRID_W));
-		if (GRID_H !== 80) q.set('gridH', String(GRID_H));
-		if (FPS !== 10) q.set('fps', String(FPS));
+		if (GRID_W !== 320) q.set('gridW', String(GRID_W));
+		if (GRID_H !== 180) q.set('gridH', String(GRID_H));
+		if (FPS !== 60) q.set('fps', String(FPS));
 		const suffix = q.toString();
 		return '/dev/' + encodeURIComponent(name) + (suffix ? '?' + suffix : '');
 	}

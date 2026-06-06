@@ -163,16 +163,19 @@ func TestRainSceneRotationKeepsDriftCapability(t *testing.T) {
 func TestGeneratedRainScenesStayInWeatherFieldRange(t *testing.T) {
 	rng := rngutil.New(44)
 	for i := 0; i < 64; i++ {
-		scene := generateRainScene(rng, i*100, 36000)
+		scene := generateRainScene(rng, i*100, ticksFor(time.Hour))
 		var cfg sim.Config
 		if err := json.Unmarshal(scene.Config, &cfg); err != nil {
 			t.Fatalf("decode generated rain config %d: %v", i, err)
 		}
-		if cfg.Speed < 2.2 || cfg.SpawnEvery > 2 || cfg.SpawnBurst < 6 || cfg.StreakLen < 10 {
-			t.Fatalf("generated sparse/slow rain config %d: %+v", i, cfg)
+		if cfg.Speed < 0.85 || cfg.Speed > 1.3 || cfg.SpawnEvery < 3 || cfg.SpawnEvery > 5 || cfg.SpawnBurst < 3 || cfg.SpawnBurst > 5 || cfg.StreakLen < 10 {
+			t.Fatalf("generated rain outside 60 Hz foreground range %d: %+v", i, cfg)
 		}
-		if cfg.Layers < 2 || cfg.LayerBalance < 0.5 {
+		if cfg.Layers < 2 || cfg.LayerBalance < 0.45 {
 			t.Fatalf("generated rain lacks background depth %d: %+v", i, cfg)
+		}
+		if cfg.SheetDensity < 0.5 || cfg.SheetStrength <= 0 || cfg.SheetLength < 9 || cfg.SheetSpeed < 0.9 {
+			t.Fatalf("generated rain lacks atmospheric sheet %d: %+v", i, cfg)
 		}
 	}
 }

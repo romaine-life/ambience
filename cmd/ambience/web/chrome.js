@@ -98,7 +98,7 @@ window.AmbienceChrome = (function () {
 	function mount(opts) {
 		const C = {
 			host: opts.host, canvas: opts.canvas, hint: opts.hint || null,
-			mode: opts.mode, gridW: opts.gridW || 160, gridH: opts.gridH || 80,
+			mode: opts.mode, gridW: opts.gridW || 320, gridH: opts.gridH || 180,
 			transition: opts.transition || 'cinematic',
 			handlers: opts.handlers || {},
 			summoned: opts.summoned !== false,

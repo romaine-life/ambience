@@ -30,11 +30,15 @@ import (
 // scenes (AMBIENCE_SCENE_TICKS=60) we want the drift to finish before the
 // next rotation, so we scale down.
 const (
-	maxTransitionTicks        = 600 // 60 s at 10 Hz
-	transitionBroadcastEvery  = 10  // every 1 s during drift
-	metricBroadcastEvery      = 50  // every 5 s as a low-rate heartbeat
-	clockBroadcastEvery       = 10  // every 1 s; sparse authority-clock samples
 	authorityReplayBufferSize = 512
+)
+
+var (
+	maxTransitionTicks          = ticksFor(60 * time.Second)
+	transitionBroadcastEvery    = ticksFor(1 * time.Second)
+	metricBroadcastEvery        = ticksFor(5 * time.Second)
+	clockBroadcastEvery         = ticksFor(1 * time.Second)
+	suggestedPlaybackDelayTicks = ticksFor(5 * time.Second)
 )
 
 // Command is a single message sent from server to clients.
@@ -79,9 +83,9 @@ type snapshotData struct {
 }
 
 type clockData struct {
-	Tick                int `json:"tick"`
-	TickRateMs          int `json:"tickRateMs"`
-	SuggestedDelayTicks int `json:"suggestedDelayTicks"`
+	Tick                int     `json:"tick"`
+	TickRateMs          float64 `json:"tickRateMs"`
+	SuggestedDelayTicks int     `json:"suggestedDelayTicks"`
 }
 
 type atmosphere struct {
@@ -417,8 +421,8 @@ func (a *atmosphere) rotateToEffect(cur int, effectType string) bool {
 func (a *atmosphere) broadcastClock(tick int) {
 	data, _ := json.Marshal(clockData{
 		Tick:                tick,
-		TickRateMs:          int(tickRate / time.Millisecond),
-		SuggestedDelayTicks: 50,
+		TickRateMs:          float64(tickRate) / float64(time.Millisecond),
+		SuggestedDelayTicks: suggestedPlaybackDelayTicks,
 	})
 	a.broadcast(Command{Kind: "clock", Tick: tick, Data: data})
 }

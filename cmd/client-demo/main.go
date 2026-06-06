@@ -31,8 +31,8 @@ func main() {
 	server := flag.String("server", "https://ambience.romaine.life", "ambience server URL")
 	out := flag.String("out", "./frames", "directory to save PNG frames into")
 	every := flag.Int("every", 5, "save every N ticks (0 to disable)")
-	gridW := flag.Int("w", 160, "grid width (pixels)")
-	gridH := flag.Int("h", 80, "grid height (pixels)")
+	gridW := flag.Int("w", 320, "grid width (pixels)")
+	gridH := flag.Int("h", 180, "grid height (pixels)")
 	duration := flag.Duration("duration", 15*time.Second, "how long to run before exiting (0 = until Ctrl-C)")
 	flag.Parse()
 

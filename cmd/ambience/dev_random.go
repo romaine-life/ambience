@@ -30,18 +30,49 @@ func stabilizeRandomizedDevConfig(effect string, cfg map[string]any) {
 	if effect != "rain" {
 		return
 	}
-	clampFloatMin(cfg, "speed", 2.1)
+	clampFloatMin(cfg, "speed", 0.85)
+	clampFloatMax(cfg, "speed", 1.35)
 	clampIntMin(cfg, "streak", 10)
-	clampIntMax(cfg, "spawn", 2)
-	clampIntMin(cfg, "burst", 6)
+	clampIntMin(cfg, "spawn", 2)
+	clampIntMax(cfg, "spawn", 5)
+	clampIntMin(cfg, "burst", 3)
+	clampIntMax(cfg, "burst", 5)
 	clampIntMin(cfg, "layers", 2)
-	clampFloatMin(cfg, "lbal", 0.5)
+	clampFloatMin(cfg, "lbal", 0.45)
+	clampFloatMin(cfg, "sheet", 0.5)
+	clampIntMin(cfg, "sheet_len", 9)
+	clampFloatMax(cfg, "sheet_alpha", 0.45)
+	clampFloatMax(cfg, "sheet_speed", 1.5)
+	clampRainHue(cfg)
+	clampFloatMax(cfg, "hue_sp", 18)
+	clampFloatMax(cfg, "sat", 0.45)
+	clampFloatMax(cfg, "lmin", 0.45)
+	clampFloatMax(cfg, "lmax", 0.75)
+	clampFloatMax(cfg, "downpour_p", 0.0003)
+	clampFloatMax(cfg, "calm_p", 0.0003)
+	clampFloatMax(cfg, "gust_p", 0.0003)
+	clampFloatMax(cfg, "splash_p", 0.0006)
+	clampFloatMax(cfg, "downpour_mult", 4)
 }
 
 func clampFloatMin(cfg map[string]any, key string, min float64) {
 	if v, ok := cfg[key].(float64); ok && v < min {
 		cfg[key] = min
 	}
+}
+
+func clampFloatMax(cfg map[string]any, key string, max float64) {
+	if v, ok := cfg[key].(float64); ok && v > max {
+		cfg[key] = max
+	}
+}
+
+func clampRainHue(cfg map[string]any) {
+	v, ok := cfg["hue"].(float64)
+	if !ok || (v >= 190 && v <= 240) {
+		return
+	}
+	cfg["hue"] = 204 + math.Mod(math.Abs(v), 28)
 }
 
 func clampIntMin(cfg map[string]any, key string, min int) {

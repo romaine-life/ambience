@@ -12,10 +12,10 @@
 //
 // Configuration, via attributes on the <canvas>:
 //   data-ambience-url="https://ambience.romaine.life"   — server override
-//   data-ambience-grid-w="200" / data-ambience-grid-h="100" — sim grid size
+//   data-ambience-grid-w="320" / data-ambience-grid-h="180" — sim grid size
 //   data-ambience-transparent="false"  — paint solid bg (default: true)
 //   data-ambience-entropy="off"        — disable keystroke entropy upload
-//   data-ambience-delay-ticks="50"     — render this many 10 Hz ticks behind authority
+//   data-ambience-delay-ticks="300"    — render this many authority ticks behind authority
 //   data-ambience-initial-fade-ms="1200" — fade in after the first authority snapshot
 //   data-ambience-initial-fade-color="#050505" — startup cover color
 //
@@ -30,8 +30,8 @@
 	function createPlaybackClock(opts) {
 		opts = opts || {};
 		const now = opts.now || (() => performance.now());
-		const tickMs = Math.max(1, opts.tickMs || 100);
-		const delayTicks = Math.max(0, opts.delayTicks || 0);
+		let tickMs = Math.max(1, opts.tickMs || 100);
+		let delayTicks = Math.max(0, opts.delayTicks || 0);
 		const softCatchupDrift = Math.max(1, opts.softCatchupDrift || 20);
 		const hardCatchupDrift = Math.max(softCatchupDrift, opts.hardCatchupDrift || 100);
 		const maxCatchupSteps = Math.max(1, opts.maxCatchupSteps || 5);
@@ -44,6 +44,12 @@
 			authoritySampleTick = tick;
 			authoritySampleAt = Number.isFinite(sampleAt) ? sampleAt : now();
 			haveAuthoritySample = true;
+		}
+
+		function configure(next) {
+			if (!next) return;
+			if (Number.isFinite(next.tickMs) && next.tickMs > 0) tickMs = Math.max(1, next.tickMs);
+			if (Number.isFinite(next.delayTicks) && next.delayTicks >= 0) delayTicks = Math.max(0, Math.round(next.delayTicks));
 		}
 
 		function estimatedAuthorityTick(fallbackTick) {
@@ -97,7 +103,7 @@
 			};
 		}
 
-		return { noteAuthorityTick, estimatedAuthorityTick, targetPlaybackTick, stepsFor, debugState };
+		return { noteAuthorityTick, configure, estimatedAuthorityTick, targetPlaybackTick, stepsFor, debugState };
 	}
 
 	window.AmbienceClientClock = window.AmbienceClientClock || { createPlaybackClock };
@@ -129,12 +135,13 @@
 		canvas.dataset.ambienceUrl ||
 		window.AMBIENCE_URL ||
 		(isLocalhost ? 'http://127.0.0.1:8080' : 'https://ambience.romaine.life');
-	const GRID_W = parseInt(canvas.dataset.ambienceGridW || '200', 10);
-	const GRID_H = parseInt(canvas.dataset.ambienceGridH || '100', 10);
+	const GRID_W = parseInt(canvas.dataset.ambienceGridW || '320', 10);
+	const GRID_H = parseInt(canvas.dataset.ambienceGridH || '180', 10);
 	const TRANSPARENT = canvas.dataset.ambienceTransparent !== 'false';
 	const ENTROPY_ENABLED = canvas.dataset.ambienceEntropy !== 'off';
-	const TICK_MS = 100;
-	const PLAYBACK_DELAY_TICKS = Math.max(0, parseInt(canvas.dataset.ambienceDelayTicks || '50', 10) || 0);
+	const TICK_MS = 1000 / 60;
+	const HAS_DELAY_ATTR = canvas.dataset.ambienceDelayTicks != null;
+	const PLAYBACK_DELAY_TICKS = Math.max(0, parseInt(canvas.dataset.ambienceDelayTicks || '300', 10) || 0);
 	const INITIAL_FADE_MS = Math.max(0, parseInt(canvas.dataset.ambienceInitialFadeMs || '1200', 10) || 0);
 	const MAX_CATCHUP_STEPS = 5;
 	const SOFT_CATCHUP_DRIFT = 20;
@@ -401,8 +408,16 @@
 		es.addEventListener('message', (e) => {
 			let cmd;
 			try { cmd = JSON.parse(e.data); } catch (_) { return; }
-			clock.noteAuthorityTick(cmd.tick);
 			const data = typeof cmd.data === 'string' ? JSON.parse(cmd.data) : cmd.data;
+			if (cmd.kind === 'clock' && data) {
+				clock.configure({
+					tickMs: Number(data.tickRateMs),
+					delayTicks: HAS_DELAY_ATTR ? undefined : Number(data.suggestedDelayTicks),
+				});
+				clock.noteAuthorityTick(Number.isFinite(data.tick) ? data.tick : cmd.tick);
+			} else {
+				clock.noteAuthorityTick(cmd.tick);
+			}
 			switch (cmd.kind) {
 				case 'snapshot':
 					applyCommandNow(cmd, data);
@@ -420,9 +435,9 @@
 			}
 		});
 
-		// Combined 10 Hz tick (matches server atmosphere rate). Step + render
-		// in one setInterval — rAF pauses in background tabs and we don't need
-		// 60 Hz for a 10 Hz sim.
+		// Step and render on the authority cadence. rAF stays out of the
+		// simulation clock so background-tab throttling cannot silently change
+		// the replica's tick math.
 		setInterval(() => {
 			if (ready) stepTowardAuthorityClock();
 			// Unwrap a finished crossfade so we drop the outgoing sim and stop
@@ -437,7 +452,7 @@
 				initialFadePending = false;
 				revealInitialScene();
 			}
-		}, 100);
+		}, Math.max(1, Math.round(TICK_MS)));
 	}
 
 	function startEntropy() {

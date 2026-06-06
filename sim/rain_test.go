@@ -30,11 +30,11 @@ func TestNewRainAppliesDefaults(t *testing.T) {
 	if r.cfg.LayerBalance == 0 {
 		t.Errorf("expected default LayerBalance")
 	}
-	if r.cfg.Speed < 2.5 {
-		t.Errorf("expected rain default to move briskly, got speed %.2f", r.cfg.Speed)
+	if r.cfg.Speed < 0.9 || r.cfg.Speed > 1.2 {
+		t.Errorf("expected 60 Hz rain default speed near 1 row/tick, got %.2f", r.cfg.Speed)
 	}
-	if r.cfg.SpawnEvery > 1 || r.cfg.SpawnBurst < 8 {
-		t.Errorf("expected dense default rain, got spawnEvery=%d burst=%d", r.cfg.SpawnEvery, r.cfg.SpawnBurst)
+	if r.cfg.SpawnEvery != 3 || r.cfg.SpawnBurst != 4 {
+		t.Errorf("expected restrained foreground rain defaults, got spawnEvery=%d burst=%d", r.cfg.SpawnEvery, r.cfg.SpawnBurst)
 	}
 }
 
@@ -114,14 +114,19 @@ func TestFastDropPaintsContiguousGridTrail(t *testing.T) {
 }
 
 func TestDefaultRainBuildsFullerWeatherField(t *testing.T) {
-	r := NewRain(160, 80, 2, Config{})
+	r := NewRain(160, 80, 2, Config{
+		SheetDensity:  0.6,
+		SheetStrength: 0.3,
+		SheetLength:   11,
+		SheetSpeed:    1.2,
+	})
 	for i := 0; i < 160; i++ {
 		r.Step()
 	}
 
 	filled := countFilledPixels(r.Grid)
-	if filled < 1100 {
-		t.Fatalf("default rain filled %d grid cells after warmup, want at least 1100", filled)
+	if filled < 1300 {
+		t.Fatalf("default rain filled %d grid cells after warmup, want at least 1300", filled)
 	}
 }
 

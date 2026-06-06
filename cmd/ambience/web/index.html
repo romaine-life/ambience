@@ -47,7 +47,8 @@
 	// (/control-auth) and stay read-only until an admin signs in and arms them.
 	'use strict';
 
-	const GRID_W = 160, GRID_H = 80;
+	const GRID_W = 320, GRID_H = 180;
+	const TICK_MS = 1000 / 60;
 	const L = window.AmbienceChrome.effectLabel;
 	const canvas = document.getElementById('c');
 	const ctx = canvas.getContext('2d');
@@ -68,7 +69,7 @@
 
 	// world / scene state
 	let effectType = null, effect = null, latestConfig = null, ready = false;
-	let serverTick = 0, lastBeatAt = Date.now(), sceneStartTick = 0, sceneDurationTicks = 0;
+	let serverTick = 0, tickRateMs = TICK_MS, lastBeatAt = Date.now(), sceneStartTick = 0, sceneDurationTicks = 0;
 	let currentSceneName = '—', nextSceneName = '—', entropyBytes = 0;
 	let connState = 'acquiring';
 
@@ -106,7 +107,8 @@
 
 	// ── formatting ───────────────────────────────────────────────────────
 	function fmtDuration(ticks) {
-		const secs = Math.max(0, Math.round(ticks / 10));
+		const ticksPerSecond = Math.max(1, 1000 / tickRateMs);
+		const secs = Math.max(0, Math.round(ticks / ticksPerSecond));
 		const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
 		if (h > 0) return h + 'h ' + String(m).padStart(2, '0') + 'm';
 		if (m > 0) return m + 'm ' + String(s).padStart(2, '0') + 's';
@@ -117,7 +119,7 @@
 		if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
 		return (n / 1024 / 1024).toFixed(2) + ' MB';
 	}
-	function tickNow() { return serverTick + Math.round((Date.now() - lastBeatAt) / 100); }
+	function tickNow() { return serverTick + Math.round((Date.now() - lastBeatAt) / tickRateMs); }
 	function remainingTicks() { return Math.max(0, sceneStartTick + sceneDurationTicks - tickNow()); }
 
 	// ── auth UI ────────────────────────────────────────────────────────────
@@ -392,6 +394,13 @@
 						if (m.nextName) { nextSceneName = m.nextName; chrome.setTele('up.next', L(nextSceneName)); }
 					} catch (_) {}
 					break;
+				case 'clock':
+					try {
+						const c = cmd.data;
+						if (typeof c.tickRateMs === 'number' && c.tickRateMs > 0) tickRateMs = c.tickRateMs;
+						if (typeof c.tick === 'number') serverTick = c.tick;
+					} catch (_) {}
+					break;
 			}
 		};
 		es.onerror = () => { setConn('reconnecting'); };
@@ -403,7 +412,7 @@
 				if (effect.outgoing && typeof effect.outgoing.destroy === 'function') effect.outgoing.destroy();
 				effect = effect.incoming;
 			}
-		}, 100);
+		}, Math.max(1, Math.round(TICK_MS)));
 		(function draw() {
 			if (ready && effect) effect.render(ctx, canvas.width, canvas.height);
 			requestAnimationFrame(draw);

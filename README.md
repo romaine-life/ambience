@@ -1,6 +1,6 @@
 # ambience
 
-Shared-world ambient pixel-art effects. A 10 Hz server decides which
+Shared-world ambient pixel-art effects. A 60 Hz server decides which
 effect is active, which scene/config is current, and when discrete
 events fire, then broadcasts those commands via SSE. Browser consumers
 run their own delayed Go/WASM sim replicas and apply the commands against
@@ -124,7 +124,7 @@ scripts/dev-loop.ps1
 ## Atmosphere model
 
 The server does not broadcast pixel frames. Each atmosphere is a
-server-side sim running at 10 Hz whose job is to choose the active
+server-side sim running at 60 Hz whose job is to choose the active
 effect, own scene/config transitions, and decide when discrete events
 fire. Clients run their own sims locally and apply five kinds of
 commands:
@@ -168,7 +168,7 @@ window.AmbienceClient.getDebugState()
 //   playbackTick: 24760,
 //   simTick: 24759,
 //   driftTicks: 1,
-//   delayTicks: 50,
+//   delayTicks: 300,
 //   bufferedAheadTicks: 8,
 //   queuedCommands: 2,
 //   nextQueuedCommandTick: 24762,
