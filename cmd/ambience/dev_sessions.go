@@ -15,14 +15,29 @@ import (
 )
 
 type devSnapshotData struct {
-	Type   string          `json:"type"`
-	Tick   int             `json:"tick"`
-	Config json.RawMessage `json:"config"`
-	State  json.RawMessage `json:"state"`
-	Seed   int64           `json:"seed"`
-	GridW  int             `json:"gridW"`
-	GridH  int             `json:"gridH"`
+	Type          string          `json:"type"`
+	Tick          int             `json:"tick"`
+	Config        json.RawMessage `json:"config"`
+	State         json.RawMessage `json:"state"`
+	Seed          int64           `json:"seed"`
+	GridW         int             `json:"gridW"`
+	GridH         int             `json:"gridH"`
+	AppliedEvents []appliedEvent  `json:"appliedEvents"`
 }
+
+// appliedEvent records a lifecycle/trigger event actually applied to this dev
+// session's sim (drained from the effect log). Surfaced in the dev snapshot so
+// an external observer (the glimmung verifier) can mechanically confirm a fired
+// trigger reached the session it is screenshotting — rather than inferring it
+// from a single frame, which a pristine, never-triggered sim can coincidentally
+// match (e.g. an "intro" resting look equals an untouched sim's resting look).
+type appliedEvent struct {
+	Tick  int    `json:"tick"`
+	Event string `json:"event"`
+}
+
+// devAppliedEventsCap bounds the per-session applied-event ring.
+const devAppliedEventsCap = 32
 
 type devSession struct {
 	mu sync.Mutex
@@ -33,6 +48,29 @@ type devSession struct {
 	listeners  map[chan Command]struct{}
 	lastSeen   time.Time
 	cancel     context.CancelFunc
+	applied    []appliedEvent
+}
+
+// recordApplied appends an applied event to the bounded ring.
+func (s *devSession) recordApplied(tick int, event string) {
+	s.mu.Lock()
+	s.applied = append(s.applied, appliedEvent{Tick: tick, Event: event})
+	if len(s.applied) > devAppliedEventsCap {
+		s.applied = s.applied[len(s.applied)-devAppliedEventsCap:]
+	}
+	s.mu.Unlock()
+}
+
+// appliedEventsCopy returns a snapshot copy of the applied-event ring.
+func (s *devSession) appliedEventsCopy() []appliedEvent {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.applied) == 0 {
+		return nil
+	}
+	out := make([]appliedEvent, len(s.applied))
+	copy(out, s.applied)
+	return out
 }
 
 var devSessions sync.Map // key "<effect>\n<session>" => *devSession
@@ -253,16 +291,24 @@ func (s *devSession) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.effect.Step()
-			for _, entry := range s.effect.DrainLog() {
-				s.broadcast(Command{
-					Kind:  "trigger",
-					Tick:  entry.Tick,
-					Event: entry.Type,
-					Desc:  entry.Desc,
-				})
-			}
+			s.stepAndBroadcast()
 		}
+	}
+}
+
+// stepAndBroadcast advances the sim one tick, records every drained event into
+// the applied-event ring, and broadcasts it to listeners. Split out so the
+// drain/record path is unit-testable without driving the ticker goroutine.
+func (s *devSession) stepAndBroadcast() {
+	s.effect.Step()
+	for _, entry := range s.effect.DrainLog() {
+		s.recordApplied(entry.Tick, entry.Type)
+		s.broadcast(Command{
+			Kind:  "trigger",
+			Tick:  entry.Tick,
+			Event: entry.Type,
+			Desc:  entry.Desc,
+		})
 	}
 }
 
@@ -317,13 +363,14 @@ func (s *devSession) snapshot() devSnapshotData {
 		}
 	}
 	return devSnapshotData{
-		Type:   s.effect.Type(),
-		Tick:   effectSnap.Tick,
-		Config: cloneRaw(effectSnap.Config),
-		State:  cloneRaw(effectSnap.State),
-		Seed:   seed,
-		GridW:  effectSnap.GridW,
-		GridH:  effectSnap.GridH,
+		Type:          s.effect.Type(),
+		Tick:          effectSnap.Tick,
+		Config:        cloneRaw(effectSnap.Config),
+		State:         cloneRaw(effectSnap.State),
+		Seed:          seed,
+		GridW:         effectSnap.GridW,
+		GridH:         effectSnap.GridH,
+		AppliedEvents: s.appliedEventsCopy(),
 	}
 }
 

@@ -314,3 +314,61 @@ func TestDevSessionRandomizeConfigChangesSnapshotConfig(t *testing.T) {
 		t.Fatal("expected randomized config to differ from previous session config")
 	}
 }
+
+// TestDevSessionRecordsAppliedEvent verifies that a triggered event registers
+// in the session's appliedEvents (the mechanical "trigger applied" signal the
+// verifier asserts) and does not leak into an unrelated session.
+func TestDevSessionRecordsAppliedEvent(t *testing.T) {
+	s, err := newDevSession("rain")
+	if err != nil {
+		t.Fatalf("newDevSession: %v", err)
+	}
+	if !s.triggerEvent("ending") {
+		t.Fatalf("triggerEvent(ending) returned false")
+	}
+	// Drain the way the run loop would; "ending" is an explicit lifecycle event
+	// (never auto-fired), so it must appear after the next tick.
+	var found bool
+	for i := 0; i < 5 && !found; i++ {
+		s.stepAndBroadcast()
+		for _, e := range s.snapshot().AppliedEvents {
+			if e.Event == "ending" {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("ending never registered in appliedEvents: %+v", s.snapshot().AppliedEvents)
+	}
+
+	other, err := newDevSession("rain")
+	if err != nil {
+		t.Fatalf("newDevSession other: %v", err)
+	}
+	other.stepAndBroadcast()
+	for _, e := range other.snapshot().AppliedEvents {
+		if e.Event == "ending" {
+			t.Fatalf("isolated session leaked applied event 'ending'")
+		}
+	}
+}
+
+// TestDevSessionAppliedEventsRingBounded verifies the applied-event ring is
+// bounded so a long-lived dev session cannot grow snapshots without limit.
+func TestDevSessionAppliedEventsRingBounded(t *testing.T) {
+	s, err := newDevSession("rain")
+	if err != nil {
+		t.Fatalf("newDevSession: %v", err)
+	}
+	for i := 0; i < devAppliedEventsCap+10; i++ {
+		s.recordApplied(i, "pulse")
+	}
+	if got := len(s.snapshot().AppliedEvents); got != devAppliedEventsCap {
+		t.Fatalf("applied ring len = %d, want %d", got, devAppliedEventsCap)
+	}
+	// Oldest entries are evicted: the first retained tick should be 10.
+	if first := s.snapshot().AppliedEvents[0].Tick; first != 10 {
+		t.Fatalf("oldest retained tick = %d, want 10", first)
+	}
+}

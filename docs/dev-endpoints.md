@@ -9,10 +9,10 @@ shared broadcast.
 | Route | Method | Purpose |
 | --- | --- | --- |
 | `/dev/<effect>` | GET | Per-session dev page. Loads the named effect and renders it via the shared client. Each new browser session gets its own isolated atmosphere. |
-| `/dev/snapshot` | GET | JSON snapshot of the calling session's dev atmosphere. |
+| `/dev/snapshot` | GET | JSON snapshot of the calling session's dev atmosphere. Includes `appliedEvents` — a bounded ring of `{tick,event}` for events actually applied to this session's sim. Use it to mechanically confirm a fired trigger reached the session you are observing, rather than inferring it from a single frame (a pristine, never-triggered sim can coincidentally match a resting look). |
 | `/dev/events` | GET (SSE) | Per-session command stream (snapshot/config/trigger/scene/metric). |
 | `/dev/config` | POST | Override the dev atmosphere's config. Body is the effect-specific config JSON or query-string-encoded knobs depending on the registered config parser. Returns 204 on success. |
-| `/dev/trigger/<session>/<event>` | POST | Fire a discrete event in the named session. `session` is the dev-session identifier (a header or query param the page assigns). `event` is the effect-specific event name (e.g. `lightning-flash`, `ignite`, `gust`, `downpour`). |
+| `/dev/trigger/<session>/<event>` | POST | Fire a discrete event in the named session. `session` is the dev-session identifier. To observe the effect, load the page with the matching `?session=<session>` — the dev page honors that query param so an external driver addresses the same session it triggers (a fired trigger only affects the page when both sides agree on the id). `event` is the effect-specific event name (e.g. `lightning-flash`, `ignite`, `gust`, `downpour`). |
 | `/effects/<effect>/schema` | GET | JSON schema for the effect's dev-panel knobs (used by the dev page to render controls). |
 
 ## Verification recipe
