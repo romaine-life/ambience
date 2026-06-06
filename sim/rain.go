@@ -1432,7 +1432,11 @@ func (r *Rain) paintFrontPlane() {
 			hue := math.Mod(r.currentHue()+(hashUnit(h1)*2-1)*r.cfg.HueSpread*0.35+360, 360)
 			light := r.cfg.LightnessMax + (1-r.cfg.LightnessMax)*0.25
 			base := hslToRGB(hue, r.cfg.Saturation*0.45, light)
-			for j := 0; j < length; j++ {
+			exposureLen := length + int(math.Round(math.Min(eventSpeed*0.65, float64(length)*1.5)))
+			if exposureLen > 72 {
+				exposureLen = 72
+			}
+			for j := 0; j < exposureLen; j++ {
 				row := headRow - float64(j)*rowStep
 				col := baseCol + row*eventWind - float64(j)*colStep
 				gr := int(math.Floor(row))
@@ -1443,8 +1447,8 @@ func (r *Rain) paintFrontPlane() {
 				if gc < 0 || gc >= r.W {
 					continue
 				}
-				tail := 1 - float64(j)/float64(length)
-				brightness := strength * (0.2 + 0.8*tail) * (0.85 + hashUnit(h0)*0.15)
+				tail := math.Pow(1-float64(j)/float64(exposureLen), 1.7)
+				brightness := strength * (0.08 + 0.62*tail) * (0.85 + hashUnit(h0)*0.15)
 				c := base
 				c.R = uint8(float64(c.R) * brightness)
 				c.G = uint8(float64(c.G) * brightness)
