@@ -379,7 +379,7 @@ window.AmbienceChrome = (function () {
 		for (const k of C.knobs) {
 			const r = document.getElementById(k.key + '_v');
 			const i = document.getElementById(k.key);
-			if (r && i) r.textContent = fmtKnob(k, i.value);
+			if (r && i) r.textContent = fmtKnob(k, k.type === 'bool' ? (i.checked ? 1 : 0) : i.value);
 		}
 	}
 	function applyValues(C, values) {
