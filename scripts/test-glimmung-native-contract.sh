@@ -81,6 +81,13 @@ AGENT_CONTAINER_TAG="native-runner-test"
 AGENT_CONTAINER_IMAGE="romainecr.azurecr.io/custom:tag"
 [ "$(native_agent_container_image)" = "romainecr.azurecr.io/custom:tag" ]
 unset AGENT_CONTAINER_IMAGE AGENT_CONTAINER_TAG
+unset GLIMMUNG_RUN_INPUT_GIT_REF AMBIENCE_WORKFLOW_REF
+[ "$(native_workflow_checkout_ref)" = "main" ]
+AMBIENCE_WORKFLOW_REF="ambience-workflow-ref"
+[ "$(native_workflow_checkout_ref)" = "ambience-workflow-ref" ]
+GLIMMUNG_RUN_INPUT_GIT_REF="codex/lifecycle-observe"
+[ "$(native_workflow_checkout_ref)" = "codex/lifecycle-observe" ]
+unset GLIMMUNG_RUN_INPUT_GIT_REF AMBIENCE_WORKFLOW_REF
 
 mkdir -p "${TMP_DIR}/repo/mcp"
 native_install_preview_package "${TMP_DIR}/repo/mcp"

@@ -34,10 +34,14 @@ type devSnapshotData struct {
 type appliedEvent struct {
 	Tick  int    `json:"tick"`
 	Event string `json:"event"`
+	Desc  string `json:"desc,omitempty"`
 }
 
 // devAppliedEventsCap bounds the per-session applied-event ring.
 const devAppliedEventsCap = 32
+
+// devObservationCap bounds frozen verification frames retained by one session.
+const devObservationCap = 8
 
 type devSession struct {
 	mu sync.Mutex
@@ -49,12 +53,13 @@ type devSession struct {
 	lastSeen   time.Time
 	cancel     context.CancelFunc
 	applied    []appliedEvent
+	observed   []devObservation
 }
 
 // recordApplied appends an applied event to the bounded ring.
-func (s *devSession) recordApplied(tick int, event string) {
+func (s *devSession) recordApplied(tick int, event, desc string) {
 	s.mu.Lock()
-	s.applied = append(s.applied, appliedEvent{Tick: tick, Event: event})
+	s.applied = append(s.applied, appliedEvent{Tick: tick, Event: event, Desc: desc})
 	if len(s.applied) > devAppliedEventsCap {
 		s.applied = s.applied[len(s.applied)-devAppliedEventsCap:]
 	}
@@ -66,7 +71,7 @@ func (s *devSession) appliedEventsCopy() []appliedEvent {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.applied) == 0 {
-		return nil
+		return []appliedEvent{}
 	}
 	out := make([]appliedEvent, len(s.applied))
 	copy(out, s.applied)
@@ -347,7 +352,7 @@ func (s *devSession) run(ctx context.Context) {
 func (s *devSession) stepAndBroadcast() {
 	s.effect.Step()
 	for _, entry := range s.effect.DrainLog() {
-		s.recordApplied(entry.Tick, entry.Type)
+		s.recordApplied(entry.Tick, entry.Type, entry.Desc)
 		s.broadcast(Command{
 			Kind:  "trigger",
 			Tick:  entry.Tick,

@@ -58,7 +58,11 @@ shape-specific fields:
   `must_show` (one-sentence human description of the behavior the
   video must demonstrate). Optional: `duration_seconds` (default 5),
   `trigger_event` (event to POST to `/dev/trigger/<session>/<event>`
-  before recording), `expected_text`.
+  before recording), `expected_text`, and for terminal lifecycle checks
+  `terminal_state_path`, `terminal_state_equals`, `hold_ticks`, and
+  `max_ticks`. Use terminal fields when the evidence claims a final held
+  state, so verification can prove the trigger reached the session and
+  the state predicate held before judging the frozen frame.
 - **`screenshot`**: pages whose final/static rendering should be inspected.
   Required fields: `id`, `url_path` (the path under `$VALIDATION_URL`
   to capture, e.g. `/dev/distant-storm`), `must_show` (one-sentence
@@ -77,9 +81,12 @@ For browser-visible work, use `video` as the baseline evidence because
 it tells the reviewer what happened over time; add screenshots only
 when a still frame needs separate inspection. For new visual effects:
 at minimum record the default render and each lifecycle event (intro,
-ending, key triggers). For refactors or backend-only changes: a `note`
-plus relevant `go-test` items is usually enough unless Glimmung's run
-requirements explicitly require browser evidence.
+ending, key triggers). If a lifecycle event is terminal, include a
+terminal state predicate whenever the contract or existing code names
+one; do not rely on an arbitrary recording duration to prove "held at
+the end." For refactors or backend-only changes: a `note` plus relevant
+`go-test` items is usually enough unless Glimmung's run requirements
+explicitly require browser evidence.
 
 ## Output JSON schema
 

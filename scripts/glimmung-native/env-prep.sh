@@ -11,6 +11,7 @@ native_require_env GLIMMUNG_VALIDATION_NAMESPACE GLIMMUNG_RUN_ID
 
 REPO_SLUG="${AMBIENCE_REPO_SLUG:-romaine-life/ambience}"
 REPO_DIR="${AMBIENCE_REPO_DIR:-/workspace/ambience}"
+WORKFLOW_REF="$(native_workflow_checkout_ref)"
 CLAUDE_NAMESPACE="${CLAUDE_NAMESPACE:-tank-operator}"
 CLAUDE_CA_NAMESPACE="${CLAUDE_CA_NAMESPACE:-tank-operator-sessions}"
 
@@ -35,7 +36,7 @@ IMAGE_JSON="/tmp/ambience-preview-image.json"
 IMAGE_FILE="/tmp/ambience-preview-image.txt"
 
 clone_repo() {
-  native_clone_repo "$REPO_SLUG" "$REPO_DIR" main
+  native_clone_repo "$REPO_SLUG" "$REPO_DIR" "$WORKFLOW_REF"
 }
 
 resolve_base_image_identity() {

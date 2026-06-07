@@ -527,6 +527,14 @@ native_clone_repo() {
   fi
 }
 
+native_workflow_checkout_ref() {
+  local ref="${GLIMMUNG_RUN_INPUT_GIT_REF:-${AMBIENCE_WORKFLOW_REF:-main}}"
+  if [ -z "$ref" ]; then
+    ref="main"
+  fi
+  printf '%s' "$ref"
+}
+
 native_push_branch() {
   local repo_slug="$1"
   local repo_dir="$2"

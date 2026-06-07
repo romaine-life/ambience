@@ -78,6 +78,8 @@ func registerEdgeRoutes(mux *http.ServeMux, proxy *authorityProxy) {
 	mux.HandleFunc("/dev/events", proxy.serveHTTP)
 	mux.HandleFunc("/dev/config", proxy.serveHTTP)
 	mux.HandleFunc("/dev/randomize", proxy.serveHTTP)
+	mux.HandleFunc("/dev/observe", proxy.serveHTTP)
+	mux.HandleFunc("/dev/frame", proxy.serveHTTP)
 	mux.HandleFunc("/dev/trigger/", proxy.serveHTTP)
 }
 
