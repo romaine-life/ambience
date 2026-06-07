@@ -126,6 +126,9 @@
 /* knob row */
 .knob { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
 .knob__label { font-size: 11px; color: var(--fg-muted); min-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.knob--bool .knob__label { display: inline-flex; align-items: center; gap: 7px; flex: 1; min-width: 0; }
+.knob__check { flex: none; width: 13px; height: 13px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.knob__check:disabled { opacity: .5; cursor: default; }
 .knob__range { -webkit-appearance: none; appearance: none; flex: 1; min-width: 40px; height: 3px;
 	background: rgba(255,255,255,.13); border-radius: 2px; outline: none; }
 .knob__range::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; background: var(--fg-secondary);

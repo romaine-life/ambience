@@ -71,6 +71,7 @@
 	let effectType = null, effect = null, latestConfig = null, ready = false;
 	let serverTick = 0, tickRateMs = TICK_MS, lastBeatAt = Date.now(), sceneStartTick = 0, sceneDurationTicks = 0;
 	let currentSceneName = '—', nextSceneName = '—', entropyBytes = 0;
+	let latestScenePolicy = null, latestTransition = null, latestRotationPolicy = null;
 	let connState = 'acquiring';
 
 	// auth state
@@ -98,13 +99,15 @@
 			header: 'authority clock', badge: { tone: 'muted', label: 'acquiring' },
 			rows: [
 				{ k: 'server.tick', v: '—' }, { k: 'scene', v: '—' }, { k: 'remaining', v: '—' },
-				{ k: 'up.next', v: '—' }, { k: 'effect', v: '—' }, { k: 'grid', v: GRID_W + ' × ' + GRID_H }, { k: 'entropy', v: '0 B' },
+				{ k: 'up.next', v: '—' }, { k: 'scene.freq', v: '—' }, { k: 'scene.range', v: '—' },
+				{ k: 'transition', v: '—' }, { k: 'effect', v: '—' }, { k: 'effect.freq', v: '—' },
+				{ k: 'effect.pool', v: '—' }, { k: 'grid', v: GRID_W + ' × ' + GRID_H }, { k: 'entropy', v: '0 B' },
 			],
 			footer: { tone: 'muted', html: 'acquiring authority…' },
 		},
 		handlers: {
 			onKnob: () => scheduleSharedConfigPush(),
-			onFire: (eventName) => triggerSharedEvent(eventName),
+			onFire: (eventName) => eventName === '__next_effect' ? advanceSharedEffect() : triggerSharedEvent(eventName),
 			onPreset: (val, cfg) => { chrome.setValues(cfg); scheduleSharedConfigPush(); },
 			onNext: () => advanceSharedEffect(),
 			onSignIn: () => signInControls(),
@@ -126,6 +129,15 @@
 		if (n < 1024) return n + ' B';
 		if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
 		return (n / 1024 / 1024).toFixed(2) + ' MB';
+	}
+	function fmtMinutes(v) {
+		if (!Number.isFinite(v)) return '—';
+		if (v >= 60) {
+			const h = Math.floor(v / 60), m = Math.round(v % 60);
+			return m ? h + 'h ' + String(m).padStart(2, '0') + 'm' : h + 'h';
+		}
+		if (v < 1) return Math.round(v * 60) + 's';
+		return Math.round(v) + 'm';
 	}
 	function tickNow() { return serverTick + Math.round((Date.now() - lastBeatAt) / tickRateMs); }
 	function remainingTicks() { return Math.max(0, sceneStartTick + sceneDurationTicks - tickNow()); }
@@ -253,9 +265,92 @@
 		for (const k of chrome.getKnobs()) {
 			const v = vals[k.key];
 			if (v == null) continue;
-			q.set(k.key, k.type === 'int' ? String(Math.round(v)) : String(v));
+			q.set(k.key, k.type === 'int' || k.type === 'bool' ? String(Math.round(v)) : String(v));
 		}
 		return q.toString();
+	}
+	function scenePolicyControlValues() {
+		const p = latestScenePolicy || {};
+		return {
+			scene_min_m: Number.isFinite(p.minMinutes) ? p.minMinutes : 60,
+			scene_max_m: Number.isFinite(p.maxMinutes) ? p.maxMinutes : 240,
+			scene_transition_m: Number.isFinite(p.transitionMinutes) ? p.transitionMinutes : 5,
+			scene_variation: Number.isFinite(p.variation) ? p.variation : 0.35,
+		};
+	}
+	function rotationPolicyControlValues() {
+		const p = latestRotationPolicy || {};
+		const available = Array.isArray(p.available) && p.available.length
+			? p.available
+			: Object.keys((window.AmbienceSim && window.AmbienceSim.effects) || {}).sort((a, b) => a.localeCompare(b));
+		const selected = new Set(p.allEffects ? available : (Array.isArray(p.allowed) && p.allowed.length ? p.allowed : p.resolved || []));
+		const values = {
+			effect_rotation_enabled: p.enabled === false ? 0 : 1,
+			effect_rotation_cadence_m: Number.isFinite(p.cadenceMinutes) ? p.cadenceMinutes : 10,
+		};
+		for (const name of available) values['effect_allow_' + name] = selected.has(name) ? 1 : 0;
+		return values;
+	}
+	function mergedControlValues() {
+		return Object.assign({}, latestConfig || {}, scenePolicyControlValues(), rotationPolicyControlValues());
+	}
+	const SCENE_KNOBS = [
+		{ key: 'scene_min_m', label: 'min wait', slot: 'lever', group: 'scene drift', type: 'float', min: 1, max: 720, step: 1, default: 60,
+			description: 'Shortest time before the authority may choose a new scene configuration.' },
+		{ key: 'scene_max_m', label: 'max wait', slot: 'lever', group: 'scene drift', type: 'float', min: 1, max: 720, step: 1, default: 240,
+			description: 'Longest time before the authority may choose a new scene configuration.' },
+		{ key: 'scene_transition_m', label: 'drift time', slot: 'lever', group: 'scene drift', type: 'float', min: 0, max: 120, step: 0.25, default: 5,
+			description: 'Maximum time spent blending from the previous scene configuration into the next one.' },
+		{ key: 'scene_variation', label: 'variation', slot: 'lever', group: 'scene drift', type: 'float', min: 0.05, max: 1, step: 0.05, default: 0.35,
+			description: 'How far each generated scene configuration may drift from the current one. Lower values keep changes subtle.' },
+	];
+	function effectRotationKnobs() {
+		const p = latestRotationPolicy || {};
+		const available = Array.isArray(p.available) && p.available.length
+			? p.available.slice()
+			: Object.keys((window.AmbienceSim && window.AmbienceSim.effects) || {}).sort((a, b) => a.localeCompare(b));
+		const knobs = [
+			{ key: 'effect_rotation_enabled', label: 'auto rotate', slot: 'lever', group: 'effect rotation', type: 'bool', default: p.enabled === false ? 0 : 1,
+				description: 'Allow the authority to switch to another effect after the effect wait elapses.' },
+			{ key: 'effect_rotation_cadence_m', label: 'effect wait', slot: 'lever', group: 'effect rotation', type: 'float', min: 1, max: 1440, step: 1,
+				default: Number.isFinite(p.cadenceMinutes) ? p.cadenceMinutes : 10,
+				description: 'Time each effect should run before automatic effect rotation may pick another effect.' },
+			{ key: 'effect_next', label: 'next effect', slot: 'lever', group: 'effect rotation', trigger: '__next_effect',
+				description: 'Immediately advance to another effect from the selected pool.' },
+		];
+		for (const name of available) knobs.push({
+			key: 'effect_allow_' + name, label: L(name), slot: 'lever', group: 'effect pool', type: 'bool', default: 1,
+			description: 'Include ' + L(name) + ' in automatic and manual effect rotation.',
+		});
+		return knobs;
+	}
+	function augmentLiveSchema(schema) {
+		const copy = Object.assign({}, schema || {});
+		copy.knobs = ((schema && schema.knobs) || []).concat(SCENE_KNOBS, effectRotationKnobs());
+		return copy;
+	}
+	function applyScenePolicy(p) {
+		if (!p) return;
+		latestScenePolicy = p;
+		chrome.setTele('scene.freq', fmtMinutes(p.minMinutes) + '–' + fmtMinutes(p.maxMinutes));
+		chrome.setTele('scene.range', Math.round((p.variation || 0) * 100) + '%');
+	}
+	function applyTransition(t) {
+		if (!t) return;
+		latestTransition = t;
+		if (!t.active || !Number.isFinite(t.durationTicks) || t.durationTicks <= 0) {
+			chrome.setTele('transition', 'idle');
+			return;
+		}
+		const progress = Number.isFinite(t.progress) ? Math.round(t.progress * 100) : 0;
+		chrome.setTele('transition', progress + '% · ' + fmtDuration(t.durationTicks));
+	}
+	function applyRotationPolicy(p) {
+		if (!p) return;
+		latestRotationPolicy = p;
+		chrome.setTele('effect.freq', p.enabled ? fmtMinutes(p.cadenceMinutes) : 'off');
+		const pool = Array.isArray(p.resolved) ? p.resolved : [];
+		chrome.setTele('effect.pool', pool.length ? String(pool.length) + ' effects' : 'empty');
 	}
 	let debounceT = null;
 	function scheduleSharedConfigPush() {
@@ -294,7 +389,7 @@
 	function loadSchema(effectName) {
 		fetch('/effects/' + encodeURIComponent(effectName) + '/schema')
 			.then(r => r.json())
-			.then(schema => { chrome.renderControls(schema); chrome.setControlsLocked(!(authed && armed)); if (latestConfig) chrome.setValues(latestConfig); })
+			.then(schema => { chrome.renderControls(augmentLiveSchema(schema)); chrome.setControlsLocked(!(authed && armed)); chrome.setValues(mergedControlValues()); })
 			.catch(err => { console.error('schema', err); });
 	}
 
@@ -355,7 +450,10 @@
 			try { effect.restoreSnapshot(snap); } catch (err) { console.error('restoreSnapshot', err); }
 		}
 		latestConfig = snap.config || null;
-		if (!typeChanged && latestConfig && chrome.getSchema()) chrome.setValues(latestConfig);
+		if (snap.scenePolicy) applyScenePolicy(snap.scenePolicy);
+		if (snap.transition) applyTransition(snap.transition);
+		if (snap.rotationPolicy) applyRotationPolicy(snap.rotationPolicy);
+		if (!typeChanged && chrome.getSchema()) chrome.setValues(mergedControlValues());
 		if (snap.currentScene) { currentSceneName = snap.currentScene.name || '—'; sceneDurationTicks = snap.currentScene.durationTicks || 0; sceneStartTick = snap.currentScene.startedAtTick || 0; chrome.setTele('scene', currentSceneName); }
 		if (snap.nextScene) { nextSceneName = snap.nextScene.name || '—'; chrome.setTele('up.next', L(nextSceneName)); }
 		if (typeof snap.entropyBytes === 'number') { entropyBytes = snap.entropyBytes; chrome.setTele('entropy', fmtBytes(entropyBytes)); }
@@ -377,7 +475,7 @@
 					if (!effect) break;
 					try { effect.setConfig(cmd.data); } catch (_) {}
 					latestConfig = cmd.data || null;
-					if (latestConfig && chrome.getSchema()) chrome.setValues(latestConfig);
+					if (chrome.getSchema()) chrome.setValues(mergedControlValues());
 					break;
 				case 'trigger':
 					if (effect && effect.triggerEvent) effect.triggerEvent(cmd.event);
@@ -389,6 +487,8 @@
 						currentSceneName = sc.name || '—'; nextSceneName = sc.nextName || '—';
 						sceneDurationTicks = sc.durationTicks || 0; sceneStartTick = sc.startedAtTick || 0;
 						chrome.setTele('scene', currentSceneName); chrome.setTele('up.next', L(nextSceneName));
+						if (sc.scenePolicy) applyScenePolicy(sc.scenePolicy);
+						if (sc.transition) applyTransition(sc.transition);
 						chrome.appendLog({ t: now(), kind: 'scene', text: 'scene → ' + sc.name + ' · up next ' + sc.nextName });
 						chrome.flashPanel(); renderLiveTrack();
 					} catch (err) { console.error(err); }
@@ -400,6 +500,9 @@
 						if (typeof m.sceneRemaining === 'number') chrome.setTele('remaining', fmtDuration(m.sceneRemaining));
 						if (m.currentName) { currentSceneName = m.currentName; chrome.setTele('scene', currentSceneName); }
 						if (m.nextName) { nextSceneName = m.nextName; chrome.setTele('up.next', L(nextSceneName)); }
+						if (m.scenePolicy) applyScenePolicy(m.scenePolicy);
+						if (m.transition) applyTransition(m.transition);
+						if (m.rotationPolicy) applyRotationPolicy(m.rotationPolicy);
 					} catch (_) {}
 					break;
 				case 'clock':

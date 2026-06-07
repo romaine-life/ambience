@@ -21,20 +21,15 @@ import (
 	"github.com/romaine-life/ambience/sim"
 )
 
-// Transition window for config drift at scene boundaries. Effects that expose
-// scene interpolation can drift between the previous scene config and the new
-// one over this many ticks, broadcasting the interpolated config every
-// transitionBroadcastEvery ticks so clients stay roughly in sync.
-//
-// Capped by the scene's own DurationTicks / 2 — in test mode with short
-// scenes (AMBIENCE_SCENE_TICKS=60) we want the drift to finish before the
-// next rotation, so we scale down.
+// Effects that expose scene interpolation can drift between the previous scene
+// config and the new one. The scene policy chooses the operator-facing cap;
+// transitionBroadcastEvery limits how often interpolated configs are sent to
+// clients so the SSE stream stays modest.
 const (
 	authorityReplayBufferSize = 512
 )
 
 var (
-	maxTransitionTicks          = ticksFor(60 * time.Second)
 	transitionBroadcastEvery    = ticksFor(1 * time.Second)
 	metricBroadcastEvery        = ticksFor(5 * time.Second)
 	clockBroadcastEvery         = ticksFor(1 * time.Second)
@@ -76,16 +71,46 @@ type snapshotData struct {
 	GridH  int             `json:"gridH"`
 	// Scene + entropy status — used by the / live monitor. Panels update
 	// via periodic "metric" commands between full snapshot re-requests.
-	CurrentScene   Scene `json:"currentScene"`
-	NextScene      Scene `json:"nextScene"`
-	EntropyBytes   int64 `json:"entropyBytes"`
-	SceneRemaining int   `json:"sceneRemaining"`
+	CurrentScene   Scene               `json:"currentScene"`
+	NextScene      Scene               `json:"nextScene"`
+	EntropyBytes   int64               `json:"entropyBytes"`
+	SceneRemaining int                 `json:"sceneRemaining"`
+	ScenePolicy    scenePolicyData     `json:"scenePolicy"`
+	Transition     transitionStateData `json:"transition"`
+	RotationPolicy rotationPolicyData  `json:"rotationPolicy"`
 }
 
 type clockData struct {
 	Tick                int     `json:"tick"`
 	TickRateMs          float64 `json:"tickRateMs"`
 	SuggestedDelayTicks int     `json:"suggestedDelayTicks"`
+}
+
+type scenePolicyData struct {
+	MinTicks          int     `json:"minTicks"`
+	MaxTicks          int     `json:"maxTicks"`
+	TransitionTicks   int     `json:"transitionTicks"`
+	Variation         float64 `json:"variation"`
+	MinMinutes        float64 `json:"minMinutes"`
+	MaxMinutes        float64 `json:"maxMinutes"`
+	TransitionMinutes float64 `json:"transitionMinutes"`
+}
+
+type transitionStateData struct {
+	Active        bool    `json:"active"`
+	ElapsedTicks  int     `json:"elapsedTicks"`
+	DurationTicks int     `json:"durationTicks"`
+	Progress      float64 `json:"progress"`
+}
+
+type rotationPolicyData struct {
+	Enabled        bool     `json:"enabled"`
+	CadenceTicks   int      `json:"cadenceTicks"`
+	CadenceMinutes float64  `json:"cadenceMinutes"`
+	AllEffects     bool     `json:"allEffects"`
+	Allowed        []string `json:"allowed"`
+	Resolved       []string `json:"resolved"`
+	Available      []string `json:"available"`
 }
 
 type atmosphere struct {
@@ -107,6 +132,7 @@ type atmosphere struct {
 	transitionTo    json.RawMessage
 	transitionStart int
 	transitionDur   int
+	scenePolicy     scenePolicy
 	// Cross-effect rotation state. The shared atmosphere periodically
 	// swaps to a different effect type so the live monitor at / shows
 	// variety without manual intervention. Disabled by default in
@@ -142,21 +168,23 @@ func newAtmosphereWithEffect(effectType string) *atmosphere {
 }
 
 func newAtmosphereWithEffectAndSeed(effectType string, seed int64) *atmosphere {
+	policy := defaultScenePolicy()
 	sceneRNG := rngutil.New(seed ^ 0x6d0f27bd0b5a3c11)
-	first := generateEffectScene(effectType, sceneRNG, 0, 0)
+	first := generateInitialScene(effectType, sceneRNG, 0, policy)
 	// Pre-generate the next scene too — the "single-slot lookahead" model.
 	// StartedAtTick is set when it's promoted to current.
-	nxt := generateEffectScene(effectType, sceneRNG, 0, first.DurationTicks)
+	nxt := generateNextScene(effectType, sceneRNG, 0, policy, first.Config)
 	cfgData := cloneRaw(first.Config)
 	return &atmosphere{
-		effect:    mustNewEffectRuntime(effectType, gridW, gridH, seed, cfgData),
-		cfg:       cfgData,
-		seed:      seed,
-		sceneRNG:  sceneRNG,
-		current:   first,
-		next:      nxt,
-		listeners: make(map[chan Command]struct{}),
-		lastSeen:  time.Now(),
+		effect:      mustNewEffectRuntime(effectType, gridW, gridH, seed, cfgData),
+		cfg:         cfgData,
+		seed:        seed,
+		sceneRNG:    sceneRNG,
+		current:     first,
+		next:        nxt,
+		scenePolicy: policy,
+		listeners:   make(map[chan Command]struct{}),
+		lastSeen:    time.Now(),
 	}
 }
 
@@ -264,11 +292,12 @@ func (a *atmosphere) rotateScene(tick int) {
 	promoted := a.next
 	promoted.StartedAtTick = tick
 	a.current = promoted
-	a.next = generateEffectScene(effectType, a.sceneRNG, 0, promoted.DurationTicks)
+	a.next = generateNextScene(effectType, a.sceneRNG, 0, a.scenePolicy, promoted.Config)
 	currentCopy := a.current
 	nextCopy := a.next
+	policyCopy := a.scenePolicy
 	configData := cloneRaw(promoted.Config)
-	dur := sceneTransitionTicks(a.effect, promoted.DurationTicks)
+	dur := sceneTransitionTicks(a.effect, promoted.DurationTicks, policyCopy)
 	if dur > 0 && len(configData) > 0 {
 		a.transitionFrom = cloneRaw(a.cfg)
 		a.transitionTo = cloneRaw(configData)
@@ -297,6 +326,8 @@ func (a *atmosphere) rotateScene(tick int) {
 		"nextName":        nextCopy.Name,
 		"nextConfig":      nextCopy.Config,
 		"transitionTicks": dur,
+		"scenePolicy":     policyCopy.data(),
+		"transition":      transitionStateData{Active: dur > 0, DurationTicks: dur},
 	})
 	a.broadcast(Command{Kind: "scene", Tick: tick, Data: sceneData})
 
@@ -379,12 +410,9 @@ func (a *atmosphere) rotateToNextEffect() bool {
 func (a *atmosphere) rotateToEffect(cur int, effectType string) bool {
 	seed := time.Now().UnixNano()
 	a.mu.Lock()
-	slot := a.rotation.CadenceTicks
-	if slot <= 0 {
-		slot = defaultRotationCadenceTicks
-	}
-	newScene := generateEffectScene(effectType, a.sceneRNG, 0, slot)
-	newNext := generateEffectScene(effectType, a.sceneRNG, 0, newScene.DurationTicks)
+	policy := a.scenePolicy
+	newScene := generateInitialScene(effectType, a.sceneRNG, 0, policy)
+	newNext := generateNextScene(effectType, a.sceneRNG, 0, policy, newScene.Config)
 	a.mu.Unlock()
 	rt, err := newEffectRuntime(effectType, gridW, gridH, seed, newScene.Config)
 	if err != nil {
@@ -402,6 +430,7 @@ func (a *atmosphere) rotateToEffect(cur int, effectType string) bool {
 	a.cfg = cloneRaw(newScene.Config)
 	a.current = newScene
 	a.next = newNext
+	a.scenePolicy = policy
 	a.transitionDur = 0
 	a.transitionStart = 0
 	// New runtimes start from tick 0; anchor the rotation timer there so
@@ -435,6 +464,7 @@ func (a *atmosphere) broadcastMetric(tick int) {
 	entropyBytes := a.entropyBytes
 	currentCopy := a.current
 	nextName := a.next.Name
+	rotationPolicy := a.rotation
 	a.mu.Unlock()
 
 	data, _ := json.Marshal(map[string]interface{}{
@@ -442,6 +472,9 @@ func (a *atmosphere) broadcastMetric(tick int) {
 		"sceneRemaining": currentCopy.Remaining(tick),
 		"currentName":    currentCopy.Name,
 		"nextName":       nextName,
+		"scenePolicy":    a.scenePolicySnapshot(),
+		"transition":     a.transitionSnapshot(tick),
+		"rotationPolicy": rotationPolicy.data(),
 	})
 	a.broadcast(Command{Kind: "metric", Tick: tick, Data: data})
 }
@@ -451,12 +484,16 @@ type sceneTransitioner interface {
 	InterpolateConfig(from, to json.RawMessage, progress float64) (json.RawMessage, error)
 }
 
-func sceneTransitionTicks(effect effectRuntime, durationTicks int) int {
+func sceneTransitionTicks(effect effectRuntime, durationTicks int, policy scenePolicy) int {
 	t, ok := effect.(sceneTransitioner)
 	if !ok {
 		return 0
 	}
 	dur := t.SceneTransitionTicks(durationTicks)
+	policy = policy.normalized()
+	if policy.TransitionTicks > 0 && dur > policy.TransitionTicks {
+		dur = policy.TransitionTicks
+	}
 	if dur < 0 {
 		return 0
 	}
@@ -494,6 +531,14 @@ func lerpConfig(a, b sim.Config, t float64) sim.Config {
 		LightnessMax:   lf(a.LightnessMax, b.LightnessMax),
 		Layers:         li(a.Layers, b.Layers),
 		LayerBalance:   lf(a.LayerBalance, b.LayerBalance),
+		SheetDensity:   lf(a.SheetDensity, b.SheetDensity),
+		SheetStrength:  lf(a.SheetStrength, b.SheetStrength),
+		SheetLength:    li(a.SheetLength, b.SheetLength),
+		SheetSpeed:     lf(a.SheetSpeed, b.SheetSpeed),
+		FrontDensity:   lf(a.FrontDensity, b.FrontDensity),
+		FrontStrength:  lf(a.FrontStrength, b.FrontStrength),
+		FrontLength:    li(a.FrontLength, b.FrontLength),
+		FrontSpeed:     lf(a.FrontSpeed, b.FrontSpeed),
 		HueDriftAmp:    lf(a.HueDriftAmp, b.HueDriftAmp),
 		WindDriftAmp:   lf(a.WindDriftAmp, b.WindDriftAmp),
 		DownpourChance: lf(a.DownpourChance, b.DownpourChance),
@@ -545,6 +590,60 @@ func lerpAngle(a, b, t float64) float64 {
 		r -= 360
 	}
 	return r
+}
+
+func (p scenePolicy) data() scenePolicyData {
+	p = p.normalized()
+	return scenePolicyData{
+		MinTicks:          p.MinTicks,
+		MaxTicks:          p.MaxTicks,
+		TransitionTicks:   p.TransitionTicks,
+		Variation:         p.Variation,
+		MinMinutes:        p.minMinutes(),
+		MaxMinutes:        p.maxMinutes(),
+		TransitionMinutes: p.transitionMinutes(),
+	}
+}
+
+func (a *atmosphere) scenePolicySnapshot() scenePolicyData {
+	a.mu.Lock()
+	p := a.scenePolicy
+	a.mu.Unlock()
+	return p.data()
+}
+
+func (a *atmosphere) rotationPolicySnapshot() rotationPolicyData {
+	a.mu.Lock()
+	p := a.rotation
+	a.mu.Unlock()
+	return p.data()
+}
+
+func (a *atmosphere) transitionSnapshot(cur int) transitionStateData {
+	a.mu.Lock()
+	start := a.transitionStart
+	dur := a.transitionDur
+	a.mu.Unlock()
+	return transitionData(start, dur, cur)
+}
+
+func transitionData(start, dur, cur int) transitionStateData {
+	if dur <= 0 {
+		return transitionStateData{}
+	}
+	elapsed := cur - start
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	if elapsed > dur {
+		elapsed = dur
+	}
+	return transitionStateData{
+		Active:        true,
+		ElapsedTicks:  elapsed,
+		DurationTicks: dur,
+		Progress:      easeInOutCubic(float64(elapsed) / float64(dur)),
+	}
 }
 
 func (a *atmosphere) addListener() chan Command {
@@ -653,9 +752,14 @@ func (a *atmosphere) snapshot() snapshotData {
 	current := a.current
 	next := a.next
 	entropyBytes := a.entropyBytes
+	policy := a.scenePolicy
+	transitionStart := a.transitionStart
+	transitionDur := a.transitionDur
+	rotationPolicy := a.rotation
 	a.mu.Unlock()
 	effectSnap, err := a.effect.Snapshot()
 	if err != nil {
+		cur := a.effect.CurrentTick()
 		return snapshotData{
 			Type:           a.effect.Type(),
 			Seed:           seed,
@@ -663,6 +767,9 @@ func (a *atmosphere) snapshot() snapshotData {
 			NextScene:      next,
 			EntropyBytes:   entropyBytes,
 			SceneRemaining: current.Remaining(0),
+			ScenePolicy:    policy.data(),
+			Transition:     transitionData(transitionStart, transitionDur, cur),
+			RotationPolicy: rotationPolicy.data(),
 		}
 	}
 	return snapshotData{
@@ -677,6 +784,9 @@ func (a *atmosphere) snapshot() snapshotData {
 		NextScene:      next,
 		EntropyBytes:   entropyBytes,
 		SceneRemaining: current.Remaining(effectSnap.Tick),
+		ScenePolicy:    policy.data(),
+		Transition:     transitionData(transitionStart, transitionDur, effectSnap.Tick),
+		RotationPolicy: rotationPolicy.data(),
 	}
 }
 
@@ -723,6 +833,22 @@ func (a *atmosphere) setConfigRaw(data json.RawMessage) error {
 		Data: cloneRaw(data),
 	})
 	return nil
+}
+
+func (a *atmosphere) setScenePolicy(policy scenePolicy) {
+	policy = policy.normalized()
+	a.mu.Lock()
+	a.scenePolicy = policy
+	a.mu.Unlock()
+	a.broadcastMetric(a.effect.CurrentTick())
+}
+
+func (a *atmosphere) updateRotationPolicy(policy rotationPolicy) {
+	a.mu.Lock()
+	a.rotation = policy
+	a.rotationStartTick = a.effect.CurrentTick()
+	a.mu.Unlock()
+	a.broadcastMetric(a.effect.CurrentTick())
 }
 
 func (a *atmosphere) triggerEvent(event string) bool {

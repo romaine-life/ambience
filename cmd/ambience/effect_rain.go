@@ -9,10 +9,11 @@ import (
 
 func init() {
 	register(effectDefinition{
-		Type:       "rain",
-		Schema:     sim.RainSchema,
-		NewRuntime: newRainRuntime,
-		NewScene:   generateRainScene,
+		Type:         "rain",
+		Schema:       sim.RainSchema,
+		NewRuntime:   newRainRuntime,
+		NewScene:     generateRainScene,
+		NewNearScene: generateRainSceneNear,
 	})
 }
 
@@ -132,11 +133,7 @@ func (r *rainRuntime) ApplyConfig(data json.RawMessage) error {
 func (r *rainRuntime) AddEntropy(delta int64) { r.sim.PerturbRNG(delta) }
 
 func (r *rainRuntime) SceneTransitionTicks(durationTicks int) int {
-	dur := maxTransitionTicks
-	if half := durationTicks / 2; half < dur {
-		dur = half
-	}
-	return dur
+	return durationTicks / 2
 }
 
 func (r *rainRuntime) InterpolateConfig(fromData, toData json.RawMessage, progress float64) (json.RawMessage, error) {

@@ -74,6 +74,7 @@ func registerEdgeRoutes(mux *http.ServeMux, proxy *authorityProxy) {
 	mux.HandleFunc("/control-auth", proxy.serveHTTP)
 	mux.HandleFunc("/config", proxy.serveHTTP)
 	mux.HandleFunc("/trigger/", proxy.serveHTTP)
+	mux.HandleFunc("/next-effect", proxy.serveHTTP)
 	mux.HandleFunc("/dev/snapshot", proxy.serveHTTP)
 	mux.HandleFunc("/dev/events", proxy.serveHTTP)
 	mux.HandleFunc("/dev/config", proxy.serveHTTP)
@@ -503,11 +504,23 @@ func (m *authorityMirror) handleEventPayload(id string, payload []byte) error {
 		if err := json.Unmarshal(cmd.Data, &snap); err != nil {
 			return err
 		}
-		m.setSnapshot(snap, cmd.ID)
+		m.applySnapshotCommand(cmd, snap)
 		return nil
 	}
 	m.applyCommand(cmd)
 	return nil
+}
+
+func (m *authorityMirror) applySnapshotCommand(cmd Command, snap snapshotData) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.snap = cloneSnapshot(snap)
+	if cmd.ID != "" {
+		m.snapshotID = cmd.ID
+		m.replay = nil
+	}
+	m.hasSnapshot = true
+	m.broadcastLocked(cmd)
 }
 
 func (m *authorityMirror) applyCommand(cmd Command) {
@@ -525,12 +538,14 @@ func (m *authorityMirror) applyCommand(cmd Command) {
 		m.snap.CurrentScene.Config = cloneRaw(cmd.Data)
 	case "scene":
 		var data struct {
-			Name          string          `json:"name"`
-			Config        json.RawMessage `json:"config"`
-			DurationTicks int             `json:"durationTicks"`
-			StartedAtTick int             `json:"startedAtTick"`
-			NextName      string          `json:"nextName"`
-			NextConfig    json.RawMessage `json:"nextConfig"`
+			Name          string               `json:"name"`
+			Config        json.RawMessage      `json:"config"`
+			DurationTicks int                  `json:"durationTicks"`
+			StartedAtTick int                  `json:"startedAtTick"`
+			NextName      string               `json:"nextName"`
+			NextConfig    json.RawMessage      `json:"nextConfig"`
+			ScenePolicy   *scenePolicyData     `json:"scenePolicy"`
+			Transition    *transitionStateData `json:"transition"`
 		}
 		if err := json.Unmarshal(cmd.Data, &data); err == nil {
 			m.snap.CurrentScene.Name = data.Name
@@ -544,13 +559,22 @@ func (m *authorityMirror) applyCommand(cmd Command) {
 				m.snap.NextScene.Config = cloneRaw(data.NextConfig)
 			}
 			m.snap.SceneRemaining = data.DurationTicks
+			if data.ScenePolicy != nil {
+				m.snap.ScenePolicy = *data.ScenePolicy
+			}
+			if data.Transition != nil {
+				m.snap.Transition = *data.Transition
+			}
 		}
 	case "metric":
 		var data struct {
-			EntropyBytes   int64  `json:"entropyBytes"`
-			SceneRemaining int    `json:"sceneRemaining"`
-			CurrentName    string `json:"currentName"`
-			NextName       string `json:"nextName"`
+			EntropyBytes   int64                `json:"entropyBytes"`
+			SceneRemaining int                  `json:"sceneRemaining"`
+			CurrentName    string               `json:"currentName"`
+			NextName       string               `json:"nextName"`
+			ScenePolicy    *scenePolicyData     `json:"scenePolicy"`
+			Transition     *transitionStateData `json:"transition"`
+			RotationPolicy *rotationPolicyData  `json:"rotationPolicy"`
 		}
 		if err := json.Unmarshal(cmd.Data, &data); err == nil {
 			m.snap.EntropyBytes = data.EntropyBytes
@@ -562,6 +586,15 @@ func (m *authorityMirror) applyCommand(cmd Command) {
 			}
 			if data.NextName != "" {
 				m.snap.NextScene.Name = data.NextName
+			}
+			if data.ScenePolicy != nil {
+				m.snap.ScenePolicy = *data.ScenePolicy
+			}
+			if data.Transition != nil {
+				m.snap.Transition = *data.Transition
+			}
+			if data.RotationPolicy != nil {
+				m.snap.RotationPolicy = *data.RotationPolicy
 			}
 		}
 	}

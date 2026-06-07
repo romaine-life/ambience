@@ -68,7 +68,7 @@ func TestEntropyForwarderFlushesPendingPayloads(t *testing.T) {
 	}
 }
 
-func TestAuthorityMirrorSnapshotFramesRefreshCacheWithoutBroadcast(t *testing.T) {
+func TestAuthorityMirrorSnapshotFramesRefreshCacheAndBroadcast(t *testing.T) {
 	m := &authorityMirror{
 		ctx:       context.Background(),
 		client:    &http.Client{},
@@ -103,8 +103,22 @@ func TestAuthorityMirrorSnapshotFramesRefreshCacheWithoutBroadcast(t *testing.T)
 
 	select {
 	case cmd := <-ch:
-		t.Fatalf("unexpected downstream broadcast: %+v", cmd)
-	default:
+		if cmd.ID != "42" || cmd.Kind != "snapshot" {
+			t.Fatalf("broadcast command = %+v, want snapshot id 42", cmd)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("snapshot command was not broadcast to downstream listeners")
+	}
+
+	m.applyCommand(Command{ID: "43", Kind: "metric", Tick: 43})
+	m.mu.Lock()
+	replay, ok := m.replayAfterLocked("42")
+	m.mu.Unlock()
+	if !ok {
+		t.Fatal("expected replay after snapshot ID to be available")
+	}
+	if len(replay) != 1 || replay[0].ID != "43" {
+		t.Fatalf("replay after snapshot = %+v, want metric id 43", replay)
 	}
 }
 
@@ -135,6 +149,12 @@ func TestAuthorityMirrorAppliesMetricAndConfigCommands(t *testing.T) {
 		"sceneRemaining": 77,
 		"currentName":    "after",
 		"nextName":       "next-up",
+		"rotationPolicy": rotationPolicyData{
+			Enabled:        true,
+			CadenceTicks:   123,
+			CadenceMinutes: 2.05,
+			Resolved:       []string{"campfire", "rain"},
+		},
 	})
 	if err != nil {
 		t.Fatalf("marshal metric: %v", err)
@@ -166,6 +186,9 @@ func TestAuthorityMirrorAppliesMetricAndConfigCommands(t *testing.T) {
 	}
 	if got.CurrentScene.Name != "after" || got.NextScene.Name != "next-up" {
 		t.Fatalf("scene names = %q/%q", got.CurrentScene.Name, got.NextScene.Name)
+	}
+	if !got.RotationPolicy.Enabled || got.RotationPolicy.CadenceTicks != 123 || len(got.RotationPolicy.Resolved) != 2 {
+		t.Fatalf("rotation policy = %+v, want mirrored metric policy", got.RotationPolicy)
 	}
 }
 
@@ -376,5 +399,39 @@ func TestRegisterEdgeRoutesProxiesEffectSchema(t *testing.T) {
 	}
 	if body := rec.Body.String(); body != `{"name":"snow"}` {
 		t.Fatalf("body = %q, want proxied schema payload", body)
+	}
+}
+
+func TestRegisterEdgeRoutesProxiesNextEffect(t *testing.T) {
+	var sawNextEffect bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/next-effect" || r.Method != http.MethodPost {
+			http.Error(w, "unexpected request", http.StatusInternalServerError)
+			return
+		}
+		sawNextEffect = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	registerEdgeRoutes(mux, &authorityProxy{
+		proxy: httputil.NewSingleHostReverseProxy(baseURL),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/next-effect", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if !sawNextEffect {
+		t.Fatal("authority did not receive /next-effect")
 	}
 }
