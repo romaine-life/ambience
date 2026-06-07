@@ -1042,61 +1042,50 @@ def _agent_job_spec(
         },
         {"name": "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "value": "1"},
     ]
+    # Always mount the standard github-token (which is the repo-scoped token now)
+    volumes.append(
+        {
+            "name": "github-token",
+            "secret": {
+                "secretName": "agent-github-token",
+                "items": [{"key": "token", "path": "token"}],
+            },
+        }
+    )
+    volume_mounts.append(
+        {"name": "github-token", "mountPath": "/var/run/ambience-github-token", "readOnly": True}
+    )
+    env.extend(
+        [
+            {"name": "GITHUB_TOKEN_FILE", "value": "/var/run/ambience-github-token/token"},
+            {"name": "GITHUB_CREDENTIAL_USERNAME", "value": "x-access-token"},
+        ]
+    )
+
+    pod_labels = {
+        "app.kubernetes.io/name": "ambience-agent",
+        "app.kubernetes.io/managed-by": "glimmung-inner",
+        "ambience.io/issue": str(issue_number),
+    }
+    pod_annotations = {}
+
     if github_proxy_ip:
         host_aliases.append({"ip": github_proxy_ip, "hostnames": ["github.com"]})
-        volumes.extend(
-            [
-                {
-                    "name": "github-policy-token",
-                    "secret": {
-                        "secretName": "agent-github-policy-token",
-                        "items": [{"key": "token", "path": "token"}],
-                    },
-                },
-                {
-                    "name": "github-policy-ca",
-                    "configMap": {
-                        "name": "glimmung-provider-api-proxy-ca",
-                        "items": [{"key": "ca.crt", "path": "ca.crt"}],
-                    },
-                },
-            ]
-        )
-        volume_mounts.extend(
-            [
-                {
-                    "name": "github-policy-token",
-                    "mountPath": "/var/run/ambience-github-token",
-                    "readOnly": True,
-                },
-                {"name": "github-policy-ca", "mountPath": "/etc/github-policy-ca", "readOnly": True},
-            ]
-        )
-        env.extend(
-            [
-                {"name": "GITHUB_TOKEN_FILE", "value": "/var/run/ambience-github-token/token"},
-                {"name": "GITHUB_CREDENTIAL_USERNAME", "value": "glimmung-policy"},
-            ]
-        )
-    else:
         volumes.append(
             {
-                "name": "github-token",
-                "secret": {
-                    "secretName": "agent-github-token",
-                    "items": [{"key": "token", "path": "token"}],
+                "name": "github-policy-ca",
+                "configMap": {
+                    "name": "glimmung-provider-api-proxy-ca",
+                    "items": [{"key": "ca.crt", "path": "ca.crt"}],
                 },
             }
         )
         volume_mounts.append(
-            {"name": "github-token", "mountPath": "/var/run/ambience-github-token", "readOnly": True}
+            {"name": "github-policy-ca", "mountPath": "/etc/github-policy-ca", "readOnly": True}
         )
-        env.extend(
-            [
-                {"name": "GITHUB_TOKEN_FILE", "value": "/var/run/ambience-github-token/token"},
-                {"name": "GITHUB_CREDENTIAL_USERNAME", "value": "x-access-token"},
-            ]
-        )
+        pod_labels["glimmung.romaine.life/github-egress-lockdown"] = "true"
+        pod_annotations["glimmung.romaine.life/github-policy-repo"] = repo_slug
+        pod_annotations["glimmung.romaine.life/github-policy-ref"] = f"refs/heads/{branch_name}"
 
     return {
         "apiVersion": "batch/v1",
@@ -1115,11 +1104,8 @@ def _agent_job_spec(
             "ttlSecondsAfterFinished": 1800,
             "template": {
                 "metadata": {
-                    "labels": {
-                        "app.kubernetes.io/name": "ambience-agent",
-                        "app.kubernetes.io/managed-by": "glimmung-inner",
-                        "ambience.io/issue": str(issue_number),
-                    },
+                    "labels": pod_labels,
+                    "annotations": pod_annotations,
                 },
                 "spec": {
                     "restartPolicy": "Never",
@@ -1198,6 +1184,80 @@ def apply_agent_job(
         config_map_name=config_map_name,
         agent_runtime_json=agent_runtime_json,
     )
+    if github_proxy_ip:
+        policy_name = f"{job_name}-egress-lockdown"
+        policy_spec = {
+            "apiVersion": "networking.k8s.io/v1",
+            "kind": "NetworkPolicy",
+            "metadata": {
+                "name": policy_name,
+                "namespace": namespace,
+            },
+            "spec": {
+                "podSelector": {
+                    "matchLabels": {
+                        "glimmung.romaine.life/github-egress-lockdown": "true"
+                    }
+                },
+                "policyTypes": ["Egress"],
+                "egress": [
+                    {
+                        "to": [
+                            {
+                                "namespaceSelector": {
+                                    "matchLabels": {
+                                        "kubernetes.io/metadata.name": "kube-system"
+                                    }
+                                },
+                                "podSelector": {
+                                    "matchLabels": {
+                                        "k8s-app": "kube-dns"
+                                    }
+                                }
+                            }
+                        ],
+                        "ports": [
+                            {"protocol": "UDP", "port": 53},
+                            {"protocol": "TCP", "port": 53}
+                        ]
+                    },
+                    {
+                        "to": [
+                            {
+                                "namespaceSelector": {
+                                    "matchLabels": {
+                                        "kubernetes.io/metadata.name": "glimmung-runs"
+                                    }
+                                }
+                            }
+                        ],
+                        "ports": [
+                            {"protocol": "TCP", "port": 443},
+                            {"protocol": "TCP", "port": 9100}
+                        ]
+                    },
+                    {
+                        "to": [
+                            {
+                                "podSelector": {}
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+        proc_policy = subprocess.run(
+            ["kubectl", "apply", "-f", "-"],
+            input=_json.dumps(policy_spec),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc_policy.returncode != 0:
+            raise CommandError(
+                f"kubectl apply policy failed: {(proc_policy.stderr or proc_policy.stdout).strip()}"
+            )
+
     proc = subprocess.run(
         ["kubectl", "apply", "-f", "-"],
         input=_json.dumps(spec),
