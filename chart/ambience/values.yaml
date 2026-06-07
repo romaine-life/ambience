@@ -156,41 +156,13 @@ authority:
   # swaps to a different effect type so the live broadcast monitor at /
   # cycles on its own. Cadence is the duration each effect runs before
   # the next pick (5–15 minutes feels coherent without going stale).
-  # Keep this as a curated live allowlist. All registered effects remain
-  # discoverable and testable on /dev/<effect>; add them here one by one
-  # after Glimmung validation against the current visual baseline.
+  # Empty effects means every registered effect is eligible. Add effect
+  # names here to narrow the live pool for production guardrails or a
+  # focused review session.
   rotation:
     enabled: true
     cadence: 10m
-    effects:
-      - rain
-      # Available candidates:
-      # - aurora
-      # - autumn-leaves
-      # - beach
-      # - bog
-      # - burning-trees
-      # - campfire
-      # - cave-crystals
-      # - distant-storm
-      # - dust
-      # - fireflies
-      # - lighthouse
-      # - mysterious-man
-      # - pond
-      # - rowboat
-      # - sand
-      # - slimes
-      # - snow
-      # - starfield
-      # - tetris
-      # - train
-      # - underwater
-      # - volcano
-      # - water-pipe
-      # - waterfall
-      # - wheat-field
-      # - windmill
+    effects: []
   controlAuth:
     existingSecret: ""
     passwordKey: password
