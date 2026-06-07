@@ -842,9 +842,15 @@ write_evidence_artifacts() {
     done < <(find "${EVIDENCE_DIR}/observations" -maxdepth 1 -type f -name '*.json' | sort)
   fi
 
-  jq -s --slurpfile verifier "$verifier" '
+  jq -s \
+    --arg run_prefix "runs/${GLIMMUNG_PROJECT}/${GLIMMUNG_RUN_ID}" \
+    --slurpfile verifier "$verifier" '
     def normalize_ref($ref): ($ref | tostring | sub("^/workspace/evidence/"; "") | sub("^/tmp/evidence/"; ""));
-    def first_ref($item): normalize_ref($item.ref // $item.artifact_path // $item.url // "");
+    def run_scoped_ref($ref):
+      if ($ref | startswith("observations/")) then $run_prefix + "/" + $ref
+      else $ref
+      end;
+    def first_ref($item): normalize_ref($item.ref // $item.artifact_path // $item.url // "") | run_scoped_ref(.);
     def norm_kind($kind; $ref):
       ($kind // "" | ascii_downcase) as $k
       | ($ref // "" | ascii_downcase) as $r

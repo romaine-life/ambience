@@ -348,6 +348,35 @@ non-video/non-screenshot selected evidence case with a passing
 that observation as an `artifact`, which satisfies touchpoint's required
 artifact count.
 
+`runs/24.1` proved that artifact materialization alone was not quite enough:
+
+- Branch head: `cf6a279 agent: emit artifact evidence for nonvisual verification`
+- Slot: `ambience-slot-4`
+- Run:
+  `https://glimmung.romaine.life/projects/ambience/issues/168/runs/24/cycles/1`
+- `llm-verify` succeeded and emitted:
+
+  ```json
+  {
+    "kind": "artifact",
+    "ref": "observations/tests-magic-portal-verification.json"
+  }
+  ```
+
+- The observation upload succeeded, but touchpoint still returned:
+
+  ```text
+  required artifact evidence was not recorded
+  ```
+
+The cause was Glimmung's touchpoint resolver. It auto-prefixes relative
+`screenshots/`, `videos/`, `evidence/`, and `inspections/` refs with
+`runs/<project>/<run-id>/`, but not `observations/`. The verifier upload path
+stores observation JSON at `runs/<project>/<run-id>/observations/...`, so the
+reported artifact ref must already be run-scoped. The branch now normalizes
+`observations/...` refs to `runs/<project>/<run-id>/observations/...` in
+`write_evidence_artifacts`.
+
 One more discovered runtime gap: the verifier agent container did not have
 `go` on `PATH`, so the first synthetic retry, `ambience#168/runs/19.1`, failed
 with:
