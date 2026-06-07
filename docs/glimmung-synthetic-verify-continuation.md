@@ -298,12 +298,11 @@ image failure.
 Important finish-out constraint: Glimmung's current workflow contract requires
 PR touchpoint and review-gate phases. There is no `pr.enabled=false` opt-out.
 After a successful `llm-verify` and successful cleanup, the workflow will try
-to ensure a PR touchpoint, then park at the review gate until approved. A true
-top-level `passed` run requires going through that gate and merging the
-touchpoint PR. Do not claim an evidence-only synthetic run can terminally pass
-without either:
+to ensure a PR touchpoint, then park at the review gate until approved. The
+touchpoint is the human-intervention boundary; it does not merge the PR. Do not
+claim an evidence-only synthetic run can terminally pass without either:
 
-- intentionally creating/approving/merging the touchpoint PR, or
+- intentionally creating the touchpoint PR and satisfying the human gate, or
 - changing Glimmung to support a synthetic/evidence-only terminal mode.
 
 Also do not claim a unit-test-only synthetic verifier can finish the current
@@ -317,6 +316,37 @@ case, the viable next shapes are:
   required screenshot/video refs; or
 - change Glimmung to support an explicit synthetic/evidence-only terminal mode
   that does not require PR Touchpoint artifact publication.
+
+`runs/23.1` confirmed the same touchpoint artifact problem after the verifier
+finalization bug was fixed:
+
+- Branch: `codex/168-touchpoint-continuation`
+- Head: `9047653 agent: preserve verifier pass after wait timeout`
+- Slot: `ambience-slot-3`
+- Run:
+  `https://glimmung.romaine.life/projects/ambience/issues/168/runs/23/cycles/1`
+- `llm-verify` succeeded for all continuation cases:
+  `dev-magic-portal-power-surge`, `dev-magic-portal-ember-burst`,
+  `dev-magic-portal-rune-shift`, `dev-magic-portal-quiet-gate`, and
+  `tests-magic-portal`.
+- `touchpoint` failed with:
+
+  ```text
+  required artifact evidence was not recorded
+  ```
+
+The cause was exact: the selected `tests-magic-portal` required evidence had
+kind `go-test`. Glimmung normalizes unknown evidence kinds to `artifact`, but
+the child verifier reported the passing Go test only in `evidence_results` with
+an empty `evidence` array. The native verifier must materialize non-visual pass
+results as durable JSON observation artifacts before touchpoint runs.
+
+The branch now includes that fix in `scripts/glimmung-native/verify.sh`: for a
+non-video/non-screenshot selected evidence case with a passing
+`evidence_results` entry, it writes
+`observations/<evidence-id>-verification.json`. The normal upload path promotes
+that observation as an `artifact`, which satisfies touchpoint's required
+artifact count.
 
 One more discovered runtime gap: the verifier agent container did not have
 `go` on `PATH`, so the first synthetic retry, `ambience#168/runs/19.1`, failed

@@ -715,6 +715,68 @@ enforce_video_artifact_inspection() {
   return 0
 }
 
+materialize_selected_non_visual_artifact() {
+  local verifier="$1"
+  local kind evidence_id safe_id artifact_path
+
+  kind="$(selected_required_evidence_kind)"
+  case "$kind" in
+    ""|video|screenshot)
+      return 0
+      ;;
+  esac
+
+  [ -s "$VERIFICATION_CASE_FILE" ] || return 0
+  [ -s "$verifier" ] || return 0
+
+  evidence_id="$(jq -r '.required_evidence.id // ""' "$VERIFICATION_CASE_FILE" 2>/dev/null || true)"
+  [ -n "$evidence_id" ] || return 0
+
+  if jq -e '
+      def kind($value):
+        ($value // "" | ascii_downcase) as $k
+        | if $k == "screenshot" or $k == "image" or $k == "still" then "screenshot"
+          elif $k == "video" or $k == "animation" or $k == "webm" or $k == "movie" or $k == "recording" then "video"
+          elif $k == "" then ""
+          else "artifact"
+          end;
+      (
+        (.evidence // [])[]?,
+        (.evidence_artifacts // [])[]?
+      )
+      | select(kind(.kind) == "artifact" or ((.ref // .artifact_path // .url // "") | test("\\.json([?#].*)?$")))
+    ' "$verifier" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ! jq -e --arg id "$evidence_id" '
+      (.evidence_results // [])[]?
+      | select((.id // "") == $id and (.status // "") == "pass")
+    ' "$verifier" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  mkdir -p "${EVIDENCE_DIR}/observations"
+  safe_id="$(printf '%s' "$evidence_id" | tr -c 'A-Za-z0-9_.-' '-')"
+  artifact_path="${EVIDENCE_DIR}/observations/${safe_id}-verification.json"
+  jq -n \
+    --arg id "$evidence_id" \
+    --arg kind "$kind" \
+    --slurpfile selected "$VERIFICATION_CASE_FILE" \
+    --slurpfile verify "$verifier" \
+    '{
+      schema_version: 1,
+      type: "verification-artifact",
+      id: $id,
+      kind: $kind,
+      required_evidence: ($selected[0].required_evidence // null),
+      result: (($verify[0].evidence_results // []) | map(select((.id // "") == $id))[0] // null),
+      verification_status: ($verify[0].status // ""),
+      generated_by: "scripts/glimmung-native/verify.sh"
+    }' >"$artifact_path"
+  echo "materialized non-visual verification artifact observations/$(basename "$artifact_path")"
+}
+
 write_evidence_artifacts() {
   local artifacts_out="$1"
   local refs_out="$2"
@@ -723,6 +785,12 @@ write_evidence_artifacts() {
   local empty_verifier="/tmp/empty-verifier.json"
   : >"$file_artifacts"
   printf '{}\n' >"$empty_verifier"
+
+  if [ ! -s "$verifier" ]; then
+    verifier="$empty_verifier"
+  fi
+
+  materialize_selected_non_visual_artifact "$verifier"
 
   if compgen -G "${EVIDENCE_DIR}/screenshots/*.png" >/dev/null; then
     while IFS= read -r file; do
@@ -772,10 +840,6 @@ write_evidence_artifacts() {
         '{kind:"artifact", ref:$ref, label:$label, content_type:"application/json", size_bytes:$size}' \
         >>"$file_artifacts"
     done < <(find "${EVIDENCE_DIR}/observations" -maxdepth 1 -type f -name '*.json' | sort)
-  fi
-
-  if [ ! -s "$verifier" ]; then
-    verifier="$empty_verifier"
   fi
 
   jq -s --slurpfile verifier "$verifier" '
