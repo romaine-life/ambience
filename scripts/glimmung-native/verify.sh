@@ -871,20 +871,17 @@ finalize() {
       ;;
   esac
 
-  VERIFY_EXIT_CODE="$(verify_exit_code)"
-  if [ "$VERIFY_EXIT_CODE" -ne 0 ]; then
-    add_reason "verify pod exited with ${VERIFY_EXIT_CODE}; see native step logs"
-    if [ -s "$POD_LOG" ]; then
-      grep -E "::error::|Job failed|FATAL|panic:|aborted:|forbidden|exited without writing" "$POD_LOG" \
-        | head -5 >>"$VERIFICATION_REASONS" || true
-    fi
-    write_verification "fail"
-    return 0
-  fi
-
   local verifier_status
   verifier_status="$(jq -r '.status // "missing"' "${EVIDENCE_DIR}/issue-agent-verification.json" 2>/dev/null || echo missing)"
   if [ "$verifier_status" != "pass" ]; then
+    VERIFY_EXIT_CODE="$(verify_exit_code)"
+    if [ "$VERIFY_EXIT_CODE" -ne 0 ]; then
+      add_reason "verify pod exited with ${VERIFY_EXIT_CODE}; see native step logs"
+      if [ -s "$POD_LOG" ]; then
+        grep -E "::error::|Job failed|FATAL|panic:|aborted:|forbidden|exited without writing|did not reach a terminal Job condition" "$POD_LOG" \
+          | head -5 >>"$VERIFICATION_REASONS" || true
+      fi
+    fi
     add_reason "verifier reported status=${verifier_status} reason=$(jq -r '.abort_reason // ""' "${EVIDENCE_DIR}/issue-agent-verification.json" 2>/dev/null || echo "")"
     write_verification "fail"
     return 0
