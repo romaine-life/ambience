@@ -80,6 +80,7 @@ window.AmbienceChrome = (function () {
 	}
 
 	function fmtKnob(knob, v) {
+		if (knob.type === 'bool') return Number(v) ? 'on' : 'off';
 		v = Number(v);
 		if (!Number.isFinite(v)) return '';
 		if (knob.type === 'int') return String(Math.round(v));
@@ -252,7 +253,7 @@ window.AmbienceChrome = (function () {
 			setControlsLocked(locked) {
 				C.locked = !!locked;
 				refs.ctl.classList.toggle('is-locked', C.locked);
-				for (const inp of refs.ctlBody.querySelectorAll('input[type="range"]')) inp.disabled = C.locked;
+				for (const inp of refs.ctlBody.querySelectorAll('input')) inp.disabled = C.locked;
 				for (const b of refs.ctlBody.querySelectorAll('button.fire')) b.disabled = C.locked;
 				if (refs.preset) refs.preset.btn.disabled = C.locked;
 			},
@@ -367,7 +368,11 @@ window.AmbienceChrome = (function () {
 	// ── control surface ────────────────────────────────────────────────────
 	function currentValues(C) {
 		const v = {};
-		for (const k of C.knobs) { const i = document.getElementById(k.key); if (i) v[k.key] = +i.value; }
+		for (const k of C.knobs) {
+			const i = document.getElementById(k.key);
+			if (!i) continue;
+			v[k.key] = k.type === 'bool' ? (i.checked ? 1 : 0) : +i.value;
+		}
 		return v;
 	}
 	function updateReadouts(C) {
@@ -381,7 +386,9 @@ window.AmbienceChrome = (function () {
 		for (const k of C.knobs) {
 			const i = document.getElementById(k.key);
 			if (!i) continue;
-			i.value = values && values[k.key] != null ? values[k.key] : k.default;
+			const next = values && values[k.key] != null ? values[k.key] : k.default;
+			if (k.type === 'bool') i.checked = !!Number(next);
+			else i.value = next;
 		}
 		updateReadouts(C);
 		refreshPreset(C);
@@ -415,6 +422,17 @@ window.AmbienceChrome = (function () {
 				knob.description ? h('span', { class: 'knob__help', title: knob.description, tabIndex: 0, 'aria-label': knob.description }, '?') : null,
 				h('button', { class: 'fire', disabled: C.locked, title: 'trigger this event now',
 					on: { click: () => { if (!C.locked && C.handlers.onFire) C.handlers.onFire(knob.trigger); } } }, 'fire'));
+		}
+		if (knob.type === 'bool') {
+			const input = h('input', {
+				type: 'checkbox', class: 'knob__check', id: knob.key,
+				checked: !!Number(knob.default), disabled: C.locked,
+				on: { input: () => { updateReadouts(C); refreshPreset(C); if (!C.locked && C.handlers.onKnob) C.handlers.onKnob(knob, currentValues(C)); } },
+			});
+			return h('div', { class: 'knob knob--bool' },
+				h('label', { class: 'knob__label', title: knob.label }, input, h('span', null, knob.label)),
+				knob.description ? h('span', { class: 'knob__help', title: knob.description, tabIndex: 0, 'aria-label': knob.description }, '?') : null,
+				h('span', { class: 'knob__val', id: knob.key + '_v' }, ''));
 		}
 		const input = h('input', {
 			type: 'range', class: 'knob__range', id: knob.key,

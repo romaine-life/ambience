@@ -77,6 +77,7 @@ type snapshotData struct {
 	SceneRemaining int                 `json:"sceneRemaining"`
 	ScenePolicy    scenePolicyData     `json:"scenePolicy"`
 	Transition     transitionStateData `json:"transition"`
+	RotationPolicy rotationPolicyData  `json:"rotationPolicy"`
 }
 
 type clockData struct {
@@ -100,6 +101,16 @@ type transitionStateData struct {
 	ElapsedTicks  int     `json:"elapsedTicks"`
 	DurationTicks int     `json:"durationTicks"`
 	Progress      float64 `json:"progress"`
+}
+
+type rotationPolicyData struct {
+	Enabled        bool     `json:"enabled"`
+	CadenceTicks   int      `json:"cadenceTicks"`
+	CadenceMinutes float64  `json:"cadenceMinutes"`
+	AllEffects     bool     `json:"allEffects"`
+	Allowed        []string `json:"allowed"`
+	Resolved       []string `json:"resolved"`
+	Available      []string `json:"available"`
 }
 
 type atmosphere struct {
@@ -453,6 +464,7 @@ func (a *atmosphere) broadcastMetric(tick int) {
 	entropyBytes := a.entropyBytes
 	currentCopy := a.current
 	nextName := a.next.Name
+	rotationPolicy := a.rotation
 	a.mu.Unlock()
 
 	data, _ := json.Marshal(map[string]interface{}{
@@ -462,6 +474,7 @@ func (a *atmosphere) broadcastMetric(tick int) {
 		"nextName":       nextName,
 		"scenePolicy":    a.scenePolicySnapshot(),
 		"transition":     a.transitionSnapshot(tick),
+		"rotationPolicy": rotationPolicy.data(),
 	})
 	a.broadcast(Command{Kind: "metric", Tick: tick, Data: data})
 }
@@ -595,6 +608,13 @@ func (p scenePolicy) data() scenePolicyData {
 func (a *atmosphere) scenePolicySnapshot() scenePolicyData {
 	a.mu.Lock()
 	p := a.scenePolicy
+	a.mu.Unlock()
+	return p.data()
+}
+
+func (a *atmosphere) rotationPolicySnapshot() rotationPolicyData {
+	a.mu.Lock()
+	p := a.rotation
 	a.mu.Unlock()
 	return p.data()
 }
@@ -735,6 +755,7 @@ func (a *atmosphere) snapshot() snapshotData {
 	policy := a.scenePolicy
 	transitionStart := a.transitionStart
 	transitionDur := a.transitionDur
+	rotationPolicy := a.rotation
 	a.mu.Unlock()
 	effectSnap, err := a.effect.Snapshot()
 	if err != nil {
@@ -748,6 +769,7 @@ func (a *atmosphere) snapshot() snapshotData {
 			SceneRemaining: current.Remaining(0),
 			ScenePolicy:    policy.data(),
 			Transition:     transitionData(transitionStart, transitionDur, cur),
+			RotationPolicy: rotationPolicy.data(),
 		}
 	}
 	return snapshotData{
@@ -764,6 +786,7 @@ func (a *atmosphere) snapshot() snapshotData {
 		SceneRemaining: current.Remaining(effectSnap.Tick),
 		ScenePolicy:    policy.data(),
 		Transition:     transitionData(transitionStart, transitionDur, effectSnap.Tick),
+		RotationPolicy: rotationPolicy.data(),
 	}
 }
 
@@ -816,6 +839,14 @@ func (a *atmosphere) setScenePolicy(policy scenePolicy) {
 	policy = policy.normalized()
 	a.mu.Lock()
 	a.scenePolicy = policy
+	a.mu.Unlock()
+	a.broadcastMetric(a.effect.CurrentTick())
+}
+
+func (a *atmosphere) updateRotationPolicy(policy rotationPolicy) {
+	a.mu.Lock()
+	a.rotation = policy
+	a.rotationStartTick = a.effect.CurrentTick()
 	a.mu.Unlock()
 	a.broadcastMetric(a.effect.CurrentTick())
 }

@@ -95,12 +95,32 @@ func (p rotationPolicy) resolvedAllowedEffects() []string {
 		sort.Strings(out)
 		return out
 	}
+	return registeredEffectTypes()
+}
+
+func registeredEffectTypes() []string {
 	out := make([]string, 0, len(effectRegistry))
 	for name := range effectRegistry {
 		out = append(out, name)
 	}
 	sort.Strings(out)
 	return out
+}
+
+func (p rotationPolicy) cadenceMinutes() float64 {
+	return float64(time.Duration(p.CadenceTicks)*tickRate) / float64(time.Minute)
+}
+
+func (p rotationPolicy) data() rotationPolicyData {
+	return rotationPolicyData{
+		Enabled:        p.Enabled,
+		CadenceTicks:   p.CadenceTicks,
+		CadenceMinutes: p.cadenceMinutes(),
+		AllEffects:     len(p.Allowed) == 0,
+		Allowed:        append([]string(nil), p.Allowed...),
+		Resolved:       p.resolvedAllowedEffects(),
+		Available:      registeredEffectTypes(),
+	}
 }
 
 // pickNextEffect chooses an effect from pool, preferring not to repeat the

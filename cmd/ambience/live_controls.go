@@ -15,6 +15,9 @@ const (
 	sceneMaxMinutesKey        = "scene_max_m"
 	sceneTransitionMinutesKey = "scene_transition_m"
 	sceneVariationKey         = "scene_variation"
+	rotationEnabledKey        = "effect_rotation_enabled"
+	rotationCadenceMinutesKey = "effect_rotation_cadence_m"
+	rotationAllowPrefix       = "effect_allow_"
 )
 
 func sharedEffectSchema(req *http.Request) (string, sim.EffectSchema, error) {
@@ -69,6 +72,14 @@ func serveSharedConfig(w http.ResponseWriter, req *http.Request) {
 		}
 		shared.setScenePolicy(policy)
 	}
+	if hasRotationPolicyValues(values) {
+		policy, err := parseRotationPolicyValues(values, shared.rotationPolicySnapshot())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		shared.updateRotationPolicy(policy)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -84,6 +95,21 @@ func hasEffectConfigValues(values map[string][]string, schema sim.EffectSchema) 
 func hasScenePolicyValues(values map[string][]string) bool {
 	for _, key := range []string{sceneMinMinutesKey, sceneMaxMinutesKey, sceneTransitionMinutesKey, sceneVariationKey} {
 		if _, ok := values[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func hasRotationPolicyValues(values map[string][]string) bool {
+	if _, ok := values[rotationEnabledKey]; ok {
+		return true
+	}
+	if _, ok := values[rotationCadenceMinutesKey]; ok {
+		return true
+	}
+	for key := range values {
+		if strings.HasPrefix(key, rotationAllowPrefix) {
 			return true
 		}
 	}
@@ -126,6 +152,72 @@ func parseScenePolicyValues(values map[string][]string, current scenePolicyData)
 		policy.Variation = v
 	}
 	return policy.normalized(), nil
+}
+
+func parseRotationPolicyValues(values map[string][]string, current rotationPolicyData) (rotationPolicy, error) {
+	policy := rotationPolicy{
+		Enabled:      current.Enabled,
+		CadenceTicks: current.CadenceTicks,
+	}
+	if current.AllEffects {
+		policy.Allowed = nil
+	} else {
+		policy.Allowed = append([]string(nil), current.Allowed...)
+	}
+
+	if raw := strings.TrimSpace(firstValue(values, rotationEnabledKey)); raw != "" {
+		v, err := parseBoolControl(raw)
+		if err != nil {
+			return rotationPolicy{}, fmt.Errorf("parse %s: %w", rotationEnabledKey, err)
+		}
+		policy.Enabled = v
+	}
+	if raw := strings.TrimSpace(firstValue(values, rotationCadenceMinutesKey)); raw != "" {
+		v, err := parseBoundedFloat(raw, 1, 24*60)
+		if err != nil {
+			return rotationPolicy{}, fmt.Errorf("parse %s: %w", rotationCadenceMinutesKey, err)
+		}
+		policy.CadenceTicks = ticksFor(time.Duration(v * float64(time.Minute)))
+	}
+
+	allowValuesPresent := false
+	selected := []string{}
+	for _, effectType := range registeredEffectTypes() {
+		key := rotationAllowPrefix + effectType
+		raw := strings.TrimSpace(firstValue(values, key))
+		if raw == "" {
+			continue
+		}
+		allowValuesPresent = true
+		allowed, err := parseBoolControl(raw)
+		if err != nil {
+			return rotationPolicy{}, fmt.Errorf("parse %s: %w", key, err)
+		}
+		if allowed {
+			selected = append(selected, effectType)
+		}
+	}
+	if allowValuesPresent {
+		if len(selected) == 0 {
+			return rotationPolicy{}, fmt.Errorf("effect rotation pool must include at least one effect")
+		}
+		policy.Allowed = selected
+	}
+	if policy.CadenceTicks <= 0 {
+		policy.CadenceTicks = defaultRotationCadenceTicks
+	}
+	return policy, nil
+}
+
+func parseBoolControl(raw string) (bool, error) {
+	switch strings.TrimSpace(strings.ToLower(raw)) {
+	case "1", "true", "on", "yes":
+		return true, nil
+	case "0", "false", "off", "no":
+		return false, nil
+	default:
+		return strconv.ParseBool(raw)
+	}
 }
 
 func firstValue(values map[string][]string, key string) string {

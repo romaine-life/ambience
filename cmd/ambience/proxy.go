@@ -74,6 +74,7 @@ func registerEdgeRoutes(mux *http.ServeMux, proxy *authorityProxy) {
 	mux.HandleFunc("/control-auth", proxy.serveHTTP)
 	mux.HandleFunc("/config", proxy.serveHTTP)
 	mux.HandleFunc("/trigger/", proxy.serveHTTP)
+	mux.HandleFunc("/next-effect", proxy.serveHTTP)
 	mux.HandleFunc("/dev/snapshot", proxy.serveHTTP)
 	mux.HandleFunc("/dev/events", proxy.serveHTTP)
 	mux.HandleFunc("/dev/config", proxy.serveHTTP)
@@ -561,6 +562,7 @@ func (m *authorityMirror) applyCommand(cmd Command) {
 			NextName       string               `json:"nextName"`
 			ScenePolicy    *scenePolicyData     `json:"scenePolicy"`
 			Transition     *transitionStateData `json:"transition"`
+			RotationPolicy *rotationPolicyData  `json:"rotationPolicy"`
 		}
 		if err := json.Unmarshal(cmd.Data, &data); err == nil {
 			m.snap.EntropyBytes = data.EntropyBytes
@@ -578,6 +580,9 @@ func (m *authorityMirror) applyCommand(cmd Command) {
 			}
 			if data.Transition != nil {
 				m.snap.Transition = *data.Transition
+			}
+			if data.RotationPolicy != nil {
+				m.snap.RotationPolicy = *data.RotationPolicy
 			}
 		}
 	}
