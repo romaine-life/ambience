@@ -78,13 +78,18 @@ Glimmung selects the concrete provider/model for this invocation through the
       with the terminal state predicate and include the predicate in
       `behavior_evidence`. This is the verifier's source of truth for
       "done"; the video is reviewer context.
-7. Publish your current branch and use the draft PR CI checks as feedback:
+7. Commit and publish your current branch with normal Git commands:
    ```
-   scripts/glimmung-native/agent-ci-feedback.sh publish-and-wait
+   git add -A
+   git commit -m "agent: address $ISSUE_REFERENCE"
+   git fetch origin main
+   git rebase origin/main
+   git push origin HEAD:$BRANCH_NAME
    ```
-   If CI fails, read the check output, fix the code, and run the helper again.
-   Do not invent a replacement verification path for deterministic build/test
-   failures.
+   The branch is pre-created and has a draft PR, so repository CI will run on
+   pushed commits. If `git push` rejects the branch, read the remote error and
+   stay on the implementation branch named by `$BRANCH_NAME`. Do not push any
+   other branch.
 8. Write `/workspace/evidence/issue-agent-implementation.json` and
    `/workspace/evidence/issue-agent-implementation.md` per the schemas
    below. **The JSON file is required.**
@@ -149,8 +154,8 @@ Write a short companion `issue-agent-implementation.md` with:
 - **Do** follow the issue-contract artifact when present. It is shared
   upstream target context, not a test plan.
 - **Do not** open PRs or comment on issues. The workflow opens the draft PR
-  before this stage. Only publish/check the implementation branch through
-  `scripts/glimmung-native/agent-ci-feedback.sh`; do not use raw GitHub tokens
+  before this stage. Use normal `git` commands to commit and push only the
+  implementation branch named by `$BRANCH_NAME`; do not use raw GitHub tokens
   or push to any other branch.
 - **Do not** curl or otherwise touch the **shared validation
   environment** (`$VALIDATION_URL` / the deployed slot). It is rebuilt by

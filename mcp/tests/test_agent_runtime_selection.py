@@ -144,6 +144,55 @@ def test_agent_job_spec_renders_selected_runtime() -> None:
         mount["name"] != "codex-credentials"
         for mount in spec["spec"]["template"]["spec"]["containers"][0]["volumeMounts"]
     )
+    assert "GH_TOKEN" not in env
+
+
+def test_implementation_agent_job_can_route_git_through_github_policy_proxy() -> None:
+    spec = ops._agent_job_spec(
+        namespace="ambience-slot-1",
+        job_name="agent-run-im-0",
+        issue_number="12",
+        issue_title="render selected runtime",
+        issue_url="https://glimmung.example/issues/12",
+        issue_reference="ambience#12",
+        validation_url="https://slot.example",
+        branch_name="glimmung/issue-12/run-1",
+        proxy_ip="10.0.0.5",
+        claude_proxy_ip="10.0.0.6",
+        codex_proxy_ip="10.0.0.7",
+        github_proxy_ip="10.0.0.8",
+        agent_container_tag="native-runner-test",
+        agent_container_image="romainecr.azurecr.io/ambience-agent-runner:native-runner-test",
+        stage="implement",
+        config_map_name="agent-config-implement",
+        agent_runtime_json=snapshot(
+            implementation={
+                "profile_id": "impl-codex",
+                "provider": "codex",
+                "model": "gpt-5.5",
+                "reasoning_effort": "xhigh",
+                "source": "issue",
+            }
+        ),
+    )
+
+    pod_spec = spec["spec"]["template"]["spec"]
+    assert {"ip": "10.0.0.8", "hostnames": ["github.com"]} in pod_spec["hostAliases"]
+    volumes = {volume["name"]: volume for volume in pod_spec["volumes"]}
+    assert volumes["github-policy-token"]["secret"]["secretName"] == "agent-github-policy-token"
+    assert volumes["github-policy-ca"]["configMap"]["name"] == "glimmung-provider-api-proxy-ca"
+
+    container = pod_spec["containers"][0]
+    env = {
+        item["name"]: item["value"]
+        for item in container["env"]
+        if "value" in item
+    }
+    assert env["GITHUB_CREDENTIAL_USERNAME"] == "glimmung-policy"
+    assert env["GITHUB_TOKEN_FILE"] == "/var/run/ambience-github-token/token"
+    assert "GH_TOKEN" not in env
+    mounts = {mount["name"]: mount for mount in container["volumeMounts"]}
+    assert mounts["github-policy-ca"]["mountPath"] == "/etc/github-policy-ca"
 
 
 def test_verify_agent_job_receives_selected_case_context() -> None:

@@ -11,7 +11,7 @@ source "${SCRIPT_DIR}/lib.sh"
 
 REPO_SLUG="${AMBIENCE_REPO_SLUG:-romaine-life/ambience}"
 REPO_DIR="${AMBIENCE_REPO_DIR:-/workspace/repo}"
-BRANCH_NAME="$(native_implementation_branch_name)"
+BRANCH_NAME="${BRANCH_NAME:-$(native_implementation_branch_name)}"
 BASE_REF="${AMBIENCE_PR_BASE:-main}"
 WORKFLOW_FILE="${AMBIENCE_PR_CHECK_WORKFLOW:-docker-build-check.yaml}"
 
@@ -67,13 +67,10 @@ commit_if_needed() {
 }
 
 push_branch() {
-  local token auth_header
-  token="$(native_github_token)"
-  auth_header="$(native_git_auth_header "$token")"
   git -C "$REPO_DIR" remote set-url origin "https://github.com/${REPO_SLUG}.git"
-  git -C "$REPO_DIR" -c "http.extraHeader=${auth_header}" fetch origin "$BASE_REF"
+  git -C "$REPO_DIR" fetch origin "$BASE_REF"
   git -C "$REPO_DIR" rebase "origin/${BASE_REF}"
-  git -C "$REPO_DIR" -c "http.extraHeader=${auth_header}" push origin "HEAD:${BRANCH_NAME}"
+  git -C "$REPO_DIR" push origin "HEAD:${BRANCH_NAME}"
 }
 
 dispatch_checks() {

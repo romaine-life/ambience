@@ -28,6 +28,10 @@ WORKFLOW_REF="$(native_workflow_checkout_ref)"
 AGENT_CONTAINER_TAG="${AGENT_CONTAINER_TAG:-}"
 CLAUDE_NAMESPACE="${GLIMMUNG_INPUT_CLAUDE_NAMESPACE:-tank-operator}"
 CLAUDE_CA_NAMESPACE="${GLIMMUNG_INPUT_CLAUDE_CA_NAMESPACE:-${CLAUDE_CA_NAMESPACE:-tank-operator-sessions}}"
+PROVIDER_API_PROXY_NAMESPACE="${GLIMMUNG_INPUT_PROVIDER_API_PROXY_NAMESPACE:-${GLIMMUNG_PROVIDER_API_PROXY_NAMESPACE:-glimmung-runs}}"
+GITHUB_POLICY_CA_SECRET="${GLIMMUNG_GITHUB_POLICY_CA_SECRET:-glimmung-provider-api-proxy-ca}"
+GITHUB_POLICY_CA_CONFIGMAP="${GLIMMUNG_GITHUB_POLICY_CA_CONFIGMAP:-glimmung-provider-api-proxy-ca}"
+GITHUB_POLICY_PROXY_SERVICE="${GLIMMUNG_GITHUB_POLICY_PROXY_SERVICE:-github-git-policy-proxy}"
 
 VALIDATION_URL="${GLIMMUNG_INPUT_VALIDATION_URL}"
 NAMESPACE="${GLIMMUNG_INPUT_NAMESPACE}"
@@ -56,6 +60,7 @@ EVIDENCE_DIR="/tmp/evidence"
 POD_LOG="/tmp/agent-pod.log"
 IMPL_EXIT_CODE_FILE="/tmp/implementation-exit-code"
 PROXY_IP_FILE="/tmp/implementation-proxy-ip"
+GITHUB_PROXY_IP_FILE="/tmp/implementation-github-proxy-ip"
 ISSUE_CONTRACT_FILE="${EVIDENCE_DIR}/issue-agent-contract.json"
 PR_NUMBER_FILE="/tmp/implementation-pr-number"
 PR_URL_FILE="/tmp/implementation-pr-url"
@@ -84,10 +89,29 @@ copy_claude_ca() {
     | kubectl apply -f -
 }
 
+copy_github_policy_ca() {
+  kubectl -n "$PROVIDER_API_PROXY_NAMESPACE" get secret "$GITHUB_POLICY_CA_SECRET" -o json \
+    | NAMESPACE="$NAMESPACE" CONFIGMAP="$GITHUB_POLICY_CA_CONFIGMAP" jq '
+        {
+          apiVersion: "v1",
+          kind: "ConfigMap",
+          metadata: {
+            name: env.CONFIGMAP,
+            namespace: env.NAMESPACE
+          },
+          data: {
+            "ca.crt": (.data["ca.crt"] | @base64d)
+          }
+        }
+      ' \
+    | kubectl apply -f -
+}
+
 prepare_context() {
   native_azure_login
   native_install_preview_package "${REPO_DIR}/mcp"
   copy_claude_ca
+  copy_github_policy_ca
   native_prepare_codex_credentials_secret "$NAMESPACE"
 
   PROXY_IP="$(kubectl -n "$CLAUDE_NAMESPACE" get svc claude-api-proxy -o jsonpath='{.spec.clusterIP}')"
@@ -97,6 +121,14 @@ prepare_context() {
   fi
   export PROXY_IP
   printf '%s\n' "$PROXY_IP" >"$PROXY_IP_FILE"
+
+  GITHUB_PROXY_IP="$(kubectl -n "$PROVIDER_API_PROXY_NAMESPACE" get svc "$GITHUB_POLICY_PROXY_SERVICE" -o jsonpath='{.spec.clusterIP}')"
+  if [ -z "$GITHUB_PROXY_IP" ]; then
+    echo "${GITHUB_POLICY_PROXY_SERVICE} Service not found in ${PROVIDER_API_PROXY_NAMESPACE}" >&2
+    return 1
+  fi
+  export GITHUB_PROXY_IP
+  printf '%s\n' "$GITHUB_PROXY_IP" >"$GITHUB_PROXY_IP_FILE"
 
   local dest="/tmp/agent-prompt-context.md"
   : >"$dest"
@@ -114,10 +146,20 @@ prepare_context() {
     fi
   } >>"$dest"
 
-  local token
-  token="$(native_github_token)"
-  kubectl -n "$NAMESPACE" create secret generic agent-github-token \
-    --from-literal=token="$token" \
+  local policy_json policy_token policy_branch
+  policy_json="$(native_github_push_policy_token_json)"
+  policy_token="$(printf '%s' "$policy_json" | jq -r '.token // ""')"
+  policy_branch="$(printf '%s' "$policy_json" | jq -r '.branch // ""')"
+  if [ -z "$policy_token" ]; then
+    echo "GitHub push policy token callback returned no token" >&2
+    return 1
+  fi
+  if [ "$policy_branch" != "$BRANCH_NAME" ]; then
+    echo "GitHub push policy token branch ${policy_branch} does not match implementation branch ${BRANCH_NAME}" >&2
+    return 1
+  fi
+  kubectl -n "$NAMESPACE" create secret generic agent-github-policy-token \
+    --from-literal=token="$policy_token" \
     --dry-run=client -o yaml | kubectl apply -f -
 
   if [ -n "${GLIMMUNG_INPUT_ISSUE_CONTRACT:-}" ]; then
@@ -153,8 +195,25 @@ ensure_proxy_ip() {
   fi
 }
 
+ensure_github_proxy_ip() {
+  if [ -z "${GITHUB_PROXY_IP:-}" ] && [ -s "$GITHUB_PROXY_IP_FILE" ]; then
+    GITHUB_PROXY_IP="$(cat "$GITHUB_PROXY_IP_FILE")"
+    export GITHUB_PROXY_IP
+  fi
+  if [ -z "${GITHUB_PROXY_IP:-}" ]; then
+    GITHUB_PROXY_IP="$(kubectl -n "$PROVIDER_API_PROXY_NAMESPACE" get svc "$GITHUB_POLICY_PROXY_SERVICE" -o jsonpath='{.spec.clusterIP}')"
+    if [ -z "$GITHUB_PROXY_IP" ]; then
+      echo "${GITHUB_POLICY_PROXY_SERVICE} Service not found in ${PROVIDER_API_PROXY_NAMESPACE}" >&2
+      return 1
+    fi
+    export GITHUB_PROXY_IP
+    printf '%s\n' "$GITHUB_PROXY_IP" >"$GITHUB_PROXY_IP_FILE"
+  fi
+}
+
 run_llm() {
   ensure_proxy_ip
+  ensure_github_proxy_ip
   (
     cd "$REPO_DIR"
     python3 -m ambience_preview.cli apply-agent-job \
@@ -167,6 +226,7 @@ run_llm() {
       --validation-url "$VALIDATION_URL" \
       --branch-name "$BRANCH_NAME" \
       --proxy-ip "$PROXY_IP" \
+      --github-proxy-ip "$GITHUB_PROXY_IP" \
       --agent-container-tag "$AGENT_CONTAINER_TAG" \
       --agent-container-image "$(native_agent_container_image)" \
       --repo-slug "$REPO_SLUG" \

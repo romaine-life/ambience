@@ -443,6 +443,17 @@ native_github_token() {
     | jq -r '.token'
 }
 
+native_github_push_policy_token_json() {
+  native_require_env GLIMMUNG_GITHUB_PUSH_POLICY_TOKEN_URL
+  curl -fsS \
+    --retry 5 \
+    --retry-delay 1 \
+    --retry-all-errors \
+    -X POST \
+    -H "X-Glimmung-Attempt-Token: ${GLIMMUNG_ATTEMPT_TOKEN}" \
+    "$GLIMMUNG_GITHUB_PUSH_POLICY_TOKEN_URL"
+}
+
 native_git_auth_header() {
   local token="$1"
   local encoded
