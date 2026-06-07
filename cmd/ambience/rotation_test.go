@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -559,8 +560,15 @@ func TestLoadRotationPolicyFromEnvDefault(t *testing.T) {
 	if p.CadenceTicks != defaultRotationCadenceTicks {
 		t.Fatalf("default cadence = %d; want %d", p.CadenceTicks, defaultRotationCadenceTicks)
 	}
-	if len(p.Allowed) != 1 || p.Allowed[0] != "rain" {
-		t.Fatalf("default allowed = %v; want [rain]", p.Allowed)
+	if len(p.Allowed) != 0 {
+		t.Fatalf("default allowed = %v; want empty for all registered effects", p.Allowed)
+	}
+	resolved := p.resolvedAllowedEffects()
+	if len(resolved) <= 1 {
+		t.Fatalf("resolved default allowed = %v; want multiple registered effects", resolved)
+	}
+	if !slices.Contains(resolved, "rain") || !slices.Contains(resolved, "campfire") {
+		t.Fatalf("resolved default allowed = %v; want registered effects including rain and campfire", resolved)
 	}
 }
 

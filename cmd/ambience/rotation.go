@@ -25,10 +25,10 @@ import (
 // short enough to see variety."
 var defaultRotationCadenceTicks = ticksFor(10 * time.Minute)
 
-// defaultRotationEffects is the live-effect allowlist. Keep the full registry
-// available through /dev for Glimmung exploration, but only promote effects
-// here after they have been retuned against the current visual baseline.
-var defaultRotationEffects = []string{"rain"}
+// defaultRotationEffects is the live-effect allowlist. Empty means every
+// registered effect is eligible; set AMBIENCE_ROTATION_EFFECTS to narrow the
+// live rotation for focused testing or production guardrails.
+var defaultRotationEffects []string
 
 type rotationPolicy struct {
 	Enabled      bool
