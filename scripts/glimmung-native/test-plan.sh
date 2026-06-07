@@ -58,6 +58,7 @@ PROXY_IP_FILE="/tmp/test-plan-proxy-ip"
 ISSUE_CONTRACT_FILE="${EVIDENCE_DIR}/issue-agent-contract.json"
 : >"$SUMMARY_MD"
 : >"$EVENTS_LOG"
+printf '0\n' >"$PLAN_EXIT_CODE_FILE"
 mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/videos"
 
 clone_repo() {
