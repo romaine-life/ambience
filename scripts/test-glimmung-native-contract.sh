@@ -157,3 +157,50 @@ failing_step() {
 }
 native_record_exit_code "$EXIT_CODE_FILE" failing_step
 [ "$(native_read_exit_code "$EXIT_CODE_FILE")" = "7" ]
+
+PLAN_EVIDENCE_DIR="${TMP_DIR}/plan-evidence"
+mkdir -p "$PLAN_EVIDENCE_DIR"
+cat >"${PLAN_EVIDENCE_DIR}/issue-agent-test-plan.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "required_evidence": [
+    {
+      "id": "dev-demo",
+      "kind": "webm",
+      "url_path": "/dev/demo",
+      "must_show": "demo animates"
+    }
+  ]
+}
+JSON
+AMBIENCE_EVIDENCE_DIR="$PLAN_EVIDENCE_DIR" \
+AMBIENCE_TEST_PLAN_VALIDATE_ONLY=1 \
+GLIMMUNG_INPUT_VALIDATION_URL="https://preview.test" \
+GLIMMUNG_INPUT_NAMESPACE="preview-ns" \
+bash "${SCRIPT_DIR}/glimmung-native/test-plan.sh" >"${TMP_DIR}/validated-plan.json"
+jq -e '.status == "pass" and .required_evidence[0].kind == "video"' "${TMP_DIR}/validated-plan.json" >/dev/null
+
+cat >"${PLAN_EVIDENCE_DIR}/issue-agent-test-plan.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "required_evidence": [
+    {
+      "id": "tests-demo",
+      "kind": "go-test",
+      "command": "go test ./..."
+    }
+  ]
+}
+JSON
+set +e
+AMBIENCE_EVIDENCE_DIR="$PLAN_EVIDENCE_DIR" \
+AMBIENCE_TEST_PLAN_VALIDATE_ONLY=1 \
+GLIMMUNG_INPUT_VALIDATION_URL="https://preview.test" \
+GLIMMUNG_INPUT_NAMESPACE="preview-ns" \
+bash "${SCRIPT_DIR}/glimmung-native/test-plan.sh" >"${TMP_DIR}/invalid-plan.json"
+PLAN_VALIDATE_RC=$?
+set -e
+[ "$PLAN_VALIDATE_RC" -eq 1 ]
+jq -e '.status == "fail" and .abort_reason == "unsupported_required_evidence_kind"' "${TMP_DIR}/invalid-plan.json" >/dev/null

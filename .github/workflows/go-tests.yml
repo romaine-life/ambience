@@ -1,0 +1,56 @@
+name: Go Tests
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: "Git ref or commit SHA to test. Leave blank to test the dispatch revision."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-tests-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.git_ref || '' }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: go test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve requested ref
+        if: github.event_name == 'workflow_dispatch' && inputs.git_ref != ''
+        env:
+          INPUT_REF: ${{ inputs.git_ref }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
+          if full_sha="$(git rev-parse --verify "${INPUT_REF}^{commit}" 2>/dev/null)"; then
+            :
+          elif git show-ref --verify --quiet "refs/remotes/origin/${INPUT_REF}"; then
+            full_sha="$(git rev-parse "refs/remotes/origin/${INPUT_REF}^{commit}")"
+          elif git show-ref --verify --quiet "refs/tags/${INPUT_REF}"; then
+            full_sha="$(git rev-parse "refs/tags/${INPUT_REF}^{commit}")"
+          else
+            echo "::error::Unable to resolve git_ref '${INPUT_REF}' to a commit."
+            exit 1
+          fi
+          git checkout --detach "$full_sha"
+          echo "Resolved ${INPUT_REF} -> ${full_sha}"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        run: go test ./...

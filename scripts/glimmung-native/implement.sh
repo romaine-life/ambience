@@ -57,6 +57,8 @@ POD_LOG="/tmp/agent-pod.log"
 IMPL_EXIT_CODE_FILE="/tmp/implementation-exit-code"
 PROXY_IP_FILE="/tmp/implementation-proxy-ip"
 ISSUE_CONTRACT_FILE="${EVIDENCE_DIR}/issue-agent-contract.json"
+PR_NUMBER_FILE="/tmp/implementation-pr-number"
+PR_URL_FILE="/tmp/implementation-pr-url"
 : >"$SUMMARY_MD"
 : >"$EVENTS_LOG"
 mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/videos"
@@ -209,6 +211,159 @@ push_branch() {
   return 1
 }
 
+github_api() {
+  local method="$1"
+  local path="$2"
+  local body="${3:-}"
+  local token
+  token="$(native_github_token)"
+  if [ -n "$body" ]; then
+    curl -fsS \
+      -X "$method" \
+      -H "Authorization: Bearer ${token}" \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      -H "Content-Type: application/json" \
+      --data "$body" \
+      "https://api.github.com${path}"
+  else
+    curl -fsS \
+      -X "$method" \
+      -H "Authorization: Bearer ${token}" \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "https://api.github.com${path}"
+  fi
+}
+
+ensure_draft_pr() {
+  if implementation_failed; then
+    echo "implementation pod failed; skipping draft PR"
+    return 0
+  fi
+
+  local owner repo base head_query existing pr_body create_body pr_number pr_url title body
+  owner="${REPO_SLUG%%/*}"
+  repo="${REPO_SLUG#*/}"
+  base="${AMBIENCE_PR_BASE:-main}"
+  head_query="$(printf '%s:%s' "$owner" "$BRANCH_NAME" | jq -sRr @uri)"
+  existing="$(github_api GET "/repos/${owner}/${repo}/pulls?head=${head_query}&state=open&per_page=1")"
+  title="Glimmung ${ISSUE_REFERENCE}: ${ISSUE_TITLE}"
+  body="$(
+    cat <<EOF
+Draft PR opened by the Ambience Glimmung implementation wrapper.
+
+- Glimmung run: ${GLIMMUNG_RUN_ID}
+- Issue: ${ISSUE_URL}
+- Branch: ${BRANCH_NAME}
+
+Deterministic CI checks must pass before LLM verification starts. The later Glimmung touchpoint is a human review boundary; it does not merge this PR.
+EOF
+  )"
+
+  if [ "$(printf '%s' "$existing" | jq 'length')" -gt 0 ]; then
+    pr_number="$(printf '%s' "$existing" | jq -r '.[0].number')"
+    pr_url="$(printf '%s' "$existing" | jq -r '.[0].html_url')"
+    pr_body="$(jq -nc --arg title "$title" --arg body "$body" '{title:$title, body:$body}')"
+    github_api PATCH "/repos/${owner}/${repo}/pulls/${pr_number}" "$pr_body" >/dev/null
+    echo "updated existing implementation PR ${pr_url}"
+  else
+    create_body="$(jq -nc \
+      --arg title "$title" \
+      --arg head "$BRANCH_NAME" \
+      --arg base "$base" \
+      --arg body "$body" \
+      '{title:$title, head:$head, base:$base, body:$body, draft:true}')"
+    pr_body="$(github_api POST "/repos/${owner}/${repo}/pulls" "$create_body")"
+    pr_number="$(printf '%s' "$pr_body" | jq -r '.number')"
+    pr_url="$(printf '%s' "$pr_body" | jq -r '.html_url')"
+    echo "opened draft implementation PR ${pr_url}"
+  fi
+
+  printf '%s\n' "$pr_number" >"$PR_NUMBER_FILE"
+  printf '%s\n' "$pr_url" >"$PR_URL_FILE"
+}
+
+wait_pr_checks() {
+  if implementation_failed; then
+    echo "implementation pod failed; skipping PR checks"
+    return 0
+  fi
+
+  local owner repo branch_revision deadline now poll_seconds checks_json status_json check_count status_count pending_count failing_count combined_state summary
+  owner="${REPO_SLUG%%/*}"
+  repo="${REPO_SLUG#*/}"
+  branch_revision="$(native_remote_branch_revision "$REPO_SLUG" "$BRANCH_NAME")"
+  poll_seconds="${AMBIENCE_PR_CHECK_POLL_SECONDS:-30}"
+  deadline="$(($(date +%s) + ${AMBIENCE_PR_CHECK_TIMEOUT_SECONDS:-3600}))"
+
+  echo "waiting for PR checks on ${BRANCH_NAME}@${branch_revision}"
+  while true; do
+    checks_json="$(github_api GET "/repos/${owner}/${repo}/commits/${branch_revision}/check-runs?per_page=100")"
+    status_json="$(github_api GET "/repos/${owner}/${repo}/commits/${branch_revision}/status")"
+
+    check_count="$(printf '%s' "$checks_json" | jq -r '.total_count // ((.check_runs // []) | length)')"
+    status_count="$(printf '%s' "$status_json" | jq -r '(.statuses // []) | length')"
+    pending_count="$(printf '%s' "$checks_json" | jq -r '(.check_runs // []) | map(select(.status != "completed")) | length')"
+    failing_count="$(printf '%s' "$checks_json" | jq -r '
+      (.check_runs // [])
+      | map(. as $run | select($run.status == "completed" and ((["success", "neutral", "skipped"] | index($run.conclusion // "")) | not)))
+      | length
+    ')"
+    combined_state="$(printf '%s' "$status_json" | jq -r '.state // "pending"')"
+
+    if [ "$failing_count" -gt 0 ] || [ "$combined_state" = "failure" ] || [ "$combined_state" = "error" ]; then
+      summary="$(
+        jq -n \
+          --argjson checks "$checks_json" \
+          --argjson status "$status_json" \
+          '{
+            failing_check_runs: [
+              ($checks.check_runs // [])[]
+              | . as $run
+              | select($run.status == "completed" and ((["success", "neutral", "skipped"] | index($run.conclusion // "")) | not))
+              | {name, status, conclusion, html_url}
+            ],
+            combined_status_state: ($status.state // "pending"),
+            statuses: [
+              ($status.statuses // [])[]
+              | select((.state // "") != "success")
+              | {context, state, target_url, description}
+            ]
+          }'
+      )"
+      echo "PR checks failed: ${summary}" >&2
+      return 1
+    fi
+
+    if [ "$check_count" -gt 0 ] || [ "$status_count" -gt 0 ]; then
+      if [ "$pending_count" -eq 0 ] && { [ "$combined_state" = "success" ] || [ "$status_count" -eq 0 ]; }; then
+        echo "PR checks passed for ${BRANCH_NAME}@${branch_revision}"
+        return 0
+      fi
+    fi
+
+    now="$(date +%s)"
+    if [ "$now" -ge "$deadline" ]; then
+      summary="$(
+        jq -n \
+          --argjson checks "$checks_json" \
+          --argjson status "$status_json" \
+          '{
+            check_runs: [($checks.check_runs // [])[] | {name, status, conclusion, html_url}],
+            combined_status_state: ($status.state // "pending"),
+            statuses: [($status.statuses // [])[] | {context, state, target_url, description}]
+          }'
+      )"
+      echo "timed out waiting for PR checks: ${summary}" >&2
+      return 1
+    fi
+
+    echo "checks pending: check_runs=${check_count}, pending=${pending_count}, commit_statuses=${status_count}, combined_status=${combined_state}"
+    sleep "$poll_seconds"
+  done
+}
+
 rebuild_env() {
   if implementation_failed; then
     echo "implementation pod failed; skipping validation rebuild"
@@ -282,10 +437,20 @@ emit() {
   local impl_str
   impl_str="$(cat "$IMPLEMENTATION_JSON")"
   local outputs
+  local pr_number="" pr_url=""
+  [ -s "$PR_NUMBER_FILE" ] && pr_number="$(cat "$PR_NUMBER_FILE")"
+  [ -s "$PR_URL_FILE" ] && pr_url="$(cat "$PR_URL_FILE")"
   outputs="$(jq -nc \
     --argjson v "$impl_str" \
     --arg branch "$BRANCH_NAME" \
-    '{implementation: ($v | tostring), branch_name: $branch}')"
+    --arg pr_number "$pr_number" \
+    --arg pr_url "$pr_url" \
+    '{
+      implementation: ($v | tostring),
+      branch_name: $branch
+    }
+    + (if $pr_number != "" then {pr_number: ($pr_number | tonumber)} else {} end)
+    + (if $pr_url != "" then {pr_url: $pr_url} else {} end)')"
   local summary
   summary="$(cat "$SUMMARY_MD" 2>/dev/null || true)"
   native_completed "$outputs" "null" "" "$summary"
@@ -304,6 +469,8 @@ if native_selected_step; then
     "run-implementation" run_llm_record \
     "collect" collect_evidence \
     "push-branch" push_branch \
+    "ensure-draft-pr" ensure_draft_pr \
+    "wait-pr-checks" wait_pr_checks \
     "rebuild-env" rebuild_env \
     "finalize" finalize \
     "emit" emit
@@ -321,6 +488,8 @@ if [ "$IMPL_EXIT_CODE" -ne 0 ]; then
   exit "$IMPL_EXIT_CODE"
 fi
 native_step "push-branch" push_branch
+native_step "ensure-draft-pr" ensure_draft_pr
+native_step "wait-pr-checks" wait_pr_checks
 native_step "rebuild-env" rebuild_env
 native_step "finalize" finalize
 native_step "emit" emit

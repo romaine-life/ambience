@@ -95,11 +95,6 @@ Write, or Bash-state-mutating tools.
       "must_show": "cloud interior brightened by flash",
       "duration_seconds": 6,
       "expected_text": null
-    },
-    {
-      "id": "tests-distant-storm",
-      "kind": "go-test",
-      "command": "go test ./sim/ -run DistantStorm"
     }
   ],
   "validation_path": "/dev/distant-storm",
@@ -110,6 +105,12 @@ Write, or Bash-state-mutating tools.
 Allowed `abort_reason` values: `issue_unclear`,
 `no_repo_pattern_for_request`, `out_of_scope_for_agent`,
 `requires_human_judgment`.
+
+`required_evidence` is media-only. The test-plan wrapper normalizes common
+media aliases to `video` or `screenshot`, then fails any passing plan that has
+zero media cases or any deterministic/non-media evidence kind such as
+`go-test`, `unit-test`, `lint`, `build`, `ci`, `note`, or `artifact`.
+Deterministic checks are PR CI, not LLM verification cases.
 
 ### Stage 2 — `run-implementation`
 
@@ -149,9 +150,11 @@ Allowed `abort_reason` values: `change_too_large`,
 `unsafe_refactor`, `missing_code_context`, `conflicting_requirements`,
 `cannot_implement_without_guessing`.
 
-The wrapper builds + pushes the branch from the staged tree at this
-point, *before* verification runs. If the build fails on the staged
-tree the run aborts with `implementation_build_failed`.
+The wrapper confirms the pushed branch, opens or updates a draft PR, waits for
+the PR's GitHub checks to pass, then rebuilds the validation environment from
+the checked branch before verification runs. If the implementation pod fails,
+the branch is missing, the draft PR cannot be opened, or PR checks fail or time
+out, the run aborts before LLM verification spends tokens.
 
 ### Stage 3 — `run-verification`
 
@@ -191,7 +194,7 @@ pass; ad hoc playback servers are outside the contract. JSON shape:
 
 Allowed `abort_reason` values: `video_missing`, `screenshot_missing`,
 `claimed_result_not_observed`, `target_evidence_missing`,
-`validation_env_unreachable`, `unit_tests_failed`.
+`validation_env_unreachable`.
 
 `verify-case-01` also enforces the issue contract's public surface against the
 rebuilt validation environment: declared dev/schema routes must exist, declared
@@ -214,7 +217,7 @@ The live phase scripts expose these job step boundaries:
 ```bash
 scripts/glimmung-native/issue-contract.sh: run-issue-contract
 scripts/glimmung-native/test-plan.sh:      run-test-plan
-scripts/glimmung-native/implement.sh:      run-implementation, push-branch, rebuild-env
+scripts/glimmung-native/implement.sh:      run-implementation, push-branch, ensure-draft-pr, wait-pr-checks, rebuild-env
 scripts/glimmung-native/verify.sh:         run-verification, finalize, upload-screenshots
 ```
 

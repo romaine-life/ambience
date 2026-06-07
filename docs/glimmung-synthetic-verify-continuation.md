@@ -306,16 +306,11 @@ claim an evidence-only synthetic run can terminally pass without either:
 - changing Glimmung to support a synthetic/evidence-only terminal mode.
 
 Also do not claim a unit-test-only synthetic verifier can finish the current
-Touchpoint path unless it records at least one acceptable artifact ref. For this
-case, the viable next shapes are:
-
-- rerun verification with a small durable evidence artifact, for example an
-  uploaded text/JSON report under an accepted `evidence/` artifact path, if the
-  Touchpoint requirement accepts generic evidence for this issue;
-- rerun the richer visual/browser evidence path so the verifier emits the
-  required screenshot/video refs; or
-- change Glimmung to support an explicit synthetic/evidence-only terminal mode
-  that does not require PR Touchpoint artifact publication.
+Touchpoint path. The final contract is not "make any artifact exist"; it is:
+deterministic checks run as draft PR CI, and LLM verification produces
+reviewable browser media. Synthetic continuation may reuse prior successful
+browser media where the workflow supports copied phase outputs, but it must not
+replace visual proof with a unit-test JSON artifact.
 
 `runs/23.1` confirmed the same touchpoint artifact problem after the verifier
 finalization bug was fixed:
@@ -336,17 +331,10 @@ finalization bug was fixed:
   ```
 
 The cause was exact: the selected `tests-magic-portal` required evidence had
-kind `go-test`. Glimmung normalizes unknown evidence kinds to `artifact`, but
-the child verifier reported the passing Go test only in `evidence_results` with
-an empty `evidence` array. The native verifier must materialize non-visual pass
-results as durable JSON observation artifacts before touchpoint runs.
-
-The branch now includes that fix in `scripts/glimmung-native/verify.sh`: for a
-non-video/non-screenshot selected evidence case with a passing
-`evidence_results` entry, it writes
-`observations/<evidence-id>-verification.json`. The normal upload path promotes
-that observation as an `artifact`, which satisfies touchpoint's required
-artifact count.
+kind `go-test`. That was a bad test-plan contract, not missing artifact
+plumbing. The native wrapper now fails a passing test plan that includes
+`go-test`, `unit-test`, `lint`, `build`, `ci`, `note`, `artifact`, or any other
+non-media evidence kind. Go tests are PR CI checks.
 
 `runs/24.1` proved that artifact materialization alone was not quite enough:
 
@@ -369,13 +357,10 @@ artifact count.
   required artifact evidence was not recorded
   ```
 
-The cause was Glimmung's touchpoint resolver. It auto-prefixes relative
-`screenshots/`, `videos/`, `evidence/`, and `inspections/` refs with
-`runs/<project>/<run-id>/`, but not `observations/`. The verifier upload path
-stores observation JSON at `runs/<project>/<run-id>/observations/...`, so the
-reported artifact ref must already be run-scoped. The branch now normalizes
-`observations/...` refs to `runs/<project>/<run-id>/observations/...` in
-`write_evidence_artifacts`.
+That run proved the JSON-artifact workaround was the wrong finish-out shape.
+Terminal lifecycle observation JSON remains valid only as supporting evidence
+attached to a `video` case that declares `terminal_state_path`; it is not a
+standalone touchpoint artifact for deterministic checks.
 
 One more discovered runtime gap: the verifier agent container did not have
 `go` on `PATH`, so the first synthetic retry, `ambience#168/runs/19.1`, failed

@@ -26,13 +26,16 @@ the source of issue-run execution for the native Ambience flow.
    target/public-surface contract consumed by later LLM jobs.
 6. Glimmung substitutes those phase outputs into `llm-work`.
 7. `llm-work` runs `test-plan` and `implement` in parallel. Both consume
-   `issue_contract`; neither consumes the other's output.
+   `issue_contract`; neither consumes the other's output. The implementation
+   wrapper confirms the pushed branch, opens or updates a draft PR, waits for
+   the PR's GitHub checks to pass, and only then rebuilds the validation
+   environment. Red or timed-out CI aborts the run before LLM verification.
 8. The verification phase receives `issue_contract`, `test_plan`,
    `implementation`, and the rebuilt validation URL. It runs ten fixed jobs
    named `verify-case-01` through `verify-case-10`; each active job captures
-   one ordered `required_evidence` item from the test plan and posts a typed
-   per-case verification result. Empty slots complete as skipped. Glimmung
-   aggregates the case results and drives retry/report decisions.
+   one ordered browser-media `required_evidence` item from the test plan and
+   posts a typed per-case verification result. Empty slots complete as skipped.
+   Glimmung aggregates the case results and drives retry/report decisions.
 
 Glimmung-native issue bodies are passed into the native Kubernetes job as the
 `GLIMMUNG_ISSUE_BODY` environment variable and included verbatim in the agent
@@ -85,6 +88,10 @@ active registered shape.
 
 The native runner confirms the pushed agent branch directly through GitHub.
 It does not mutate validation namespace metadata for branch discovery.
+The draft implementation PR is opened before verification so repository CI owns
+deterministic checks such as Go tests, lint, image build proof, and workflow
+syntax. The later touchpoint is a human review boundary; it does not merge the
+PR.
 
 ## Runner Image
 
@@ -120,6 +127,12 @@ in the completion callback so Glimmung can render videos directly on the
 Touchpoint; the markdown summary still links through
 `https://glimmung.romaine.life/v1/artifacts/...`. Public reviewers do not
 access the storage account directly.
+
+LLM verification evidence is screenshots or videos only. Terminal lifecycle
+video cases may attach a JSON observation trace that proves the trigger reached
+the observed dev session and the declared state predicate held, but that trace
+supports the media case; it is not a standalone replacement for visual proof.
+Unit tests, builds, lint, and other deterministic checks belong in PR CI.
 
 The Glimmung-artifact upload path is exercised by each active verification
 case, which captures browser evidence from the validation environment and

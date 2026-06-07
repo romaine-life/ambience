@@ -51,7 +51,7 @@ TEST_PLAN_JSON="/tmp/test-plan.json"
 TEST_PLAN_MD="/tmp/test-plan.md"
 SUMMARY_MD="/tmp/summary.md"
 EVENTS_LOG="/tmp/agent-events.jsonl"
-EVIDENCE_DIR="/tmp/evidence"
+EVIDENCE_DIR="${AMBIENCE_EVIDENCE_DIR:-/tmp/evidence}"
 POD_LOG="/tmp/agent-pod.log"
 PLAN_EXIT_CODE_FILE="/tmp/test-plan-exit-code"
 PROXY_IP_FILE="/tmp/test-plan-proxy-ip"
@@ -238,6 +238,29 @@ finalize() {
         >"$TEST_PLAN_JSON"
     fi
   elif [ "$(jq -r '.status // "missing"' "$TEST_PLAN_JSON" 2>/dev/null || echo missing)" = "pass" ]; then
+    local normalized_json unsupported_media_count unsupported_media
+    normalized_json="$(mktemp)"
+    if ! jq '
+        def normalized_kind:
+          (.kind // "" | ascii_downcase) as $kind
+          | if (["animation", "webm", "movie", "recording"] | index($kind)) then "video"
+            elif (["image", "still"] | index($kind)) then "screenshot"
+            else $kind
+            end;
+        .required_evidence = ((.required_evidence // []) | map(.kind = normalized_kind))
+      ' "$TEST_PLAN_JSON" >"$normalized_json"; then
+      jq -n '{
+        schema_version: 1,
+        status: "fail",
+        abort_reason: "malformed_test_plan_json",
+        summary: "Test plan JSON could not be parsed by the native wrapper."
+      }' >"$TEST_PLAN_JSON"
+      printf '1\n' >"$PLAN_EXIT_CODE_FILE"
+      rm -f "$normalized_json"
+      return 0
+    fi
+    mv "$normalized_json" "$TEST_PLAN_JSON"
+
     local evidence_count
     evidence_count="$(jq -r '(.required_evidence // []) | length' "$TEST_PLAN_JSON" 2>/dev/null || echo 0)"
     if [ "$evidence_count" -gt 10 ]; then
@@ -251,9 +274,47 @@ finalize() {
           required_evidence_count: $evidence_count
         }' >"$TEST_PLAN_JSON"
       printf '1\n' >"$PLAN_EXIT_CODE_FILE"
+      return 0
+    fi
+    if [ "$evidence_count" -eq 0 ]; then
+      jq -n '{
+        schema_version: 1,
+        status: "fail",
+        abort_reason: "no_required_media_evidence",
+        summary: "Test plan passed without any browser media evidence. Ambience LLM verification requires at least one screenshot or video case."
+      }' >"$TEST_PLAN_JSON"
+      printf '1\n' >"$PLAN_EXIT_CODE_FILE"
+      return 0
+    fi
+
+    unsupported_media="$(
+      jq -r '
+        (.required_evidence // [])[]
+        | select(.kind != "video" and .kind != "screenshot")
+        | ((.id // "<missing-id>") + ":" + (.kind // "<missing-kind>"))
+      ' "$TEST_PLAN_JSON" 2>/dev/null || true
+    )"
+    unsupported_media_count="$(printf '%s\n' "$unsupported_media" | sed '/^$/d' | wc -l | tr -d ' ')"
+    if [ "${unsupported_media_count:-0}" -gt 0 ]; then
+      jq -n \
+        --argjson unsupported "$(printf '%s\n' "$unsupported_media" | sed '/^$/d' | jq -R . | jq -s .)" \
+        '{
+          schema_version: 1,
+          status: "fail",
+          abort_reason: "unsupported_required_evidence_kind",
+          summary: "Test plan included non-media verification cases. Ambience LLM verification only accepts screenshot and video evidence; deterministic checks belong in PR CI.",
+          unsupported_required_evidence: $unsupported
+        }' >"$TEST_PLAN_JSON"
+      printf '1\n' >"$PLAN_EXIT_CODE_FILE"
     fi
   fi
 }
+
+if [ "${AMBIENCE_TEST_PLAN_VALIDATE_ONLY:-}" = "1" ]; then
+  finalize
+  cat "$TEST_PLAN_JSON"
+  exit "$(plan_exit_code)"
+fi
 
 emit() {
   local test_plan_str

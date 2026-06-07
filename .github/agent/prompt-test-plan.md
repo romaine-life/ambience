@@ -29,16 +29,18 @@ Glimmung selects the concrete provider/model for this invocation through the
    recommended touchpoints as binding. Do not invent a competing public
    slug or event name.
    If the issue context includes a `Run evidence requirements` JSON
-   block, treat it as a required input from Glimmung and mirror every
-   non-optional item in your `required_evidence`.
+   block, treat screenshot/video requirements as required inputs from
+   Glimmung and mirror every non-optional media item in your
+   `required_evidence`. If it requires non-media evidence, abort instead
+   of emitting an unsupported case.
 2. Identify a **single bounded slice** that addresses the issue. Bias
    toward the smallest change that resolves the stated request.
-3. Decide which kind of evidence would prove the change works (see
+3. Decide which browser-media evidence would prove the change works (see
    "Required evidence shapes" below). `required_evidence` is the runtime
-   verification case list. It must contain at most 10 items, ordered from
-   most important to least important. Glimmung will map item 1 to
-   `verify-case-01`, item 2 to `verify-case-02`, and so on; unused slots
-   are skipped by the verifier wrapper.
+   verification case list. It must contain at most 10 screenshot or video
+   items, ordered from most important to least important. Glimmung will map
+   item 1 to `verify-case-01`, item 2 to `verify-case-02`, and so on; unused
+   slots are skipped by the verifier wrapper.
 4. Write `/workspace/evidence/issue-agent-test-plan.json` and
    `/workspace/evidence/issue-agent-test-plan.md` per the schemas
    below. **The JSON file is required** — the wrapper aborts the run
@@ -47,10 +49,10 @@ Glimmung selects the concrete provider/model for this invocation through the
 
 ## Required evidence shapes
 
-`required_evidence` is a list of the things the verification stage
-will need to capture. Each entry becomes one bounded verification case.
-Use no more than 10 entries. Each entry has an `id`, a `kind`, and
-shape-specific fields:
+`required_evidence` is a list of browser-visible screenshots or videos the
+verification stage will need to capture. Each entry becomes one bounded
+verification case. Use no more than 10 entries. Each entry has an `id`, a
+`kind`, and shape-specific fields:
 
 - **`video`**: browser-visible behavior, animation, transitions, or
   interaction flow that should be reviewed over time. Required fields:
@@ -71,12 +73,6 @@ shape-specific fields:
   before capture), `expected_text` (literal substring that should
   appear when OCR'd / readable from the picture; used by the
   verification wrapper for a case-insensitive substring check).
-- **`go-test`**: a Go test command whose pass is part of the contract.
-  Required fields: `id`, `command` (e.g. `go test ./sim/ -run DistantStorm`).
-- **`note`**: a written observation the verifier should record (used
-  for refactor-only or non-visible changes). Required fields: `id`,
-  `must_show` (what the note should explain).
-
 For browser-visible work, use `video` as the baseline evidence because
 it tells the reviewer what happened over time; add screenshots only
 when a still frame needs separate inspection. For new visual effects:
@@ -84,9 +80,14 @@ at minimum record the default render and each lifecycle event (intro,
 ending, key triggers). If a lifecycle event is terminal, include a
 terminal state predicate whenever the contract or existing code names
 one; do not rely on an arbitrary recording duration to prove "held at
-the end." For refactors or backend-only changes: a `note` plus relevant
-`go-test` items is usually enough unless Glimmung's run requirements
-explicitly require browser evidence.
+the end.
+
+Do not put deterministic checks in `required_evidence`. `go-test`,
+`unit-test`, `lint`, `build`, `ci`, `note`, `artifact`, and similar non-media
+cases are not supported by Ambience LLM verification. Those checks belong in
+the draft PR's CI checks after implementation. If the issue cannot be proven
+with at least one browser screenshot or video, abort the plan instead of
+inventing a non-media evidence item.
 
 ## Output JSON schema
 
@@ -135,3 +136,5 @@ The Markdown is appended to the run summary; keep it tight.
   and list the alternatives in `open_questions`.
 - Keep `required_evidence` honest. A loose `must_show` ("looks
   reasonable") is worse than abort with `validation_plan_impossible`.
+- A `status: "pass"` plan with zero media evidence, or with any non-media
+  evidence kind, fails in the wrapper before verification starts.
