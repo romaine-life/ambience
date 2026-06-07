@@ -71,6 +71,7 @@
 	let effectType = null, effect = null, latestConfig = null, ready = false;
 	let serverTick = 0, tickRateMs = TICK_MS, lastBeatAt = Date.now(), sceneStartTick = 0, sceneDurationTicks = 0;
 	let currentSceneName = '—', nextSceneName = '—', entropyBytes = 0;
+	let latestScenePolicy = null, latestTransition = null;
 	let connState = 'acquiring';
 
 	// auth state
@@ -98,7 +99,8 @@
 			header: 'authority clock', badge: { tone: 'muted', label: 'acquiring' },
 			rows: [
 				{ k: 'server.tick', v: '—' }, { k: 'scene', v: '—' }, { k: 'remaining', v: '—' },
-				{ k: 'up.next', v: '—' }, { k: 'effect', v: '—' }, { k: 'grid', v: GRID_W + ' × ' + GRID_H }, { k: 'entropy', v: '0 B' },
+				{ k: 'up.next', v: '—' }, { k: 'scene.freq', v: '—' }, { k: 'scene.range', v: '—' },
+				{ k: 'transition', v: '—' }, { k: 'effect', v: '—' }, { k: 'grid', v: GRID_W + ' × ' + GRID_H }, { k: 'entropy', v: '0 B' },
 			],
 			footer: { tone: 'muted', html: 'acquiring authority…' },
 		},
@@ -126,6 +128,15 @@
 		if (n < 1024) return n + ' B';
 		if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
 		return (n / 1024 / 1024).toFixed(2) + ' MB';
+	}
+	function fmtMinutes(v) {
+		if (!Number.isFinite(v)) return '—';
+		if (v >= 60) {
+			const h = Math.floor(v / 60), m = Math.round(v % 60);
+			return m ? h + 'h ' + String(m).padStart(2, '0') + 'm' : h + 'h';
+		}
+		if (v < 1) return Math.round(v * 60) + 's';
+		return Math.round(v) + 'm';
 	}
 	function tickNow() { return serverTick + Math.round((Date.now() - lastBeatAt) / tickRateMs); }
 	function remainingTicks() { return Math.max(0, sceneStartTick + sceneDurationTicks - tickNow()); }
@@ -257,6 +268,49 @@
 		}
 		return q.toString();
 	}
+	function scenePolicyControlValues() {
+		const p = latestScenePolicy || {};
+		return {
+			scene_min_m: Number.isFinite(p.minMinutes) ? p.minMinutes : 60,
+			scene_max_m: Number.isFinite(p.maxMinutes) ? p.maxMinutes : 240,
+			scene_transition_m: Number.isFinite(p.transitionMinutes) ? p.transitionMinutes : 5,
+			scene_variation: Number.isFinite(p.variation) ? p.variation : 0.35,
+		};
+	}
+	function mergedControlValues() {
+		return Object.assign({}, latestConfig || {}, scenePolicyControlValues());
+	}
+	const SCENE_KNOBS = [
+		{ key: 'scene_min_m', label: 'min wait', slot: 'lever', group: 'scene drift', type: 'float', min: 1, max: 720, step: 1, default: 60,
+			description: 'Shortest time before the authority may choose a new rain configuration.' },
+		{ key: 'scene_max_m', label: 'max wait', slot: 'lever', group: 'scene drift', type: 'float', min: 1, max: 720, step: 1, default: 240,
+			description: 'Longest time before the authority may choose a new rain configuration.' },
+		{ key: 'scene_transition_m', label: 'drift time', slot: 'lever', group: 'scene drift', type: 'float', min: 0, max: 120, step: 0.25, default: 5,
+			description: 'Maximum time spent blending from the previous rain configuration into the next one.' },
+		{ key: 'scene_variation', label: 'variation', slot: 'lever', group: 'scene drift', type: 'float', min: 0.05, max: 1, step: 0.05, default: 0.35,
+			description: 'How far each generated rain configuration may drift from the current one. Lower values keep changes subtle.' },
+	];
+	function augmentLiveSchema(schema) {
+		const copy = Object.assign({}, schema || {});
+		copy.knobs = ((schema && schema.knobs) || []).concat(SCENE_KNOBS);
+		return copy;
+	}
+	function applyScenePolicy(p) {
+		if (!p) return;
+		latestScenePolicy = p;
+		chrome.setTele('scene.freq', fmtMinutes(p.minMinutes) + '–' + fmtMinutes(p.maxMinutes));
+		chrome.setTele('scene.range', Math.round((p.variation || 0) * 100) + '%');
+	}
+	function applyTransition(t) {
+		if (!t) return;
+		latestTransition = t;
+		if (!t.active || !Number.isFinite(t.durationTicks) || t.durationTicks <= 0) {
+			chrome.setTele('transition', 'idle');
+			return;
+		}
+		const progress = Number.isFinite(t.progress) ? Math.round(t.progress * 100) : 0;
+		chrome.setTele('transition', progress + '% · ' + fmtDuration(t.durationTicks));
+	}
 	let debounceT = null;
 	function scheduleSharedConfigPush() {
 		if (chrome.isLocked()) return;
@@ -294,7 +348,7 @@
 	function loadSchema(effectName) {
 		fetch('/effects/' + encodeURIComponent(effectName) + '/schema')
 			.then(r => r.json())
-			.then(schema => { chrome.renderControls(schema); chrome.setControlsLocked(!(authed && armed)); if (latestConfig) chrome.setValues(latestConfig); })
+			.then(schema => { chrome.renderControls(augmentLiveSchema(schema)); chrome.setControlsLocked(!(authed && armed)); chrome.setValues(mergedControlValues()); })
 			.catch(err => { console.error('schema', err); });
 	}
 
@@ -355,7 +409,9 @@
 			try { effect.restoreSnapshot(snap); } catch (err) { console.error('restoreSnapshot', err); }
 		}
 		latestConfig = snap.config || null;
-		if (!typeChanged && latestConfig && chrome.getSchema()) chrome.setValues(latestConfig);
+		if (snap.scenePolicy) applyScenePolicy(snap.scenePolicy);
+		if (snap.transition) applyTransition(snap.transition);
+		if (!typeChanged && chrome.getSchema()) chrome.setValues(mergedControlValues());
 		if (snap.currentScene) { currentSceneName = snap.currentScene.name || '—'; sceneDurationTicks = snap.currentScene.durationTicks || 0; sceneStartTick = snap.currentScene.startedAtTick || 0; chrome.setTele('scene', currentSceneName); }
 		if (snap.nextScene) { nextSceneName = snap.nextScene.name || '—'; chrome.setTele('up.next', L(nextSceneName)); }
 		if (typeof snap.entropyBytes === 'number') { entropyBytes = snap.entropyBytes; chrome.setTele('entropy', fmtBytes(entropyBytes)); }
@@ -377,7 +433,7 @@
 					if (!effect) break;
 					try { effect.setConfig(cmd.data); } catch (_) {}
 					latestConfig = cmd.data || null;
-					if (latestConfig && chrome.getSchema()) chrome.setValues(latestConfig);
+					if (chrome.getSchema()) chrome.setValues(mergedControlValues());
 					break;
 				case 'trigger':
 					if (effect && effect.triggerEvent) effect.triggerEvent(cmd.event);
@@ -389,6 +445,8 @@
 						currentSceneName = sc.name || '—'; nextSceneName = sc.nextName || '—';
 						sceneDurationTicks = sc.durationTicks || 0; sceneStartTick = sc.startedAtTick || 0;
 						chrome.setTele('scene', currentSceneName); chrome.setTele('up.next', L(nextSceneName));
+						if (sc.scenePolicy) applyScenePolicy(sc.scenePolicy);
+						if (sc.transition) applyTransition(sc.transition);
 						chrome.appendLog({ t: now(), kind: 'scene', text: 'scene → ' + sc.name + ' · up next ' + sc.nextName });
 						chrome.flashPanel(); renderLiveTrack();
 					} catch (err) { console.error(err); }
@@ -400,6 +458,8 @@
 						if (typeof m.sceneRemaining === 'number') chrome.setTele('remaining', fmtDuration(m.sceneRemaining));
 						if (m.currentName) { currentSceneName = m.currentName; chrome.setTele('scene', currentSceneName); }
 						if (m.nextName) { nextSceneName = m.nextName; chrome.setTele('up.next', L(nextSceneName)); }
+						if (m.scenePolicy) applyScenePolicy(m.scenePolicy);
+						if (m.transition) applyTransition(m.transition);
 					} catch (_) {}
 					break;
 				case 'clock':

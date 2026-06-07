@@ -47,10 +47,11 @@ type effectRuntime interface {
 }
 
 type effectDefinition struct {
-	Type       string
-	Schema     func() sim.EffectSchema
-	NewRuntime func(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error)
-	NewScene   func(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
+	Type         string
+	Schema       func() sim.EffectSchema
+	NewRuntime   func(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error)
+	NewScene     func(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
+	NewNearScene func(rng *rngutil.RNG, startedAt int, durationTicks int, previousConfig json.RawMessage, variation float64) Scene
 }
 
 // effectRegistry is populated at package init time by each effect_*.go file's

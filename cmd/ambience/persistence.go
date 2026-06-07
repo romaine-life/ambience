@@ -37,6 +37,7 @@ type persistedAtmosphere struct {
 	CommandSeq    int64                `json:"commandSeq"`
 	CurrentScene  Scene                `json:"currentScene"`
 	NextScene     Scene                `json:"nextScene"`
+	ScenePolicy   scenePolicy          `json:"scenePolicy"`
 	EntropyBytes  int64                `json:"entropyBytes"`
 	Transition    persistedTransition  `json:"transition"`
 	// RotationStartTick is the tick on the active effect runtime at which
@@ -133,15 +134,16 @@ func restoreSharedAtmosphereWithPolicy(ctx context.Context, store persistenceSto
 	}
 
 	a := &atmosphere{
-		effect:     rt,
-		cfg:        cloneRaw(state.Config),
-		seed:       state.Seed,
-		sceneRNG:   rngutil.NewFromState(sceneRNGState),
-		commandSeq: state.CommandSeq,
-		current:    state.CurrentScene,
-		next:       state.NextScene,
-		listeners:  make(map[chan Command]struct{}),
-		lastSeen:   time.Now(),
+		effect:      rt,
+		cfg:         cloneRaw(state.Config),
+		seed:        state.Seed,
+		sceneRNG:    rngutil.NewFromState(sceneRNGState),
+		commandSeq:  state.CommandSeq,
+		current:     state.CurrentScene,
+		next:        state.NextScene,
+		scenePolicy: state.ScenePolicy.normalized(),
+		listeners:   make(map[chan Command]struct{}),
+		lastSeen:    time.Now(),
 	}
 	if len(a.cfg) == 0 {
 		a.cfg = cloneRaw(state.Effect.Config)
@@ -209,6 +211,7 @@ func (a *atmosphere) persistedState() persistedAtmosphere {
 	sceneRNGState := a.sceneRNG.State()
 	current := a.current
 	next := a.next
+	scenePolicy := a.scenePolicy
 	entropyBytes := a.entropyBytes
 	commandSeq := a.commandSeq
 	transition := persistedTransition{
@@ -237,6 +240,7 @@ func (a *atmosphere) persistedState() persistedAtmosphere {
 		CommandSeq:        commandSeq,
 		CurrentScene:      current,
 		NextScene:         next,
+		ScenePolicy:       scenePolicy,
 		EntropyBytes:      entropyBytes,
 		Transition:        transition,
 		RotationStartTick: rotationStartTickPtr,

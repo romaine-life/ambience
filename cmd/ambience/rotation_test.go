@@ -160,6 +160,72 @@ func TestRainSceneRotationKeepsDriftCapability(t *testing.T) {
 	}
 }
 
+func TestRainTransitionInterpolatesTextureAndFrontPlane(t *testing.T) {
+	from := sim.NormalizeConfig(sim.Config{
+		Speed:          1.6,
+		SpawnEvery:     5,
+		SpawnBurst:     3,
+		StreakLen:      10,
+		SheetDensity:   0.52,
+		SheetStrength:  0.24,
+		SheetLength:    9,
+		SheetSpeed:     1.3,
+		FrontDensity:   0.28,
+		FrontStrength:  0.4,
+		FrontLength:    18,
+		FrontSpeed:     42,
+		DownpourChance: 0.00008,
+	})
+	to := sim.NormalizeConfig(sim.Config{
+		Speed:          2.2,
+		SpawnEvery:     3,
+		SpawnBurst:     5,
+		StreakLen:      14,
+		SheetDensity:   0.76,
+		SheetStrength:  0.38,
+		SheetLength:    14,
+		SheetSpeed:     1.9,
+		FrontDensity:   0.5,
+		FrontStrength:  0.65,
+		FrontLength:    30,
+		FrontSpeed:     70,
+		DownpourChance: 0.00025,
+	})
+
+	got := lerpConfig(from, to, 0.5)
+	if got.SheetDensity <= 0 || got.FrontDensity <= 0 {
+		t.Fatalf("interpolated rain lost texture/front layers: %+v", got)
+	}
+	if got.SheetDensity == from.SheetDensity || got.SheetDensity == to.SheetDensity {
+		t.Fatalf("sheet density did not interpolate: got %.3f from %.3f to %.3f", got.SheetDensity, from.SheetDensity, to.SheetDensity)
+	}
+	if got.FrontSpeed == from.FrontSpeed || got.FrontSpeed == to.FrontSpeed {
+		t.Fatalf("front speed did not interpolate: got %.3f from %.3f to %.3f", got.FrontSpeed, from.FrontSpeed, to.FrontSpeed)
+	}
+}
+
+func TestRainSceneVariationKeepsGeneratedSceneNearCurrent(t *testing.T) {
+	rng := rngutil.New(99)
+	base := generateRainScene(rng, 0, ticksFor(time.Hour))
+	var baseCfg sim.Config
+	if err := json.Unmarshal(base.Config, &baseCfg); err != nil {
+		t.Fatalf("decode base config: %v", err)
+	}
+
+	near := generateRainSceneNear(rng, 0, ticksFor(time.Hour), base.Config, 0.2)
+	var nearCfg sim.Config
+	if err := json.Unmarshal(near.Config, &nearCfg); err != nil {
+		t.Fatalf("decode near config: %v", err)
+	}
+
+	if diff := absFloat(nearCfg.Speed - baseCfg.Speed); diff > 0.75*0.21 {
+		t.Fatalf("near speed drift = %.3f, want within 20%% of full generated speed envelope", diff)
+	}
+	if diff := absFloat(nearCfg.FrontSpeed - baseCfg.FrontSpeed); diff > 28*0.21 {
+		t.Fatalf("near front speed drift = %.3f, want within 20%% of full generated front-speed envelope", diff)
+	}
+}
+
 func TestGeneratedRainScenesStayInWeatherFieldRange(t *testing.T) {
 	rng := rngutil.New(44)
 	for i := 0; i < 64; i++ {
@@ -181,6 +247,13 @@ func TestGeneratedRainScenesStayInWeatherFieldRange(t *testing.T) {
 			t.Fatalf("generated rain lacks near-window front plane %d: %+v", i, cfg)
 		}
 	}
+}
+
+func absFloat(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func TestMaybeRotateEffectBroadcastsSnapshot(t *testing.T) {
