@@ -23,6 +23,7 @@ func randomizedDevConfig(schema sim.EffectSchema, seed int64) (json.RawMessage, 
 		}
 	}
 	stabilizeRandomizedDevConfig(schema.Name, cfg)
+	normalizeRandomizedLightBounds(cfg)
 	return json.Marshal(cfg)
 }
 
@@ -98,6 +99,15 @@ func clampRainHue(cfg map[string]any) {
 		return
 	}
 	cfg["hue"] = 204 + math.Mod(math.Abs(v), 28)
+}
+
+func normalizeRandomizedLightBounds(cfg map[string]any) {
+	lmin, okMin := cfg["lmin"].(float64)
+	lmax, okMax := cfg["lmax"].(float64)
+	if !okMin || !okMax || lmax >= lmin {
+		return
+	}
+	cfg["lmin"], cfg["lmax"] = lmax, lmin
 }
 
 func clampIntMin(cfg map[string]any, key string, min int) {

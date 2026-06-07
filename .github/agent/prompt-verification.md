@@ -44,9 +44,9 @@ Glimmung selects the concrete provider/model for this invocation through the
      the trigger never reached the session you are observing — record a
      failure (`trigger_not_observed`); do not pass on the frame alone.
      Save under `/workspace/evidence/screenshots/`.
-   - **`go-test`**: run the literal `command` field. Capture pass/fail
-     and a stdout excerpt.
-   - **`note`**: write a short observation as `observed_text`.
+   Non-media evidence kinds are invalid in this workflow. If the selected case
+   is not `video` or `screenshot`, abort with `target_evidence_missing`;
+   deterministic checks such as Go tests are owned by PR CI before this phase.
 3. After capture, sanity-check the selected artifact before writing the
    verification JSON. Read each PNG. For each WebM, run
    `inspect-video.mjs` with `--min-duration-ms` matching the selected
@@ -160,11 +160,6 @@ test-plan items; this job owns only the selected verification case.
       "status": "pass",
       "screenshot": "screenshots/dev-distant-storm.png",
       "observed_text": null
-    },
-    {
-      "id": "tests-distant-storm",
-      "status": "pass",
-      "stdout_excerpt": "PASS: TestDistantStormFlashFlow"
     }
   ]
 }
@@ -197,7 +192,6 @@ Allowed `abort_reason` values when `status` is `abort`:
 - `target_evidence_missing` — a `required_evidence.id` has no
   corresponding `evidence_results` entry.
 - `validation_env_unreachable` — `$VALIDATION_URL` doesn't respond.
-- `unit_tests_failed` — a `go-test` evidence item failed.
 
 ## Output Markdown
 

@@ -298,25 +298,69 @@ image failure.
 Important finish-out constraint: Glimmung's current workflow contract requires
 PR touchpoint and review-gate phases. There is no `pr.enabled=false` opt-out.
 After a successful `llm-verify` and successful cleanup, the workflow will try
-to ensure a PR touchpoint, then park at the review gate until approved. A true
-top-level `passed` run requires going through that gate and merging the
-touchpoint PR. Do not claim an evidence-only synthetic run can terminally pass
-without either:
+to ensure a PR touchpoint, then park at the review gate until approved. The
+touchpoint is the human-intervention boundary; it does not merge the PR. Do not
+claim an evidence-only synthetic run can terminally pass without either:
 
-- intentionally creating/approving/merging the touchpoint PR, or
+- intentionally creating the touchpoint PR and satisfying the human gate, or
 - changing Glimmung to support a synthetic/evidence-only terminal mode.
 
 Also do not claim a unit-test-only synthetic verifier can finish the current
-Touchpoint path unless it records at least one acceptable artifact ref. For this
-case, the viable next shapes are:
+Touchpoint path. The final contract is not "make any artifact exist"; it is:
+deterministic checks run as draft PR CI, and LLM verification produces
+reviewable browser media. Synthetic continuation may reuse prior successful
+browser media where the workflow supports copied phase outputs, but it must not
+replace visual proof with a unit-test JSON artifact.
 
-- rerun verification with a small durable evidence artifact, for example an
-  uploaded text/JSON report under an accepted `evidence/` artifact path, if the
-  Touchpoint requirement accepts generic evidence for this issue;
-- rerun the richer visual/browser evidence path so the verifier emits the
-  required screenshot/video refs; or
-- change Glimmung to support an explicit synthetic/evidence-only terminal mode
-  that does not require PR Touchpoint artifact publication.
+`runs/23.1` confirmed the same touchpoint artifact problem after the verifier
+finalization bug was fixed:
+
+- Branch: `codex/168-touchpoint-continuation`
+- Head: `9047653 agent: preserve verifier pass after wait timeout`
+- Slot: `ambience-slot-3`
+- Run:
+  `https://glimmung.romaine.life/projects/ambience/issues/168/runs/23/cycles/1`
+- `llm-verify` succeeded for all continuation cases:
+  `dev-magic-portal-power-surge`, `dev-magic-portal-ember-burst`,
+  `dev-magic-portal-rune-shift`, `dev-magic-portal-quiet-gate`, and
+  `tests-magic-portal`.
+- `touchpoint` failed with:
+
+  ```text
+  required artifact evidence was not recorded
+  ```
+
+The cause was exact: the selected `tests-magic-portal` required evidence had
+kind `go-test`. That was a bad test-plan contract, not missing artifact
+plumbing. The native wrapper now fails a passing test plan that includes
+`go-test`, `unit-test`, `lint`, `build`, `ci`, `note`, `artifact`, or any other
+non-media evidence kind. Go tests are PR CI checks.
+
+`runs/24.1` proved that artifact materialization alone was not quite enough:
+
+- Branch head: `cf6a279 agent: emit artifact evidence for nonvisual verification`
+- Slot: `ambience-slot-4`
+- Run:
+  `https://glimmung.romaine.life/projects/ambience/issues/168/runs/24/cycles/1`
+- `llm-verify` succeeded and emitted:
+
+  ```json
+  {
+    "kind": "artifact",
+    "ref": "observations/tests-magic-portal-verification.json"
+  }
+  ```
+
+- The observation upload succeeded, but touchpoint still returned:
+
+  ```text
+  required artifact evidence was not recorded
+  ```
+
+That run proved the JSON-artifact workaround was the wrong finish-out shape.
+Terminal lifecycle observation JSON remains valid only as supporting evidence
+attached to a `video` case that declares `terminal_state_path`; it is not a
+standalone touchpoint artifact for deterministic checks.
 
 One more discovered runtime gap: the verifier agent container did not have
 `go` on `PATH`, so the first synthetic retry, `ambience#168/runs/19.1`, failed

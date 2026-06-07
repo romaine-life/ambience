@@ -517,7 +517,7 @@ def destroy_pr_preview(*, pr_number: int, release: str = DEFAULT_PR_RELEASE_NAME
 # Bash fragments that run inside the agent container. Plain Python strings —
 # no Python-side interpolation. All `${VAR}` references are evaluated by the
 # container's bash from the env block defined in apply_agent_job below
-# (REPO_SLUG, GH_TOKEN, ISSUE_NUMBER, BRANCH_NAME, etc).
+# (REPO_SLUG, GITHUB_TOKEN_FILE, ISSUE_NUMBER, BRANCH_NAME, etc).
 #
 # The flow is split across K8s Job pods to reduce per-step LLM context
 # burden (see docs/issue-agent-stage-split.md and tank-operator's
@@ -539,8 +539,15 @@ def destroy_pr_preview(*, pr_number: int, release: str = DEFAULT_PR_RELEASE_NAME
 _AGENT_BOOTSTRAP_BASH = r"""set -euo pipefail
 
 mkdir -p /workspace/evidence/screenshots /workspace/evidence/videos
-if [ -f /etc/claude-ca/ca.crt ] && [ -f /etc/ssl/certs/ca-certificates.crt ]; then
-  cat /etc/ssl/certs/ca-certificates.crt /etc/claude-ca/ca.crt > /workspace/provider-ca-bundle.crt
+CA_FILES="/etc/ssl/certs/ca-certificates.crt"
+if [ -f /etc/claude-ca/ca.crt ]; then
+  CA_FILES="${CA_FILES} /etc/claude-ca/ca.crt"
+fi
+if [ -f /etc/github-policy-ca/ca.crt ]; then
+  CA_FILES="${CA_FILES} /etc/github-policy-ca/ca.crt"
+fi
+if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+  cat ${CA_FILES} > /workspace/provider-ca-bundle.crt
   export SSL_CERT_FILE=/workspace/provider-ca-bundle.crt
   export REQUESTS_CA_BUNDLE=/workspace/provider-ca-bundle.crt
   export GIT_SSL_CAINFO=/workspace/provider-ca-bundle.crt
@@ -599,7 +606,15 @@ EOF
 
 git config --global user.name "ambience-agent[bot]"
 git config --global user.email "ambience-agent@romaine.life"
-GIT_AUTH_HEADER="Authorization: Basic $(printf 'x-access-token:%s' "${GH_TOKEN}" | base64 | tr -d '\n')"
+
+GITHUB_CREDENTIAL_USERNAME="${GITHUB_CREDENTIAL_USERNAME:-x-access-token}"
+if [ -z "${GITHUB_TOKEN_FILE:-}" ] || [ ! -f "${GITHUB_TOKEN_FILE}" ]; then
+  echo "GITHUB_TOKEN_FILE is required for GitHub git access" >&2
+  exit 2
+fi
+git config --global credential.https://github.com.username "${GITHUB_CREDENTIAL_USERNAME}"
+git config --global credential.https://github.com.helper \
+  "!f() { if [ \"\$1\" = get ]; then echo username=${GITHUB_CREDENTIAL_USERNAME}; printf 'password='; cat ${GITHUB_TOKEN_FILE}; echo; fi; }; f"
 
 issue_heading="# Glimmung issue ${ISSUE_REFERENCE}: ${ISSUE_TITLE}"
 close_line="Glimmung issue: ${ISSUE_REFERENCE}"
@@ -702,8 +717,7 @@ fi
 # Pod: issue-contract. Read-only target canonicalization — no code edits,
 # no evidence planning, no git mutations.
 _ISSUE_CONTRACT_BASH = _AGENT_BOOTSTRAP_BASH + r"""
-git -c "http.extraHeader=${GIT_AUTH_HEADER}" \
-  clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
+git clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
 cd /workspace/repo
 
 echo "=== prewarm: go mod download ==="
@@ -734,8 +748,7 @@ fi
 # Pod: test-plan. Read-only analysis — no code edits, no git mutations.
 # Clones main, runs the test-plan LLM, emits issue-agent-test-plan.json.
 _TEST_PLAN_BASH = _AGENT_BOOTSTRAP_BASH + r"""
-git -c "http.extraHeader=${GIT_AUTH_HEADER}" \
-  clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
+git clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
 cd /workspace/repo
 
 echo "=== prewarm: go mod download ==="
@@ -782,8 +795,7 @@ fi
 # test plan as input (runs in parallel with test-plan). Commits + pushes the
 # implementation branch.
 _IMPLEMENT_BASH = _AGENT_BOOTSTRAP_BASH + r"""
-git -c "http.extraHeader=${GIT_AUTH_HEADER}" \
-  clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
+git clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
 cd /workspace/repo
 if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH_NAME}"; then
   git checkout -B "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
@@ -823,30 +835,39 @@ if [ "$impl_status" != "pass" ]; then
   exit 1
 fi
 
-# Refuse to publish runner-local config files.
-BLOCKED=$(git status --porcelain -- .github/workflows .github/agent .mcp.json 2>/dev/null || true)
+# Refuse to publish runner-local config files, whether committed or still in the worktree.
+git fetch origin main
+BLOCKED="$(
+  {
+    git diff --name-only origin/main...HEAD -- .github/workflows .github/agent .mcp.json 2>/dev/null || true
+    git status --porcelain -- .github/workflows .github/agent .mcp.json 2>/dev/null | awk '{print $2}' || true
+  } | sort -u
+)"
 if [ -n "$BLOCKED" ]; then
   echo "implementation stage modified runner-local config files (forbidden):" >&2
   echo "$BLOCKED" >&2
   exit 1
 fi
 
-git add -A
-if git diff --cached --quiet; then
-  echo "implementation stage produced no changes; failing job so the workflow doesn't open an empty PR" >&2
-  exit 1
-fi
-git commit -m "agent: address ${ISSUE_REFERENCE}
+if [ -n "$(git status --porcelain)" ]; then
+  git add -A
+  if ! git diff --cached --quiet; then
+    git commit -m "agent: address ${ISSUE_REFERENCE}
 
 ${ISSUE_TITLE}
 
 ${close_line}"
+  fi
+fi
 
 # Sync onto current main before pushing.
-git -c "http.extraHeader=${GIT_AUTH_HEADER}" fetch origin main
 git rebase origin/main
+if git diff --quiet origin/main...HEAD; then
+  echo "implementation stage produced no branch changes; failing job so the workflow doesn't open an empty PR" >&2
+  exit 1
+fi
 
-git -c "http.extraHeader=${GIT_AUTH_HEADER}" push origin "HEAD:${BRANCH_NAME}"
+git push origin "HEAD:${BRANCH_NAME}"
 """ + _AGENT_EVIDENCE_TAIL_BASH
 
 # Pod: verify. Reads test-plan + implementation handoff artifacts from the
@@ -854,11 +875,9 @@ git -c "http.extraHeader=${GIT_AUTH_HEADER}" push origin "HEAD:${BRANCH_NAME}"
 # outputs before launching this pod).
 _VERIFY_BASH = _AGENT_BOOTSTRAP_BASH + r"""
 # Verify starts from the pushed implementation branch.
-git -c "http.extraHeader=${GIT_AUTH_HEADER}" \
-  clone --branch "${BRANCH_NAME}" \
+git clone --branch "${BRANCH_NAME}" \
   "https://github.com/${REPO_SLUG}.git" /workspace/repo \
-  || git -c "http.extraHeader=${GIT_AUTH_HEADER}" \
-       clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
+  || git clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
 cd /workspace/repo
 if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH_NAME}"; then
   git checkout -B "${BRANCH_NAME}" "origin/${BRANCH_NAME}"
@@ -950,6 +969,7 @@ def _agent_job_spec(
     agent_container_tag: str,
     claude_proxy_ip: str | None = None,
     codex_proxy_ip: str | None = None,
+    github_proxy_ip: str | None = None,
     agent_container_image: str | None = None,
     repo_slug: str = "romaine-life/ambience",
     stage: str = "test-plan",
@@ -969,11 +989,114 @@ def _agent_job_spec(
     image = (agent_container_image or "").strip()
     claude_proxy_ip = (claude_proxy_ip or proxy_ip).strip()
     codex_proxy_ip = (codex_proxy_ip or proxy_ip).strip()
+    github_proxy_ip = (github_proxy_ip or "").strip()
     if not image:
         tag = agent_container_tag.strip()
         if not tag:
             raise ValueError("agent_container_image or agent_container_tag is required")
         image = f"romainecr.azurecr.io/ambience-agent-runner:{tag}"
+
+    host_aliases = [
+        {"ip": claude_proxy_ip, "hostnames": ["api.anthropic.com"]},
+        {"ip": codex_proxy_ip, "hostnames": ["chatgpt.com", "api.openai.com"]},
+    ]
+    volumes = [
+        {
+            "name": "claude-ca",
+            "configMap": {
+                "name": "claude-oauth-ca",
+                "items": [{"key": "ca.crt", "path": "ca.crt"}],
+            },
+        },
+        {"name": "workspace", "emptyDir": {}},
+        {
+            "name": "agent-config",
+            "configMap": {"name": config_map_name},
+        },
+    ]
+    volume_mounts = [
+        {"name": "claude-ca", "mountPath": "/etc/claude-ca", "readOnly": True},
+        {"name": "workspace", "mountPath": "/workspace"},
+        {"name": "agent-config", "mountPath": "/agent-config", "readOnly": True},
+    ]
+    env = [
+        {"name": "NODE_EXTRA_CA_CERTS", "value": "/etc/claude-ca/ca.crt"},
+        {"name": "HOME", "value": "/workspace"},
+        {"name": "ISSUE_NUMBER", "value": str(issue_number)},
+        {"name": "ISSUE_REFERENCE", "value": issue_ref},
+        {"name": "ISSUE_TITLE", "value": issue_title},
+        {"name": "ISSUE_URL", "value": issue_url},
+        {"name": "VALIDATION_URL", "value": validation_url},
+        {"name": "BRANCH_NAME", "value": branch_name},
+        {"name": "REPO_SLUG", "value": repo_slug},
+        {"name": "AGENT_STAGE", "value": stage},
+        {"name": "AGENT_RUNTIME_SLOT", "value": runtime.slot},
+        {"name": "AGENT_RUNTIME_PROFILE_ID", "value": runtime.profile_id},
+        {"name": "AGENT_PROVIDER", "value": runtime.provider},
+        {"name": "AGENT_MODEL", "value": runtime.model},
+        {"name": "AGENT_REASONING_EFFORT", "value": runtime.reasoning_effort},
+        {"name": "AGENT_RUNTIME_SOURCE", "value": runtime.source},
+        {
+            "name": "GLIMMUNG_EVIDENCE_REQUIREMENTS_JSON",
+            "value": os.environ.get("GLIMMUNG_EVIDENCE_REQUIREMENTS_JSON", ""),
+        },
+        {"name": "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "value": "1"},
+    ]
+    if github_proxy_ip:
+        host_aliases.append({"ip": github_proxy_ip, "hostnames": ["github.com"]})
+        volumes.extend(
+            [
+                {
+                    "name": "github-policy-token",
+                    "secret": {
+                        "secretName": "agent-github-policy-token",
+                        "items": [{"key": "token", "path": "token"}],
+                    },
+                },
+                {
+                    "name": "github-policy-ca",
+                    "configMap": {
+                        "name": "glimmung-provider-api-proxy-ca",
+                        "items": [{"key": "ca.crt", "path": "ca.crt"}],
+                    },
+                },
+            ]
+        )
+        volume_mounts.extend(
+            [
+                {
+                    "name": "github-policy-token",
+                    "mountPath": "/var/run/ambience-github-token",
+                    "readOnly": True,
+                },
+                {"name": "github-policy-ca", "mountPath": "/etc/github-policy-ca", "readOnly": True},
+            ]
+        )
+        env.extend(
+            [
+                {"name": "GITHUB_TOKEN_FILE", "value": "/var/run/ambience-github-token/token"},
+                {"name": "GITHUB_CREDENTIAL_USERNAME", "value": "glimmung-policy"},
+            ]
+        )
+    else:
+        volumes.append(
+            {
+                "name": "github-token",
+                "secret": {
+                    "secretName": "agent-github-token",
+                    "items": [{"key": "token", "path": "token"}],
+                },
+            }
+        )
+        volume_mounts.append(
+            {"name": "github-token", "mountPath": "/var/run/ambience-github-token", "readOnly": True}
+        )
+        env.extend(
+            [
+                {"name": "GITHUB_TOKEN_FILE", "value": "/var/run/ambience-github-token/token"},
+                {"name": "GITHUB_CREDENTIAL_USERNAME", "value": "x-access-token"},
+            ]
+        )
 
     return {
         "apiVersion": "batch/v1",
@@ -1008,24 +1131,8 @@ def _agent_job_spec(
                         "fsGroup": 1000,
                         "runAsNonRoot": True,
                     },
-                    "hostAliases": [
-                        {"ip": claude_proxy_ip, "hostnames": ["api.anthropic.com"]},
-                        {"ip": codex_proxy_ip, "hostnames": ["chatgpt.com", "api.openai.com"]},
-                    ],
-                    "volumes": [
-                        {
-                            "name": "claude-ca",
-                            "configMap": {
-                                "name": "claude-oauth-ca",
-                                "items": [{"key": "ca.crt", "path": "ca.crt"}],
-                            },
-                        },
-                        {"name": "workspace", "emptyDir": {}},
-                        {
-                            "name": "agent-config",
-                            "configMap": {"name": config_map_name},
-                        },
-                    ],
+                    "hostAliases": host_aliases,
+                    "volumes": volumes,
                     "containers": [
                         {
                             "name": "agent",
@@ -1035,45 +1142,8 @@ def _agent_job_spec(
                             "image": image,
                             "imagePullPolicy": "IfNotPresent",
                             "command": ["/bin/bash", "-c", _STAGE_BASH_SCRIPTS[stage]],
-                            "env": [
-                                {"name": "NODE_EXTRA_CA_CERTS", "value": "/etc/claude-ca/ca.crt"},
-                                {"name": "HOME", "value": "/workspace"},
-                                {"name": "ISSUE_NUMBER", "value": str(issue_number)},
-                                {"name": "ISSUE_REFERENCE", "value": issue_ref},
-                                {"name": "ISSUE_TITLE", "value": issue_title},
-                                {"name": "ISSUE_URL", "value": issue_url},
-                                {"name": "VALIDATION_URL", "value": validation_url},
-                                {"name": "BRANCH_NAME", "value": branch_name},
-                                {"name": "REPO_SLUG", "value": repo_slug},
-                                {"name": "AGENT_STAGE", "value": stage},
-                                {"name": "AGENT_RUNTIME_SLOT", "value": runtime.slot},
-                                {"name": "AGENT_RUNTIME_PROFILE_ID", "value": runtime.profile_id},
-                                {"name": "AGENT_PROVIDER", "value": runtime.provider},
-                                {"name": "AGENT_MODEL", "value": runtime.model},
-                                {"name": "AGENT_REASONING_EFFORT", "value": runtime.reasoning_effort},
-                                {"name": "AGENT_RUNTIME_SOURCE", "value": runtime.source},
-                                {
-                                    "name": "GLIMMUNG_EVIDENCE_REQUIREMENTS_JSON",
-                                    "value": os.environ.get(
-                                        "GLIMMUNG_EVIDENCE_REQUIREMENTS_JSON", ""
-                                    ),
-                                },
-                                {
-                                    "name": "GH_TOKEN",
-                                    "valueFrom": {
-                                        "secretKeyRef": {
-                                            "name": "agent-github-token",
-                                            "key": "token",
-                                        },
-                                    },
-                                },
-                                {"name": "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "value": "1"},
-                            ],
-                            "volumeMounts": [
-                                {"name": "claude-ca", "mountPath": "/etc/claude-ca", "readOnly": True},
-                                {"name": "workspace", "mountPath": "/workspace"},
-                                {"name": "agent-config", "mountPath": "/agent-config", "readOnly": True},
-                            ],
+                            "env": env,
+                            "volumeMounts": volume_mounts,
                         },
                     ],
                 },
@@ -1095,6 +1165,7 @@ def apply_agent_job(
     agent_container_tag: str,
     claude_proxy_ip: str | None = None,
     codex_proxy_ip: str | None = None,
+    github_proxy_ip: str | None = None,
     agent_container_image: str | None = None,
     repo_slug: str = "romaine-life/ambience",
     issue_reference: str | None = None,
@@ -1119,6 +1190,7 @@ def apply_agent_job(
         proxy_ip=proxy_ip,
         claude_proxy_ip=claude_proxy_ip,
         codex_proxy_ip=codex_proxy_ip,
+        github_proxy_ip=github_proxy_ip,
         agent_container_tag=agent_container_tag,
         agent_container_image=agent_container_image,
         repo_slug=repo_slug,

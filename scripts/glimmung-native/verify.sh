@@ -724,6 +724,10 @@ write_evidence_artifacts() {
   : >"$file_artifacts"
   printf '{}\n' >"$empty_verifier"
 
+  if [ ! -s "$verifier" ]; then
+    verifier="$empty_verifier"
+  fi
+
   if compgen -G "${EVIDENCE_DIR}/screenshots/*.png" >/dev/null; then
     while IFS= read -r file; do
       local base size
@@ -774,13 +778,15 @@ write_evidence_artifacts() {
     done < <(find "${EVIDENCE_DIR}/observations" -maxdepth 1 -type f -name '*.json' | sort)
   fi
 
-  if [ ! -s "$verifier" ]; then
-    verifier="$empty_verifier"
-  fi
-
-  jq -s --slurpfile verifier "$verifier" '
+  jq -s \
+    --arg run_prefix "runs/${GLIMMUNG_PROJECT}/${GLIMMUNG_RUN_ID}" \
+    --slurpfile verifier "$verifier" '
     def normalize_ref($ref): ($ref | tostring | sub("^/workspace/evidence/"; "") | sub("^/tmp/evidence/"; ""));
-    def first_ref($item): normalize_ref($item.ref // $item.artifact_path // $item.url // "");
+    def run_scoped_ref($ref):
+      if ($ref | startswith("observations/")) then $run_prefix + "/" + $ref
+      else $ref
+      end;
+    def first_ref($item): normalize_ref($item.ref // $item.artifact_path // $item.url // "") | run_scoped_ref(.);
     def norm_kind($kind; $ref):
       ($kind // "" | ascii_downcase) as $k
       | ($ref // "" | ascii_downcase) as $r
@@ -871,20 +877,17 @@ finalize() {
       ;;
   esac
 
-  VERIFY_EXIT_CODE="$(verify_exit_code)"
-  if [ "$VERIFY_EXIT_CODE" -ne 0 ]; then
-    add_reason "verify pod exited with ${VERIFY_EXIT_CODE}; see native step logs"
-    if [ -s "$POD_LOG" ]; then
-      grep -E "::error::|Job failed|FATAL|panic:|aborted:|forbidden|exited without writing" "$POD_LOG" \
-        | head -5 >>"$VERIFICATION_REASONS" || true
-    fi
-    write_verification "fail"
-    return 0
-  fi
-
   local verifier_status
   verifier_status="$(jq -r '.status // "missing"' "${EVIDENCE_DIR}/issue-agent-verification.json" 2>/dev/null || echo missing)"
   if [ "$verifier_status" != "pass" ]; then
+    VERIFY_EXIT_CODE="$(verify_exit_code)"
+    if [ "$VERIFY_EXIT_CODE" -ne 0 ]; then
+      add_reason "verify pod exited with ${VERIFY_EXIT_CODE}; see native step logs"
+      if [ -s "$POD_LOG" ]; then
+        grep -E "::error::|Job failed|FATAL|panic:|aborted:|forbidden|exited without writing|did not reach a terminal Job condition" "$POD_LOG" \
+          | head -5 >>"$VERIFICATION_REASONS" || true
+      fi
+    fi
     add_reason "verifier reported status=${verifier_status} reason=$(jq -r '.abort_reason // ""' "${EVIDENCE_DIR}/issue-agent-verification.json" 2>/dev/null || echo "")"
     write_verification "fail"
     return 0
