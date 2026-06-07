@@ -44,7 +44,7 @@
 	// ── ambience live broadcast monitor ──────────────────────────────────
 	// Subscribes to the shared atmosphere over /events and renders it under the
 	// "Exposed" chrome. Controls mirror the live world; mutations are admin-gated
-	// when /control-auth requires it, otherwise local/test slots start live.
+	// (/control-auth) and stay read-only until an admin signs in and arms them.
 	'use strict';
 
 	const GRID_W = 320, GRID_H = 180;
@@ -169,7 +169,6 @@
 			const s = await resp.json();
 			authRequired = !!s.required;
 			authed = !authRequired || !!s.authenticated;
-			if (!authRequired) armed = true;
 			authProvider = s.provider || '';
 			microsoftTenant = s.microsoftTenant || '';
 			microsoftClientId = s.microsoftClientId || '';

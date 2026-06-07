@@ -504,11 +504,23 @@ func (m *authorityMirror) handleEventPayload(id string, payload []byte) error {
 		if err := json.Unmarshal(cmd.Data, &snap); err != nil {
 			return err
 		}
-		m.setSnapshot(snap, cmd.ID)
+		m.applySnapshotCommand(cmd, snap)
 		return nil
 	}
 	m.applyCommand(cmd)
 	return nil
+}
+
+func (m *authorityMirror) applySnapshotCommand(cmd Command, snap snapshotData) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.snap = cloneSnapshot(snap)
+	if cmd.ID != "" {
+		m.snapshotID = cmd.ID
+		m.replay = nil
+	}
+	m.hasSnapshot = true
+	m.broadcastLocked(cmd)
 }
 
 func (m *authorityMirror) applyCommand(cmd Command) {
