@@ -27,11 +27,12 @@ the source of issue-run execution for the native Ambience flow.
 6. Glimmung substitutes those phase outputs into `llm-work`.
 7. `llm-work` runs `test-plan` and `implement` in parallel. Both consume
    `issue_contract`; neither consumes the other's output. The implementation
-   wrapper creates the run branch and draft PR before the implementation agent
-   starts, gives the agent a branch-publish/check helper for CI feedback, waits
-   for the PR's GitHub checks after the agent exits, and only then rebuilds the
-   validation environment. Red or timed-out CI aborts the run before LLM
-   verification.
+   wrapper creates the issue-scoped run branch
+   `glimmung/issue-<issue-number>/<run-id>` and draft PR before the
+   implementation agent starts, gives the agent a branch-publish/check helper
+   for CI feedback, waits for the PR's GitHub checks after the agent exits, and
+   only then rebuilds the validation environment. Red or timed-out CI aborts
+   the run before LLM verification.
 8. The verification phase receives `issue_contract`, `test_plan`,
    `implementation`, and the rebuilt validation URL. It runs ten fixed jobs
    named `verify-case-01` through `verify-case-10`; each active job captures
@@ -94,6 +95,10 @@ The draft implementation PR is opened before the implementation agent runs so
 repository CI owns deterministic checks such as Go tests, lint, image build
 proof, and workflow syntax while the agent can still react. The later
 touchpoint is a human review boundary; it does not merge the PR.
+Implementation branches include the Glimmung issue number. Final cleanup only
+deletes branches under that issue prefix after GitHub shows a merged PR under
+the same prefix, which lets cleanup remove stale branches from abandoned runs
+without deleting live implementation work before review is merged.
 
 ## Runner Image
 

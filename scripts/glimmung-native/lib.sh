@@ -535,6 +535,46 @@ native_workflow_checkout_ref() {
   printf '%s' "$ref"
 }
 
+native_sanitize_ref_segment() {
+  local value="$1"
+  value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-')"
+  value="$(printf '%s' "$value" | sed -E 's/-+/-/g; s/^[.-]+//; s/[.-]+$//')"
+  if [ -z "$value" ]; then
+    value="unknown"
+  fi
+  printf '%s' "$value"
+}
+
+native_implementation_branch_name() {
+  if [ -n "${AMBIENCE_IMPLEMENTATION_BRANCH:-}" ]; then
+    printf '%s' "$AMBIENCE_IMPLEMENTATION_BRANCH"
+    return 0
+  fi
+  if [ -n "${GLIMMUNG_ISSUE_NUMBER:-}" ] && [ -n "${GLIMMUNG_RUN_ID:-}" ]; then
+    printf 'glimmung/issue-%s/%s' \
+      "$(native_sanitize_ref_segment "$GLIMMUNG_ISSUE_NUMBER")" \
+      "$(native_sanitize_ref_segment "$GLIMMUNG_RUN_ID")"
+    return 0
+  fi
+  if [ -n "${GLIMMUNG_WORK_CONTEXT_BRANCH:-}" ]; then
+    printf '%s' "$GLIMMUNG_WORK_CONTEXT_BRANCH"
+    return 0
+  fi
+  if [ -n "${GLIMMUNG_RUN_ID:-}" ]; then
+    printf 'glimmung/%s' "$(native_sanitize_ref_segment "$GLIMMUNG_RUN_ID")"
+    return 0
+  fi
+  echo "GLIMMUNG_RUN_ID is required to derive the implementation branch" >&2
+  return 2
+}
+
+native_issue_branch_prefix() {
+  if [ -z "${GLIMMUNG_ISSUE_NUMBER:-}" ]; then
+    return 1
+  fi
+  printf 'glimmung/issue-%s/' "$(native_sanitize_ref_segment "$GLIMMUNG_ISSUE_NUMBER")"
+}
+
 native_push_branch() {
   local repo_slug="$1"
   local repo_dir="$2"

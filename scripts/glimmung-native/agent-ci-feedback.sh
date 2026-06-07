@@ -11,7 +11,7 @@ source "${SCRIPT_DIR}/lib.sh"
 
 REPO_SLUG="${AMBIENCE_REPO_SLUG:-romaine-life/ambience}"
 REPO_DIR="${AMBIENCE_REPO_DIR:-/workspace/repo}"
-BRANCH_NAME="${GLIMMUNG_WORK_CONTEXT_BRANCH:-glimmung/${GLIMMUNG_RUN_ID:?GLIMMUNG_RUN_ID required}}"
+BRANCH_NAME="$(native_implementation_branch_name)"
 BASE_REF="${AMBIENCE_PR_BASE:-main}"
 WORKFLOW_FILE="${AMBIENCE_PR_CHECK_WORKFLOW:-docker-build-check.yaml}"
 

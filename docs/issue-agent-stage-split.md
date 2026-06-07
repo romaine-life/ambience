@@ -150,9 +150,10 @@ Allowed `abort_reason` values: `change_too_large`,
 `unsafe_refactor`, `missing_code_context`, `conflicting_requirements`,
 `cannot_implement_without_guessing`.
 
-The wrapper creates and pushes the implementation branch, opens or updates a
-draft PR, then runs the implementation agent. The agent can publish its current
-work and read the draft PR CI state through
+The wrapper creates and pushes the issue-scoped implementation branch
+`glimmung/issue-<issue-number>/<run-id>`, opens or updates a draft PR, then
+runs the implementation agent. The agent can publish its current work and read
+the draft PR CI state through
 `scripts/glimmung-native/agent-ci-feedback.sh publish-and-wait`; it should use
 that deterministic feedback instead of inventing a build/test proof. After the
 agent exits, the wrapper confirms the branch, waits for the PR's GitHub checks
@@ -160,6 +161,11 @@ to pass, then rebuilds the validation environment from the checked branch before
 verification runs. If the implementation pod fails, the branch is missing, the
 draft PR cannot be opened, or PR checks fail or time out, the run aborts before
 LLM verification spends tokens.
+
+Final cleanup removes implementation branches under the same issue prefix only
+after GitHub reports a merged PR under that prefix. That preserves open review
+branches on aborts and unapproved touchpoints while still cleaning abandoned
+branches from earlier runs after the issue's touchpoint path has merged.
 
 ### Stage 3 — `run-verification`
 

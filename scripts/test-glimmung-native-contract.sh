@@ -78,6 +78,17 @@ if native_agent_container_image >/dev/null 2>&1; then
 fi
 AGENT_CONTAINER_TAG="native-runner-test"
 [ "$(native_agent_container_image)" = "romainecr.azurecr.io/ambience-agent-runner:native-runner-test" ]
+
+unset AMBIENCE_IMPLEMENTATION_BRANCH GLIMMUNG_WORK_CONTEXT_BRANCH GLIMMUNG_ISSUE_NUMBER
+[ "$(native_implementation_branch_name)" = "glimmung/run-1" ]
+GLIMMUNG_WORK_CONTEXT_BRANCH="glimmung/work-context"
+[ "$(native_implementation_branch_name)" = "glimmung/work-context" ]
+GLIMMUNG_ISSUE_NUMBER="168"
+[ "$(native_implementation_branch_name)" = "glimmung/issue-168/run-1" ]
+[ "$(native_issue_branch_prefix)" = "glimmung/issue-168/" ]
+AMBIENCE_IMPLEMENTATION_BRANCH="glimmung/manual-branch"
+[ "$(native_implementation_branch_name)" = "glimmung/manual-branch" ]
+unset AMBIENCE_IMPLEMENTATION_BRANCH GLIMMUNG_WORK_CONTEXT_BRANCH GLIMMUNG_ISSUE_NUMBER
 AGENT_CONTAINER_IMAGE="romainecr.azurecr.io/custom:tag"
 [ "$(native_agent_container_image)" = "romainecr.azurecr.io/custom:tag" ]
 unset AGENT_CONTAINER_IMAGE AGENT_CONTAINER_TAG
