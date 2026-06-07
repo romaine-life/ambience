@@ -150,11 +150,16 @@ Allowed `abort_reason` values: `change_too_large`,
 `unsafe_refactor`, `missing_code_context`, `conflicting_requirements`,
 `cannot_implement_without_guessing`.
 
-The wrapper confirms the pushed branch, opens or updates a draft PR, waits for
-the PR's GitHub checks to pass, then rebuilds the validation environment from
-the checked branch before verification runs. If the implementation pod fails,
-the branch is missing, the draft PR cannot be opened, or PR checks fail or time
-out, the run aborts before LLM verification spends tokens.
+The wrapper creates and pushes the implementation branch, opens or updates a
+draft PR, then runs the implementation agent. The agent can publish its current
+work and read the draft PR CI state through
+`scripts/glimmung-native/agent-ci-feedback.sh publish-and-wait`; it should use
+that deterministic feedback instead of inventing a build/test proof. After the
+agent exits, the wrapper confirms the branch, waits for the PR's GitHub checks
+to pass, then rebuilds the validation environment from the checked branch before
+verification runs. If the implementation pod fails, the branch is missing, the
+draft PR cannot be opened, or PR checks fail or time out, the run aborts before
+LLM verification spends tokens.
 
 ### Stage 3 — `run-verification`
 
@@ -217,7 +222,7 @@ The live phase scripts expose these job step boundaries:
 ```bash
 scripts/glimmung-native/issue-contract.sh: run-issue-contract
 scripts/glimmung-native/test-plan.sh:      run-test-plan
-scripts/glimmung-native/implement.sh:      run-implementation, push-branch, ensure-draft-pr, wait-pr-checks, rebuild-env
+scripts/glimmung-native/implement.sh:      prepare-draft-pr-branch, ensure-draft-pr, run-implementation, push-branch, wait-pr-checks, rebuild-env
 scripts/glimmung-native/verify.sh:         run-verification, finalize, upload-screenshots
 ```
 

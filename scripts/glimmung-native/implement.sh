@@ -61,6 +61,7 @@ PR_NUMBER_FILE="/tmp/implementation-pr-number"
 PR_URL_FILE="/tmp/implementation-pr-url"
 : >"$SUMMARY_MD"
 : >"$EVENTS_LOG"
+printf '0\n' >"$IMPL_EXIT_CODE_FILE"
 mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/videos"
 
 clone_repo() {
@@ -211,6 +212,18 @@ push_branch() {
   return 1
 }
 
+prepare_draft_pr_branch() {
+  if native_remote_branch_revision "$REPO_SLUG" "$BRANCH_NAME" >/dev/null 2>&1; then
+    echo "implementation branch ${BRANCH_NAME} already exists"
+    return 0
+  fi
+  git -C "$REPO_DIR" commit --allow-empty \
+    -m "agent: start ${ISSUE_REFERENCE}" \
+    -m "Glimmung run ${GLIMMUNG_RUN_ID} opened this branch before implementation so CI feedback is visible during the agent loop."
+  native_push_branch "$REPO_SLUG" "$REPO_DIR" "$BRANCH_NAME"
+  echo "created initial implementation branch ${BRANCH_NAME}"
+}
+
 github_api() {
   local method="$1"
   local path="$2"
@@ -237,11 +250,6 @@ github_api() {
 }
 
 ensure_draft_pr() {
-  if implementation_failed; then
-    echo "implementation pod failed; skipping draft PR"
-    return 0
-  fi
-
   local owner repo base head_query existing pr_body create_body pr_number pr_url title body
   owner="${REPO_SLUG%%/*}"
   repo="${REPO_SLUG#*/}"
@@ -284,6 +292,16 @@ EOF
   printf '%s\n' "$pr_url" >"$PR_URL_FILE"
 }
 
+dispatch_pr_checks() {
+  local owner repo workflow_path body
+  owner="${REPO_SLUG%%/*}"
+  repo="${REPO_SLUG#*/}"
+  workflow_path="$(printf '%s' "${AMBIENCE_PR_CHECK_WORKFLOW:-docker-build-check.yaml}" | jq -sRr @uri)"
+  body="$(jq -nc --arg ref "$BRANCH_NAME" '{ref:$ref, inputs:{git_ref:$ref}}')"
+  github_api POST "/repos/${owner}/${repo}/actions/workflows/${workflow_path}/dispatches" "$body" >/dev/null
+  echo "dispatched ${AMBIENCE_PR_CHECK_WORKFLOW:-docker-build-check.yaml} for ${BRANCH_NAME}"
+}
+
 wait_pr_checks() {
   if implementation_failed; then
     echo "implementation pod failed; skipping PR checks"
@@ -298,6 +316,10 @@ wait_pr_checks() {
   deadline="$(($(date +%s) + ${AMBIENCE_PR_CHECK_TIMEOUT_SECONDS:-3600}))"
 
   echo "waiting for PR checks on ${BRANCH_NAME}@${branch_revision}"
+  checks_json="$(github_api GET "/repos/${owner}/${repo}/commits/${branch_revision}/check-runs?per_page=100")"
+  if [ "$(printf '%s' "$checks_json" | jq -r '.total_count // ((.check_runs // []) | length)')" -eq 0 ]; then
+    dispatch_pr_checks
+  fi
   while true; do
     checks_json="$(github_api GET "/repos/${owner}/${repo}/commits/${branch_revision}/check-runs?per_page=100")"
     status_json="$(github_api GET "/repos/${owner}/${repo}/commits/${branch_revision}/status")"
@@ -466,10 +488,11 @@ if native_selected_step; then
   native_run_selected_step \
     "clone" clone_repo \
     "prepare" prepare_context \
+    "prepare-draft-pr-branch" prepare_draft_pr_branch \
+    "ensure-draft-pr" ensure_draft_pr \
     "run-implementation" run_llm_record \
     "collect" collect_evidence \
     "push-branch" push_branch \
-    "ensure-draft-pr" ensure_draft_pr \
     "wait-pr-checks" wait_pr_checks \
     "rebuild-env" rebuild_env \
     "finalize" finalize \
@@ -479,6 +502,8 @@ fi
 
 native_step "clone" clone_repo
 native_step "prepare" prepare_context
+native_step "prepare-draft-pr-branch" prepare_draft_pr_branch
+native_step "ensure-draft-pr" ensure_draft_pr
 native_step "run-implementation" run_llm_record
 native_step "collect" collect_evidence
 IMPL_EXIT_CODE="$(impl_exit_code)"
@@ -488,7 +513,6 @@ if [ "$IMPL_EXIT_CODE" -ne 0 ]; then
   exit "$IMPL_EXIT_CODE"
 fi
 native_step "push-branch" push_branch
-native_step "ensure-draft-pr" ensure_draft_pr
 native_step "wait-pr-checks" wait_pr_checks
 native_step "rebuild-env" rebuild_env
 native_step "finalize" finalize

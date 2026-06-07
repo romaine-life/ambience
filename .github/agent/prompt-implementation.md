@@ -78,11 +78,18 @@ Glimmung selects the concrete provider/model for this invocation through the
       with the terminal state predicate and include the predicate in
       `behavior_evidence`. This is the verifier's source of truth for
       "done"; the video is reviewer context.
-7. Write `/workspace/evidence/issue-agent-implementation.json` and
+7. Publish your current branch and use the draft PR CI checks as feedback:
+   ```
+   scripts/glimmung-native/agent-ci-feedback.sh publish-and-wait
+   ```
+   If CI fails, read the check output, fix the code, and run the helper again.
+   Do not invent a replacement verification path for deterministic build/test
+   failures.
+8. Write `/workspace/evidence/issue-agent-implementation.json` and
    `/workspace/evidence/issue-agent-implementation.md` per the schemas
    below. **The JSON file is required.**
-8. Stage your changes (`git add -A`) and exit cleanly. The wrapper
-   commits and pushes the branch after this stage completes.
+9. Exit cleanly. The wrapper performs a final deterministic PR-check gate after
+   this stage completes.
 
 ## Output JSON schema
 
@@ -141,8 +148,10 @@ Write a short companion `issue-agent-implementation.md` with:
   verification stage.
 - **Do** follow the issue-contract artifact when present. It is shared
   upstream target context, not a test plan.
-- **Do not** push to GitHub. **Do not** open PRs. **Do not** comment
-  on issues. Networked GitHub operations are forbidden in this stage.
+- **Do not** open PRs or comment on issues. The workflow opens the draft PR
+  before this stage. Only publish/check the implementation branch through
+  `scripts/glimmung-native/agent-ci-feedback.sh`; do not use raw GitHub tokens
+  or push to any other branch.
 - **Do not** curl or otherwise touch the **shared validation
   environment** (`$VALIDATION_URL` / the deployed slot). It is rebuilt by
   the wrapper *after* this stage and still serves pre-change code; the
