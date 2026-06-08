@@ -105,6 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     apply_agent.add_argument("--claude-proxy-ip", default="")
     apply_agent.add_argument("--codex-proxy-ip", default="")
     apply_agent.add_argument("--github-proxy-ip", default="")
+    apply_agent.add_argument("--github-egress-ip", default="")
     apply_agent.add_argument("--agent-container-tag", default="")
     apply_agent.add_argument("--agent-container-image", default="")
     apply_agent.add_argument("--repo-slug", default="romaine-life/ambience")
@@ -214,6 +215,7 @@ def main() -> int:
                     claude_proxy_ip=args.claude_proxy_ip or args.proxy_ip,
                     codex_proxy_ip=args.codex_proxy_ip or args.proxy_ip,
                     github_proxy_ip=args.github_proxy_ip,
+                    github_egress_ip=args.github_egress_ip,
                     agent_container_tag=args.agent_container_tag,
                     agent_container_image=args.agent_container_image or None,
                     repo_slug=args.repo_slug,

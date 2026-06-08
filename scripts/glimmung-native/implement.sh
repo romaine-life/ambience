@@ -32,6 +32,14 @@ PROVIDER_API_PROXY_NAMESPACE="${GLIMMUNG_INPUT_PROVIDER_API_PROXY_NAMESPACE:-${G
 GITHUB_POLICY_CA_SECRET="${GLIMMUNG_GITHUB_POLICY_CA_SECRET:-glimmung-provider-api-proxy-ca}"
 GITHUB_POLICY_CA_CONFIGMAP="${GLIMMUNG_GITHUB_POLICY_CA_CONFIGMAP:-glimmung-provider-api-proxy-ca}"
 GITHUB_POLICY_PROXY_SERVICE="${GLIMMUNG_GITHUB_POLICY_PROXY_SERVICE:-github-git-policy-proxy}"
+# Name-based api.github.com egress for the locked-down agent runs through the
+# agent-egress Envoy Gateway (TLS passthrough). EG provisions its data-plane
+# Service in ENVOY_GATEWAY_SYSTEM_NAMESPACE; resolve that Service's clusterIP by
+# the EG owning-gateway labels and hostAlias api.github.com onto it.
+AGENT_EGRESS_GATEWAY_NAME="${GLIMMUNG_AGENT_EGRESS_GATEWAY_NAME:-agent-egress}"
+AGENT_EGRESS_GATEWAY_NAMESPACE="${GLIMMUNG_AGENT_EGRESS_GATEWAY_NAMESPACE:-${PROVIDER_API_PROXY_NAMESPACE}}"
+ENVOY_GATEWAY_SYSTEM_NAMESPACE="${GLIMMUNG_ENVOY_GATEWAY_SYSTEM_NAMESPACE:-envoy-gateway-system}"
+GITHUB_EGRESS_IP_FILE="/tmp/implementation-github-egress-ip"
 
 VALIDATION_URL="${GLIMMUNG_INPUT_VALIDATION_URL}"
 NAMESPACE="${GLIMMUNG_INPUT_NAMESPACE}"
@@ -211,9 +219,31 @@ ensure_github_proxy_ip() {
   fi
 }
 
+ensure_github_egress_ip() {
+  if [ -z "${GITHUB_EGRESS_IP:-}" ] && [ -s "$GITHUB_EGRESS_IP_FILE" ]; then
+    GITHUB_EGRESS_IP="$(cat "$GITHUB_EGRESS_IP_FILE")"
+    export GITHUB_EGRESS_IP
+  fi
+  if [ -z "${GITHUB_EGRESS_IP:-}" ]; then
+    GITHUB_EGRESS_IP="$(kubectl -n "$ENVOY_GATEWAY_SYSTEM_NAMESPACE" get svc \
+      -l "gateway.envoyproxy.io/owning-gateway-name=${AGENT_EGRESS_GATEWAY_NAME},gateway.envoyproxy.io/owning-gateway-namespace=${AGENT_EGRESS_GATEWAY_NAMESPACE}" \
+      -o jsonpath='{.items[0].spec.clusterIP}' 2>/dev/null || true)"
+    if [ -z "$GITHUB_EGRESS_IP" ]; then
+      # Non-fatal: the agent's live CI self-check (agent-ci-feedback.sh) loses
+      # api.github.com this run, but the deterministic wait_pr_checks gate runs
+      # in the (non-egress-locked) wrapper and still gates CI. Don't fail the run.
+      echo "WARNING: agent-egress gateway data-plane Service not found in ${ENVOY_GATEWAY_SYSTEM_NAMESPACE} for gateway ${AGENT_EGRESS_GATEWAY_NAMESPACE}/${AGENT_EGRESS_GATEWAY_NAME}; agent will not reach api.github.com this run" >&2
+      return 0
+    fi
+    export GITHUB_EGRESS_IP
+    printf '%s\n' "$GITHUB_EGRESS_IP" >"$GITHUB_EGRESS_IP_FILE"
+  fi
+}
+
 run_llm() {
   ensure_proxy_ip
   ensure_github_proxy_ip
+  ensure_github_egress_ip
   (
     cd "$REPO_DIR"
     python3 -m ambience_preview.cli apply-agent-job \
@@ -227,6 +257,7 @@ run_llm() {
       --branch-name "$BRANCH_NAME" \
       --proxy-ip "$PROXY_IP" \
       --github-proxy-ip "$GITHUB_PROXY_IP" \
+      --github-egress-ip "$GITHUB_EGRESS_IP" \
       --agent-container-tag "$AGENT_CONTAINER_TAG" \
       --agent-container-image "$(native_agent_container_image)" \
       --repo-slug "$REPO_SLUG" \
@@ -352,16 +383,6 @@ EOF
   printf '%s\n' "$pr_url" >"$PR_URL_FILE"
 }
 
-dispatch_pr_checks() {
-  local owner repo workflow_path body
-  owner="${REPO_SLUG%%/*}"
-  repo="${REPO_SLUG#*/}"
-  workflow_path="$(printf '%s' "${AMBIENCE_PR_CHECK_WORKFLOW:-docker-build-check.yaml}" | jq -sRr @uri)"
-  body="$(jq -nc --arg ref "$BRANCH_NAME" '{ref:$ref, inputs:{git_ref:$ref}}')"
-  github_api POST "/repos/${owner}/${repo}/actions/workflows/${workflow_path}/dispatches" "$body" >/dev/null
-  echo "dispatched ${AMBIENCE_PR_CHECK_WORKFLOW:-docker-build-check.yaml} for ${BRANCH_NAME}"
-}
-
 wait_pr_checks() {
   if implementation_failed; then
     echo "implementation pod failed; skipping PR checks"
@@ -376,10 +397,9 @@ wait_pr_checks() {
   deadline="$(($(date +%s) + ${AMBIENCE_PR_CHECK_TIMEOUT_SECONDS:-3600}))"
 
   echo "waiting for PR checks on ${BRANCH_NAME}@${branch_revision}"
-  checks_json="$(github_api GET "/repos/${owner}/${repo}/commits/${branch_revision}/check-runs?per_page=100")"
-  if [ "$(printf '%s' "$checks_json" | jq -r '.total_count // ((.check_runs // []) | length)')" -eq 0 ]; then
-    dispatch_pr_checks
-  fi
+  # CI fires on the draft PR's pull_request event; the gate only waits for and
+  # reads those checks. It never dispatches — a missing check set times out and
+  # fails the gate deterministically rather than papering over it.
   while true; do
     checks_json="$(github_api GET "/repos/${owner}/${repo}/commits/${branch_revision}/check-runs?per_page=100")"
     status_json="$(github_api GET "/repos/${owner}/${repo}/commits/${branch_revision}/status")"

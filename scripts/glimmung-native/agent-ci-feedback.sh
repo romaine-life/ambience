@@ -13,14 +13,21 @@ REPO_SLUG="${AMBIENCE_REPO_SLUG:-romaine-life/ambience}"
 REPO_DIR="${AMBIENCE_REPO_DIR:-/workspace/repo}"
 BRANCH_NAME="${BRANCH_NAME:-$(native_implementation_branch_name)}"
 BASE_REF="${AMBIENCE_PR_BASE:-main}"
-WORKFLOW_FILE="${AMBIENCE_PR_CHECK_WORKFLOW:-docker-build-check.yaml}"
 
 github_api() {
   local method="$1"
   local path="$2"
   local body="${3:-}"
   local token
-  token="$(native_github_token)"
+  # The implementation agent job mounts the repo-scoped token as a file
+  # (GITHUB_TOKEN_FILE) — the only GitHub credential the agent gets. The
+  # GLIMMUNG_GITHUB_TOKEN_URL callback is deliberately not exposed to the agent
+  # subprocess, so this token is required; there is no fallback path.
+  if [ -z "${GITHUB_TOKEN_FILE:-}" ] || [ ! -s "${GITHUB_TOKEN_FILE}" ]; then
+    echo "GITHUB_TOKEN_FILE is required for agent CI feedback" >&2
+    return 1
+  fi
+  token="$(cat "${GITHUB_TOKEN_FILE}")"
   if [ -n "$body" ]; then
     curl -fsS \
       -X "$method" \
@@ -71,16 +78,6 @@ push_branch() {
   git -C "$REPO_DIR" fetch origin "$BASE_REF"
   git -C "$REPO_DIR" rebase "origin/${BASE_REF}"
   git -C "$REPO_DIR" push origin "HEAD:${BRANCH_NAME}"
-}
-
-dispatch_checks() {
-  local owner repo workflow_path body
-  owner="${REPO_SLUG%%/*}"
-  repo="${REPO_SLUG#*/}"
-  workflow_path="$(printf '%s' "$WORKFLOW_FILE" | jq -sRr @uri)"
-  body="$(jq -nc --arg ref "$BRANCH_NAME" '{ref:$ref, inputs:{git_ref:$ref}}')"
-  github_api POST "/repos/${owner}/${repo}/actions/workflows/${workflow_path}/dispatches" "$body" >/dev/null
-  echo "dispatched ${WORKFLOW_FILE} for ${BRANCH_NAME}"
 }
 
 print_checks() {
@@ -135,9 +132,6 @@ case "${1:-status}" in
     commit_if_needed
     push_branch
     ;;
-  dispatch)
-    dispatch_checks
-    ;;
   status)
     print_checks
     ;;
@@ -148,11 +142,10 @@ case "${1:-status}" in
     assert_branch
     commit_if_needed
     push_branch
-    dispatch_checks
     wait_checks
     ;;
   *)
-    echo "usage: $0 {publish|dispatch|status|wait|publish-and-wait}" >&2
+    echo "usage: $0 {publish|status|wait|publish-and-wait}" >&2
     exit 2
     ;;
 esac
