@@ -761,7 +761,13 @@ write_evidence_artifacts() {
         --argjson size "${size:-0}" \
         '{kind:"video", ref:$ref, label:$label, content_type:$content_type, size_bytes:$size}' \
         >>"$file_artifacts"
-    done < <(find "${EVIDENCE_DIR}/videos" -maxdepth 1 -type f \( -name '*.webm' -o -name '*.mp4' -o -name '*.mov' \) | sort)
+    # Exclude raw Playwright session recordings (page@<hash>.webm). These are
+    # un-curated recordVideo byproducts: capture-video.mjs renames the clip it
+    # keeps to a semantic name and inspect-video.mjs probes a real duration, so
+    # curated clips reach the report (via the verifier evidence) with a
+    # duration_ms. The leftover page@ recordings carry none and would otherwise
+    # surface here as 0-second videos. Only curated clips are evidence.
+    done < <(find "${EVIDENCE_DIR}/videos" -maxdepth 1 -type f \( -name '*.webm' -o -name '*.mp4' -o -name '*.mov' \) ! -name 'page@*' | sort)
   fi
 
   if compgen -G "${EVIDENCE_DIR}/observations/*.json" >/dev/null; then
@@ -967,7 +973,10 @@ upload_evidence() {
         cp "$file" "$video_staging/"
         video_taken=$((video_taken + 1))
       fi
-    done < <(find "${EVIDENCE_DIR}/videos" -maxdepth 1 -type f \( -name '*.webm' -o -name '*.mp4' -o -name '*.mov' \) | sort)
+    # Exclude raw page@<hash>.webm recordings: un-curated recordVideo byproducts
+    # are not curated evidence clips, so they are neither emitted as evidence
+    # (see the file-artifacts glob above) nor uploaded to blob storage.
+    done < <(find "${EVIDENCE_DIR}/videos" -maxdepth 1 -type f \( -name '*.webm' -o -name '*.mp4' -o -name '*.mov' \) ! -name 'page@*' | sort)
 
     while IFS= read -r file; do
       local base content_type
