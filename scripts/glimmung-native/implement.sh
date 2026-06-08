@@ -154,20 +154,16 @@ prepare_context() {
     fi
   } >>"$dest"
 
-  local policy_json policy_token policy_branch
-  policy_json="$(native_github_push_policy_token_json)"
-  policy_token="$(printf '%s' "$policy_json" | jq -r '.token // ""')"
-  policy_branch="$(printf '%s' "$policy_json" | jq -r '.branch // ""')"
-  if [ -z "$policy_token" ]; then
-    echo "GitHub push policy token callback returned no token" >&2
-    return 1
-  fi
-  if [ "$policy_branch" != "$BRANCH_NAME" ]; then
-    echo "GitHub push policy token branch ${policy_branch} does not match implementation branch ${BRANCH_NAME}" >&2
-    return 1
-  fi
-  kubectl -n "$NAMESPACE" create secret generic agent-github-policy-token \
-    --from-literal=token="$policy_token" \
+  # Stage the GitHub token the implementation agent Job mounts as
+  # GITHUB_TOKEN_FILE — used to push its branch and read its draft PR's CI.
+  # Mirrors the other agent stages (issue-contract/test-plan/verify). Branch
+  # scoping is enforced by the github-git-policy-proxy via the agent pod's
+  # github-policy-{repo,ref} annotations, not by the token; the signed
+  # push-policy-token model was retired in glimmung #739.
+  local token
+  token="$(native_github_token)"
+  kubectl -n "$NAMESPACE" create secret generic agent-github-token \
+    --from-literal=token="$token" \
     --dry-run=client -o yaml | kubectl apply -f -
 
   if [ -n "${GLIMMUNG_INPUT_ISSUE_CONTRACT:-}" ]; then
