@@ -144,6 +144,10 @@ func (c MagicPortalConfig) withDefaults() MagicPortalConfig {
 	if c.LightMax < c.LightMin {
 		c.LightMin, c.LightMax = c.LightMax, c.LightMin
 	}
+	c.Hue = math.Mod(c.Hue, 360)
+	if c.Hue < 0 {
+		c.Hue += 360
+	}
 	if c.SurgeChance < 0 {
 		c.SurgeChance = 0
 	}
@@ -187,6 +191,12 @@ func (c MagicPortalConfig) withDefaults() MagicPortalConfig {
 		c.EmberLife = 360
 	}
 	return c
+}
+
+// NormalizeMagicPortalConfig applies the same defaults and bounds used by
+// NewMagicPortal / SetConfig. It is exported for authority scene generation.
+func NormalizeMagicPortalConfig(c MagicPortalConfig) MagicPortalConfig {
+	return c.withDefaults()
 }
 
 // MagicPortalSchema describes the magic-portal effect's tunable knobs for the
