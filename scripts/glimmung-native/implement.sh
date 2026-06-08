@@ -227,10 +227,13 @@ ensure_github_egress_ip() {
   if [ -z "${GITHUB_EGRESS_IP:-}" ]; then
     GITHUB_EGRESS_IP="$(kubectl -n "$ENVOY_GATEWAY_SYSTEM_NAMESPACE" get svc \
       -l "gateway.envoyproxy.io/owning-gateway-name=${AGENT_EGRESS_GATEWAY_NAME},gateway.envoyproxy.io/owning-gateway-namespace=${AGENT_EGRESS_GATEWAY_NAMESPACE}" \
-      -o jsonpath='{.items[0].spec.clusterIP}')"
+      -o jsonpath='{.items[0].spec.clusterIP}' 2>/dev/null || true)"
     if [ -z "$GITHUB_EGRESS_IP" ]; then
-      echo "agent-egress gateway data-plane Service not found in ${ENVOY_GATEWAY_SYSTEM_NAMESPACE} for gateway ${AGENT_EGRESS_GATEWAY_NAMESPACE}/${AGENT_EGRESS_GATEWAY_NAME}" >&2
-      return 1
+      # Non-fatal: the agent's live CI self-check (agent-ci-feedback.sh) loses
+      # api.github.com this run, but the deterministic wait_pr_checks gate runs
+      # in the (non-egress-locked) wrapper and still gates CI. Don't fail the run.
+      echo "WARNING: agent-egress gateway data-plane Service not found in ${ENVOY_GATEWAY_SYSTEM_NAMESPACE} for gateway ${AGENT_EGRESS_GATEWAY_NAMESPACE}/${AGENT_EGRESS_GATEWAY_NAME}; agent will not reach api.github.com this run" >&2
+      return 0
     fi
     export GITHUB_EGRESS_IP
     printf '%s\n' "$GITHUB_EGRESS_IP" >"$GITHUB_EGRESS_IP_FILE"
