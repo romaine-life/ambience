@@ -115,6 +115,31 @@ func TestNonRainAtmosphereStartsWithGeneratedSceneLabels(t *testing.T) {
 	}
 }
 
+func TestMagicPortalAtmosphereUsesPortalScenes(t *testing.T) {
+	a := newAtmosphereWithEffectAndSeed("magic-portal", 123)
+	snap := a.snapshot()
+	if snap.Type != "magic-portal" {
+		t.Fatalf("type = %q, want magic-portal", snap.Type)
+	}
+	if !strings.Contains(snap.CurrentScene.Name, "gate") {
+		t.Fatalf("current scene name %q does not read like a portal gate", snap.CurrentScene.Name)
+	}
+	if !strings.Contains(snap.NextScene.Name, "gate") {
+		t.Fatalf("next scene name %q does not read like a portal gate", snap.NextScene.Name)
+	}
+
+	var cfg sim.MagicPortalConfig
+	if err := json.Unmarshal(snap.CurrentScene.Config, &cfg); err != nil {
+		t.Fatalf("unmarshal magic-portal scene config: %v", err)
+	}
+	if cfg.PulsePeriod < 155 || cfg.PulsePeriod > 380 {
+		t.Fatalf("pulse period = %d, want slow breathing scene range", cfg.PulsePeriod)
+	}
+	if cfg.EmberRate < 1 || cfg.EmberRate > 6 {
+		t.Fatalf("ember rate = %d, want occasional scene embers", cfg.EmberRate)
+	}
+}
+
 func TestNonRainSceneRotationKeepsEffectSceneLabels(t *testing.T) {
 	a := newAtmosphereWithEffectAndSeed("aurora", 123)
 	before := a.snapshot()

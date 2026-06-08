@@ -36,6 +36,25 @@ func TestBrowserEffectsComeFromWASMRuntime(t *testing.T) {
 	}
 }
 
+func TestMagicPortalBrowserPresets(t *testing.T) {
+	simJS, err := os.ReadFile(filepath.Join("web", "sim.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(simJS)
+	for _, want := range []string{
+		`api.presets['magic-portal']`,
+		`arcane-blue`,
+		`infernal-red`,
+		`ancient-amber`,
+		`dormant`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("magic-portal browser presets missing %q", want)
+		}
+	}
+}
+
 func TestBrowserRenderingStaysPixelGrid(t *testing.T) {
 	sim, err := os.ReadFile(filepath.Join("web", "sim.js"))
 	if err != nil {
