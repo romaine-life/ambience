@@ -970,6 +970,7 @@ def _agent_job_spec(
     claude_proxy_ip: str | None = None,
     codex_proxy_ip: str | None = None,
     github_proxy_ip: str | None = None,
+    github_egress_ip: str | None = None,
     agent_container_image: str | None = None,
     repo_slug: str = "romaine-life/ambience",
     stage: str = "test-plan",
@@ -990,6 +991,7 @@ def _agent_job_spec(
     claude_proxy_ip = (claude_proxy_ip or proxy_ip).strip()
     codex_proxy_ip = (codex_proxy_ip or proxy_ip).strip()
     github_proxy_ip = (github_proxy_ip or "").strip()
+    github_egress_ip = (github_egress_ip or "").strip()
     if not image:
         tag = agent_container_tag.strip()
         if not tag:
@@ -1071,6 +1073,11 @@ def _agent_job_spec(
 
     if github_proxy_ip:
         host_aliases.append({"ip": github_proxy_ip, "hostnames": ["github.com"]})
+    if github_egress_ip:
+        # api.github.com is served by the agent-egress Envoy Gateway (TLS
+        # passthrough -> external Backend), not the git policy proxy. hostAlias
+        # it onto the gateway data-plane so the agent reads CI checks by name.
+        host_aliases.append({"ip": github_egress_ip, "hostnames": ["api.github.com"]})
         volumes.append(
             {
                 "name": "github-policy-ca",
@@ -1152,6 +1159,7 @@ def apply_agent_job(
     claude_proxy_ip: str | None = None,
     codex_proxy_ip: str | None = None,
     github_proxy_ip: str | None = None,
+    github_egress_ip: str | None = None,
     agent_container_image: str | None = None,
     repo_slug: str = "romaine-life/ambience",
     issue_reference: str | None = None,
@@ -1177,6 +1185,7 @@ def apply_agent_job(
         claude_proxy_ip=claude_proxy_ip,
         codex_proxy_ip=codex_proxy_ip,
         github_proxy_ip=github_proxy_ip,
+        github_egress_ip=github_egress_ip,
         agent_container_tag=agent_container_tag,
         agent_container_image=agent_container_image,
         repo_slug=repo_slug,
@@ -1222,6 +1231,12 @@ def apply_agent_job(
                         ]
                     },
                     {
+                        # glimmung-runs holds the provider/git proxies. No port
+                        # restriction: Calico (Azure CNI overlay) enforces egress
+                        # against the post-DNAT pod targetPort (the proxies listen
+                        # on 8443, not the Service's 443), so a :443 rule never
+                        # matches and silently blocks the agent from its model
+                        # proxies. The namespace is the trust boundary.
                         "to": [
                             {
                                 "namespaceSelector": {
@@ -1230,10 +1245,6 @@ def apply_agent_job(
                                     }
                                 }
                             }
-                        ],
-                        "ports": [
-                            {"protocol": "TCP", "port": 443},
-                            {"protocol": "TCP", "port": 9100}
                         ]
                     },
                     {
@@ -1242,7 +1253,25 @@ def apply_agent_job(
                                 "podSelector": {}
                             }
                         ]
-                    }
+                    },
+                    {
+                        # api.github.com reaches GitHub only via the agent-egress
+                        # Envoy Gateway (hostAlias -> the EG data-plane in
+                        # envoy-gateway-system). Allow egress to that namespace;
+                        # no FQDN/CIDR rule needed (OSS Calico can't match egress
+                        # by hostname) and no port restriction (the data-plane
+                        # listens on targetPort 10443 post-DNAT, not 443). The
+                        # gateway itself forwards only the api.github.com SNI.
+                        "to": [
+                            {
+                                "namespaceSelector": {
+                                    "matchLabels": {
+                                        "kubernetes.io/metadata.name": "envoy-gateway-system"
+                                    }
+                                }
+                            }
+                        ]
+                    },
                 ]
             }
         }
