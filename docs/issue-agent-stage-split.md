@@ -218,11 +218,12 @@ pass; ad hoc playback servers are outside the contract. JSON shape:
   "schema_version": 1,
   "status": "pass",
   "abort_reason": "",
+  "failure": null,
   "evidence": [
     {"kind": "video", "ref": "videos/dev-distant-storm.webm", "content_type": "video/webm", "duration_ms": 6000}
   ],
   "evidence_results": [
-    {"id": "dev-distant-storm-default", "status": "pass", "video": "videos/dev-distant-storm.webm", "observed_text": null}
+    {"id": "dev-distant-storm-default", "status": "pass", "video": "videos/dev-distant-storm.webm", "observed_text": "steady horizon line with layered cloud bank; no flash fired"}
   ]
 }
 ```
@@ -230,6 +231,28 @@ pass; ad hoc playback servers are outside the contract. JSON shape:
 Allowed `abort_reason` values: `video_missing`, `screenshot_missing`,
 `claimed_result_not_observed`, `target_evidence_missing`,
 `validation_env_unreachable`, `session_pin_failed`.
+
+**Failure contract.** `observed_text` is required on the selected case's
+result (pass or fail) — what the artifact literally shows. On any non-pass
+verdict the verifier must also write a structured top-level `failure` block:
+`{expected, observed, where, suspected_cause, cause_detail}` with
+`suspected_cause` one of `code_bug | test_expectation_mismatch |
+environment_config | harness_flake`. The wrapper:
+
+- copies `failure`, the verifier's `evidence_results`, and the selected case
+  definition (`id`, `must_show`, `url_path`, `trigger_event`, `session`,
+  `session_config`) into the emitted per-case verification JSON
+  (`prompt_version: ambience-native-staged-v2`) — glimmung stores and
+  renders expected-vs-observed instead of a bare enum;
+- folds `expected` / `observed` / `suspected cause` lines into `reasons`,
+  so the one-line step failure message answers *why*;
+- synthesizes a `failure` block from the case definition and the first
+  recorded reason when the failure was detected by wrapper enforcement
+  (or the verifier omitted the block — which is itself flagged);
+- writes the run summary from `issue-agent-verification.md` on **every**
+  outcome, not only pass, and uploads
+  `issue-agent-verification.{json,md}` + `verification-case.json` as
+  durable `reports/` artifacts prefixed by the case slot.
 
 `verify-case-01` also enforces the issue contract's public surface against the
 rebuilt validation environment: declared dev/schema routes must exist, declared
