@@ -94,6 +94,7 @@ Write, or Bash-state-mutating tools.
       "trigger_event": "lightning-flash",
       "must_show": "cloud interior brightened by flash",
       "duration_seconds": 6,
+      "session_config": {"flash_brightness": 0.9},
       "expected_text": null
     }
   ],
@@ -111,6 +112,27 @@ media aliases to `video` or `screenshot`, then fails any passing plan that has
 zero media cases or any deterministic/non-media evidence kind such as
 `go-test`, `unit-test`, `lint`, `build`, `ci`, `note`, or `artifact`.
 Deterministic checks are PR CI, not LLM verification cases.
+
+**Pinned session contract.** Dev sessions are created with randomized knob
+values (a `/dev` product feature), so a `must_show` written against knob
+defaults is undecidable on an unpinned session — ambience#167 run 5 failed
+exactly this way: a "5-10 lantern cluster" claim judged against a session
+whose randomized `cluster_min`/`cluster_max` was 2/23. The settled contract:
+
+- Every `/dev/<effect>` case runs in a named session; the wrapper injects
+  `session=<case id>` into `url_path` when the plan omits it.
+- Verification pins each case's session to schema defaults plus the case's
+  optional `session_config` (a flat object of knob-key → numeric overrides)
+  **before** capture, and the verify wrapper independently re-checks the pin
+  (`enforce_session_config_pinned`) — an unpinned or drifted session fails
+  the case.
+- `must_show` claims are therefore written against the pinned config:
+  schema defaults unless `session_config` overrides them. Numeric claims
+  must be anchored to pinned knob values; non-`/dev` surfaces cannot be
+  pinned and take config-agnostic claims only.
+- The test-plan wrapper fails a passing plan whose `session_config` is not a
+  flat numeric object (`invalid_session_config`); unknown or out-of-range
+  knob keys fail at verify time with the knob named.
 
 ### Stage 2 — `run-implementation`
 
@@ -170,8 +192,10 @@ branches from earlier runs after the issue's touchpoint path has merged.
 ### Stage 3 — `run-verification`
 
 **Goal:** Validate one ordered evidence case against the rebuilt validation
-env. Capture the selected item from the test plan and confirm `must_show`
-language matches what the captured artifact actually shows.
+env. Pin the case's dev session to its declared config
+(`scripts/agent/pin-session-config.mjs`: schema defaults + the case's
+`session_config`), capture the selected item from the test plan, and confirm
+`must_show` language matches what the captured artifact actually shows.
 
 **Agent runtime slot:** `verification`.
 
@@ -205,7 +229,7 @@ pass; ad hoc playback servers are outside the contract. JSON shape:
 
 Allowed `abort_reason` values: `video_missing`, `screenshot_missing`,
 `claimed_result_not_observed`, `target_evidence_missing`,
-`validation_env_unreachable`.
+`validation_env_unreachable`, `session_pin_failed`.
 
 `verify-case-01` also enforces the issue contract's public surface against the
 rebuilt validation environment: declared dev/schema routes must exist, declared
@@ -213,7 +237,10 @@ trigger events must be accepted, and forbidden public names must not resolve.
 Each active case then recomputes pass/fail for its selected
 `verification-case.required_evidence` item, confirming it has a matching
 `evidence_results` entry with `status: pass` and the expected artifact path
-(`video` for video requirements, `screenshot` for screenshot requirements). A
+(`video` for video requirements, `screenshot` for screenshot requirements).
+For `/dev/<effect>` cases the wrapper also re-checks the pinned session
+contract (`enforce_session_config_pinned`): the live session config must
+equal schema defaults + the case's `session_config`, knob for knob. A
 verifier-claimed pass with a missing selected item flips to `fail` with
 `abort_reason: target_evidence_missing`. For selected video requirements, the
 wrapper also opens the reported local WebM with `inspect-video.mjs`, enforces
@@ -256,12 +283,12 @@ and `.github/agent/prompt-verification.md`.
 
 ## Open questions
 
-- Should the test-plan stage have read access to the validation env
-  (already-deployed `main` build) so it can sanity-check `must_show`
-  language against what already renders? Probably yes — read-only
-  curl + video or screenshot evidence of the *baseline* gives the
-  planner a real reference, and the implementation stage still can't
-  reach it.
+- ~~Should the test-plan stage sanity-check `must_show` language against
+  the validation env?~~ **Settled** by the pinned session contract above:
+  claims are written against schema defaults + declared `session_config`,
+  the verifier pins that config before capture, and the wrapper enforces
+  the pin. The planner does not need env access to make claims decidable —
+  it needs the schema defaults, which live in the repo it already reads.
 - How do we surface per-stage cost in the run summary? The current
   `verification_cost` jq filter sums all `result` events; with three
   invocations it should report each separately so cost regressions

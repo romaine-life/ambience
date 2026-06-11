@@ -12,7 +12,7 @@ shared broadcast.
 | `/dev/snapshot` | GET | JSON snapshot of the calling session's dev atmosphere. Includes `appliedEvents` — a bounded ring of `{tick,event}` for events actually applied to this session's sim. Use it to mechanically confirm a fired trigger reached the session you are observing, rather than inferring it from a single frame (a pristine, never-triggered sim can coincidentally match a resting look). |
 | `/dev/events` | GET (SSE) | Per-session command stream (snapshot/config/trigger/scene/metric). |
 | `/dev/config` | POST | Override the dev atmosphere's config. Body is the effect-specific config JSON or query-string-encoded knobs depending on the registered config parser. Returns 204 on success. |
-| `/dev/trigger/<session>/<event>` | POST | Fire a discrete event in the named session. `session` is the dev-session identifier. To observe the effect, load the page with the matching `?session=<session>` — the dev page honors that query param so an external driver addresses the same session it triggers (a fired trigger only affects the page when both sides agree on the id). `event` is the effect-specific event name (e.g. `lightning-flash`, `ignite`, `gust`, `downpour`). |
+| `/dev/trigger/<session>/<event>?effect=<effect>` | POST | Fire a discrete event in the named session. `session` is the dev-session identifier. The `effect` query param is required in practice: sessions are keyed by (effect, session), so a trigger without it routes to the default effect's session and is rejected with `unknown event` when the event belongs to another effect. To observe the effect, load the page with the matching `?session=<session>` — the dev page honors that query param so an external driver addresses the same session it triggers (a fired trigger only affects the page when both sides agree on the id). `event` is the effect-specific event name (e.g. `lightning-flash`, `ignite`, `gust`, `downpour`). |
 | `/dev/observe` | POST | Verification-only lifecycle observer. It can trigger an event, wait for a lifecycle log marker and/or state predicate, require the predicate to hold for `hold_ticks`, then store a frozen grid frame and return a JSON trace with `appliedEvents`, ticks, config, final state, `observationId`, and `frameUrl`. |
 | `/dev/frame` | GET | Returns an `image/png` for a frozen observation frame from `/dev/observe` via `?session=<session>&effect=<effect>&observation=<observationId>`. |
 | `/effects/<effect>/schema` | GET | JSON schema for the effect's dev-panel knobs (used by the dev page to render controls). |
@@ -23,9 +23,20 @@ When validating a new effect through the agent flow, the typical
 sequence is:
 
 ```sh
-# 1. Record default behavior
+# 0. Pin the session to a deterministic config. Dev sessions are created
+#    with randomized knob values; verification claims are judged against
+#    schema defaults (+ the case's session_config overrides), so pin BEFORE
+#    loading the page or firing triggers. The verify wrapper re-checks the
+#    pin and fails the case when the session does not match it.
+SESSION=test1
+node scripts/agent/pin-session-config.mjs \
+  --base-url "$VALIDATION_URL" \
+  --effect "<effect>" \
+  --session "$SESSION"
+
+# 1. Record default behavior (pinned session)
 node scripts/agent/capture-video.mjs \
-  --url "$VALIDATION_URL/dev/<effect>" \
+  --url "$VALIDATION_URL/dev/<effect>?session=$SESSION" \
   --output /workspace/evidence/videos/dev-<effect>.webm \
   --wait-ms 6000
 node scripts/agent/inspect-video.mjs \
@@ -33,12 +44,14 @@ node scripts/agent/inspect-video.mjs \
   --min-duration-ms 6000 \
   --screenshot /workspace/evidence/screenshots/dev-<effect>-frame.png
 
-# 2. Trigger a discrete event in a named session and record it
-SESSION=test1
+# 2. Trigger a discrete event in the same named session and record it.
+#    The trigger URL requires ?effect= — sessions are keyed by
+#    (effect, session), so an effect-less trigger lands on the default
+#    effect and is rejected with `unknown event`.
 node scripts/agent/capture-video.mjs \
   --url "$VALIDATION_URL/dev/<effect>?session=$SESSION" \
   --output /workspace/evidence/videos/dev-<effect>-flash.webm \
-  --trigger-url "$VALIDATION_URL/dev/trigger/$SESSION/lightning-flash" \
+  --trigger-url "$VALIDATION_URL/dev/trigger/$SESSION/lightning-flash?effect=<effect>" \
   --wait-ms 6000
 node scripts/agent/inspect-video.mjs \
   --file /workspace/evidence/videos/dev-<effect>-flash.webm \

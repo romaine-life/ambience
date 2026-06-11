@@ -47,6 +47,39 @@ Glimmung selects the concrete provider/model for this invocation through the
    if it's missing or its `status` is not `pass`.
 5. Exit cleanly. Do not edit files under `/workspace/repo/`.
 
+## Verification environment contract
+
+Evidence is captured from isolated `/dev/<effect>?session=<id>` dev sessions
+on the rebuilt validation environment. Two facts about that surface are
+binding on every `must_show` you write:
+
+1. **Dev sessions are created with randomized knob values** (the `/dev`
+   page's per-session stat roll is a product feature). The verification
+   harness therefore **pins each case's session** to a deterministic config
+   before capture: the effect's schema defaults, overridden by the case's
+   optional `session_config`. The wrapper independently re-checks the pin and
+   fails any case whose session does not match it.
+2. Because of the pin, **write every claim against the pinned config** —
+   schema defaults unless you override them. A numeric claim ("launches a
+   5-10 lantern cluster") is correct only when the knobs that produce it
+   (`cluster_min`/`cluster_max`) are the schema defaults or are pinned to
+   those numbers via `session_config`. Never write a numeric claim you have
+   not anchored to a pinned knob value; if the number does not matter, write
+   the claim in config-relative language instead ("launches a clustered
+   release within the configured cluster range").
+
+`session_config` is an optional per-case object of knob-key → numeric value
+overrides (keys come from the effect's `/effects/<effect>/schema`). Use it
+when a case needs a non-default look — e.g. a long `quiet_dur` so a
+suppression window is visible inside the recording window. Out-of-range or
+unknown keys fail the case at verify time with the offending knob named.
+
+You may omit `?session=` from a `/dev/<effect>` `url_path`; the wrapper
+injects a deterministic `session=<case id>` so capture, trigger, and pin
+enforcement address the same isolated session. Claims about non-`/dev`
+surfaces (the shared monitor page) cannot be pinned and must be
+config-agnostic.
+
 ## Required evidence shapes
 
 `required_evidence` is a list of browser-visible screenshots or videos the
@@ -59,18 +92,22 @@ verification case. Use no more than 10 entries. Each entry has an `id`, a
   `id`, `url_path` (the path under `$VALIDATION_URL` to record),
   `must_show` (one-sentence human description of the behavior the
   video must demonstrate). Optional: `duration_seconds` (default 5),
-  `trigger_event` (event to POST to `/dev/trigger/<session>/<event>`
-  before recording), `expected_text`, and for terminal lifecycle checks
-  `terminal_state_path`, `terminal_state_equals`, `hold_ticks`, and
-  `max_ticks`. Use terminal fields when the evidence claims a final held
-  state, so verification can prove the trigger reached the session and
-  the state predicate held before judging the frozen frame.
+  `trigger_event` (event to POST to
+  `/dev/trigger/<session>/<event>?effect=<effect>` before recording),
+  `session_config` (knob overrides pinned onto the case's session — see
+  "Verification environment contract"), `expected_text`, and for terminal
+  lifecycle checks `terminal_state_path`, `terminal_state_equals`,
+  `hold_ticks`, and `max_ticks`. Use terminal fields when the evidence
+  claims a final held state, so verification can prove the trigger reached
+  the session and the state predicate held before judging the frozen frame.
 - **`screenshot`**: pages whose final/static rendering should be inspected.
   Required fields: `id`, `url_path` (the path under `$VALIDATION_URL`
   to capture, e.g. `/dev/distant-storm`), `must_show` (one-sentence
   human description of what the picture should show). Optional:
-  `trigger_event` (event to POST to `/dev/trigger/<session>/<event>`
-  before capture), `expected_text` (literal substring that should
+  `trigger_event` (event to POST to
+  `/dev/trigger/<session>/<event>?effect=<effect>` before capture),
+  `session_config` (knob overrides pinned onto the case's session),
+  `expected_text` (literal substring that should
   appear when OCR'd / readable from the picture; used by the
   verification wrapper for a case-insensitive substring check).
 For browser-visible work, use `video` as the baseline evidence because

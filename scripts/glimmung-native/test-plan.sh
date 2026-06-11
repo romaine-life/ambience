@@ -248,7 +248,23 @@ finalize() {
             elif (["image", "still"] | index($kind)) then "screenshot"
             else $kind
             end;
-        .required_evidence = ((.required_evidence // []) | map(.kind = normalized_kind))
+        # Every /dev/<effect> case runs in a named, isolated dev session so
+        # the verifier can pin its config (dev sessions randomize knobs on
+        # creation). When the plan omits ?session=, derive a deterministic
+        # one from the case id so capture, trigger, and pin enforcement all
+        # address the same session.
+        def session_for_id:
+          ((.id // "case") | ascii_downcase | gsub("[^a-z0-9_-]"; "-"));
+        def with_session:
+          if ((.url_path // "") | test("^/dev/[A-Za-z0-9_-]+"))
+             and (((.url_path // "") | test("[?&]session=")) | not)
+          then
+            .url_path = (.url_path
+              + (if ((.url_path // "") | contains("?")) then "&" else "?" end)
+              + "session=" + session_for_id)
+          else .
+          end;
+        .required_evidence = ((.required_evidence // []) | map(.kind = normalized_kind | with_session))
       ' "$TEST_PLAN_JSON" >"$normalized_json"; then
       jq -n '{
         schema_version: 1,
@@ -305,6 +321,35 @@ finalize() {
           abort_reason: "unsupported_required_evidence_kind",
           summary: "Test plan included non-media verification cases. Ambience LLM verification only accepts screenshot and video evidence; deterministic checks belong in PR CI.",
           unsupported_required_evidence: $unsupported
+        }' >"$TEST_PLAN_JSON"
+      printf '1\n' >"$PLAN_EXIT_CODE_FILE"
+      return 0
+    fi
+
+    # session_config must be a flat object of numeric knob overrides. Knob
+    # names are validated against the live effect schema at verify time;
+    # shape problems fail here so a malformed plan never reaches a verifier.
+    local invalid_session_config
+    invalid_session_config="$(
+      jq -r '
+        (.required_evidence // [])[]
+        | select(has("session_config"))
+        | select(
+            ((.session_config | type) != "object")
+            or ((.session_config | to_entries | map(.value | type == "number") | all) | not)
+          )
+        | (.id // "<missing-id>")
+      ' "$TEST_PLAN_JSON" 2>/dev/null || true
+    )"
+    if [ -n "$(printf '%s\n' "$invalid_session_config" | sed '/^$/d')" ]; then
+      jq -n \
+        --argjson invalid "$(printf '%s\n' "$invalid_session_config" | sed '/^$/d' | jq -R . | jq -s .)" \
+        '{
+          schema_version: 1,
+          status: "fail",
+          abort_reason: "invalid_session_config",
+          summary: "Test plan declared session_config that is not a flat object of numeric knob overrides.",
+          invalid_session_config_cases: $invalid
         }' >"$TEST_PLAN_JSON"
       printf '1\n' >"$PLAN_EXIT_CODE_FILE"
     fi
