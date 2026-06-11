@@ -75,23 +75,24 @@ VERIFICATION_JSON="/tmp/verification.json"
 VERIFICATION_REASONS="/tmp/verification-reasons.txt"
 EVIDENCE_REFS="/tmp/evidence-refs.txt"
 EVIDENCE_ARTIFACTS="/tmp/evidence-artifacts.json"
-SCREENSHOTS_MD="/tmp/screenshots.md"
-SUMMARY_MD="/tmp/summary.md"
 EVENTS_LOG="/tmp/agent-events.jsonl"
 EVIDENCE_DIR="/tmp/evidence"
+# Cross-step markdown lives under EVIDENCE_DIR, not /tmp scratch: in managed
+# per-step invocation mode every step re-runs this script from the top, so a
+# /tmp file truncated here is empty by the time emit reads it. EVIDENCE_DIR
+# persists across the case's steps and is torn down by emit after the
+# completion payload is built.
+SCREENSHOTS_MD="${EVIDENCE_DIR}/screenshots.md"
+SUMMARY_MD="${EVIDENCE_DIR}/summary.md"
 POD_LOG="/tmp/agent-pod.log"
 VERIFY_EXIT_CODE_FILE="/tmp/verification-exit-code"
 PROXY_IP_FILE="/tmp/verification-proxy-ip"
 CODEX_PROXY_IP_FILE="/tmp/verification-codex-proxy-ip"
 VERIFICATION_CASE_FILE="${EVIDENCE_DIR}/verification-case.json"
-VERIFICATION_CASE_STATUS_FILE="/tmp/verification-case-status"
 : >"$VERIFICATION_REASONS"
 : >"$EVIDENCE_REFS"
 printf '[]\n' >"$EVIDENCE_ARTIFACTS"
-: >"$SCREENSHOTS_MD"
-: >"$SUMMARY_MD"
 : >"$EVENTS_LOG"
-printf 'active\n' >"$VERIFICATION_CASE_STATUS_FILE"
 mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/videos" "$EVIDENCE_DIR/observations"
 
 # Stage handoff files — written by prepare_context from glimmung inputs.
@@ -217,15 +218,18 @@ prepare_context() {
     --dry-run=client -o yaml | kubectl apply -f -
 }
 
+# The case status lives in the durable case file, not /tmp scratch: managed
+# per-step mode re-invokes this script per step, so a /tmp status would reset
+# to a default between prepare and finalize and silently disable the
+# skipped/plan_error branches.
 verification_case_status() {
-  cat "$VERIFICATION_CASE_STATUS_FILE" 2>/dev/null || printf 'active'
+  jq -r '.status // "active"' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf 'active'
 }
 
 write_verification_case_file() {
   local status="$1"
   local reason="${2:-}"
   local case_json="${3:-null}"
-  printf '%s\n' "$status" >"$VERIFICATION_CASE_STATUS_FILE"
   jq -n \
     --arg schema_version "1" \
     --arg slot_id "$VERIFY_CASE_JOB_ID" \
@@ -908,9 +912,26 @@ write_evidence_artifacts() {
 
 write_verification() {
   local status="$1"
-  local cost
+  local cost verifier_file case_file
   cost="$(verification_cost)"
   write_evidence_artifacts "$EVIDENCE_ARTIFACTS" "$EVIDENCE_REFS"
+  verifier_file="${EVIDENCE_DIR}/issue-agent-verification.json"
+  if [ ! -s "$verifier_file" ] || ! jq -e . "$verifier_file" >/dev/null 2>&1; then
+    verifier_file="/dev/null"
+  fi
+  case_file="$VERIFICATION_CASE_FILE"
+  if [ ! -s "$case_file" ] || ! jq -e . "$case_file" >/dev/null 2>&1; then
+    case_file="/dev/null"
+  fi
+  # The emitted verification JSON is the durable per-case verdict glimmung
+  # stores and renders. It carries the WHY, not just the enum: the selected
+  # case definition (what was being verified), the verifier's per-evidence
+  # observed_text, and the structured failure block (expected / observed /
+  # where / suspected_cause / cause_detail). When the verifier failed to
+  # produce a failure block — or the failure was detected by wrapper
+  # enforcement after a verifier pass — synthesize one from the case
+  # definition and the first recorded reason so downstream surfaces always
+  # have expected-vs-observed to show.
   jq -n \
     --arg status "$status" \
     --argjson reasons "$(jq -Rs 'split("\n")[:-1]' "$VERIFICATION_REASONS")" \
@@ -923,14 +944,47 @@ write_verification() {
     --arg verification_case "$VERIFY_CASE_JOB_ID" \
     --argjson verification_case_index "$VERIFY_CASE_INDEX" \
     --arg verification_case_status "$(verification_case_status)" \
-    '{
+    --slurpfile verifier_doc_raw "$verifier_file" \
+    --slurpfile case_doc_raw "$case_file" \
+    '
+    ($verifier_doc_raw[0] // {}) as $verifier
+    | ($case_doc_raw[0].required_evidence // {}) as $case
+    | (($case.url_path // "")
+        | (split("?")[1] // "") | split("&")
+        | map(select(startswith("session="))) | (first // "")
+        | ltrimstr("session=")) as $session
+    | (if ($verifier.failure | type) == "object" then $verifier.failure
+       elif $status != "pass" then
+         {
+           expected: ($case.must_show // ""),
+           observed: (
+             [
+               ($verifier.evidence_results // [])[]
+               | select((.status // "") != "pass")
+               | .observed_text // empty
+             ] + $reasons
+             | map(select(. != "")) | first // ""
+           ),
+           where: "wrapper-synthesized",
+           suspected_cause: null,
+           cause_detail: null
+         }
+       else null
+       end) as $failure
+    | {
       schema_version: 1,
       status: $status,
       reasons: $reasons,
+      failure: $failure,
       evidence_refs: $evidence_refs,
       evidence: $evidence,
       cost_usd: $cost_usd,
-      prompt_version: "ambience-native-staged-v1",
+      prompt_version: "ambience-native-staged-v2",
+      verifier: (if $verifier == {} then null else {
+        status: ($verifier.status // null),
+        abort_reason: ($verifier.abort_reason // null),
+        evidence_results: ($verifier.evidence_results // [])
+      } end),
       metadata: {
         run_id: $run_id,
         branch: $branch,
@@ -938,14 +992,28 @@ write_verification() {
         verification_case: {
           job_id: $verification_case,
           index: $verification_case_index,
-          status: $verification_case_status
+          status: $verification_case_status,
+          id: ($case.id // null),
+          kind: ($case.kind // null),
+          must_show: ($case.must_show // null),
+          url_path: ($case.url_path // null),
+          trigger_event: ($case.trigger_event // null),
+          session: (if $session == "" then null else $session end),
+          session_config: ($case.session_config // null)
         }
       }
     }' >"$VERIFICATION_JSON"
-  cat "$VERIFICATION_JSON"
+  jq -c . "$VERIFICATION_JSON"
 }
 
 finalize() {
+  # The verifier's markdown (What I observed / Test process / Observed
+  # deviations) is the human why-channel for every outcome — a failed case
+  # needs it more than a passing one. Build the summary before any verdict
+  # branch; emit rebuilds it as well since managed per-step invocations do
+  # not share /tmp truncation state.
+  write_summary
+
   case "$(verification_case_status)" in
     skipped)
       write_verification "pass"
@@ -969,6 +1037,7 @@ finalize() {
       fi
     fi
     add_reason "verifier reported status=${verifier_status} reason=$(jq -r '.abort_reason // ""' "${EVIDENCE_DIR}/issue-agent-verification.json" 2>/dev/null || echo "")"
+    append_verifier_failure_reasons
     write_verification "fail"
     return 0
   fi
@@ -999,7 +1068,46 @@ finalize() {
   fi
 
   write_verification "pass"
-  write_summary
+}
+
+# Distill the verifier's structured failure block into the reasons channel so
+# the one-line step failure message answers "why", not just "which enum".
+# A non-pass verifier verdict without a failure block is itself a contract
+# violation worth naming — the prompt requires expected/observed/cause.
+append_verifier_failure_reasons() {
+  local verifier="${EVIDENCE_DIR}/issue-agent-verification.json"
+  [ -s "$verifier" ] || return 0
+  if jq -e '(.failure | type) == "object"' "$verifier" >/dev/null 2>&1; then
+    while IFS= read -r line; do
+      [ -n "$line" ] && add_reason "$line"
+    done < <(
+      jq -r '
+        def trunc: tostring | if length > 400 then .[:400] + "…" else . end;
+        .failure
+        | (if (.expected // "") != "" then "expected: " + (.expected | trunc) else empty end),
+          (if (.observed // "") != "" then
+            "observed: " + (.observed | trunc)
+            + (if (.where // "") != "" then " [" + .where + "]" else "" end)
+          else empty end),
+          (if (.suspected_cause // "") != "" then
+            "suspected cause: " + .suspected_cause
+            + (if (.cause_detail // "") != "" then " — " + (.cause_detail | trunc) else "" end)
+          else empty end)
+      ' "$verifier" 2>/dev/null || true
+    )
+  else
+    local observed
+    observed="$(
+      jq -r '
+        def trunc: tostring | if length > 400 then .[:400] + "…" else . end;
+        [.evidence_results[]? | select((.status // "") != "pass") | .observed_text // empty]
+        | map(select(. != "")) | first // "" | if . == "" then empty else "observed: " + trunc end
+      ' "$verifier" 2>/dev/null || true
+    )"
+    [ -n "$observed" ] && add_reason "$observed"
+    add_reason "verifier omitted the required failure block (expected/observed/where/suspected_cause); see issue-agent-verification.md"
+  fi
+  return 0
 }
 
 upload_evidence() {
@@ -1009,10 +1117,11 @@ upload_evidence() {
   local max_screenshots="${MAX_SCREENSHOTS:-20}"
   local max_videos="${MAX_VIDEOS:-10}"
   local max_observations="${MAX_OBSERVATIONS:-10}"
-  local screenshot_prefix video_prefix observation_prefix screenshot_staging video_staging observation_staging screenshot_total screenshot_taken video_total video_taken observation_total observation_taken upload_ok
+  local screenshot_prefix video_prefix observation_prefix report_prefix screenshot_staging video_staging observation_staging screenshot_total screenshot_taken video_total video_taken observation_total observation_taken report_taken upload_ok
   screenshot_prefix="runs/${GLIMMUNG_PROJECT}/${GLIMMUNG_RUN_ID}/screenshots"
   video_prefix="runs/${GLIMMUNG_PROJECT}/${GLIMMUNG_RUN_ID}/videos"
   observation_prefix="runs/${GLIMMUNG_PROJECT}/${GLIMMUNG_RUN_ID}/observations"
+  report_prefix="runs/${GLIMMUNG_PROJECT}/${GLIMMUNG_RUN_ID}/reports"
   screenshot_staging="$(mktemp -d)"
   video_staging="$(mktemp -d)"
   observation_staging="$(mktemp -d)"
@@ -1022,6 +1131,7 @@ upload_evidence() {
   video_taken=0
   observation_total=0
   observation_taken=0
+  report_taken=0
   upload_ok=true
 
   if compgen -G "${EVIDENCE_DIR}/screenshots/*.png" >/dev/null; then
@@ -1108,7 +1218,38 @@ upload_evidence() {
     done < <(find "$observation_staging" -maxdepth 1 -type f | sort)
   fi
 
-  if [ "$screenshot_total" -eq 0 ] && [ "$video_total" -eq 0 ] && [ "$observation_total" -eq 0 ]; then
+  # The verifier's report files are evidence too — they carry the why
+  # (What I observed / Test process / Observed deviations, plus the
+  # structured failure block). Upload them durably, prefixed by the case
+  # slot so multi-case runs do not overwrite each other.
+  local report_file report_base report_blob report_content_type
+  for report_file in \
+    "${EVIDENCE_DIR}/issue-agent-verification.json" \
+    "${EVIDENCE_DIR}/issue-agent-verification.md" \
+    "$VERIFICATION_CASE_FILE"; do
+    [ -s "$report_file" ] || continue
+    report_base="$(basename "$report_file")"
+    report_blob="${VERIFY_CASE_JOB_ID}-${report_base}"
+    case "$report_base" in
+      *.json) report_content_type="application/json" ;;
+      *) report_content_type="text/markdown" ;;
+    esac
+    if az storage blob upload \
+        --account-name "$storage_account" \
+        --container-name "$container" \
+        --name "${report_prefix}/${report_blob}" \
+        --file "$report_file" \
+        --auth-mode login \
+        --overwrite true \
+        --content-type "$report_content_type"; then
+      report_taken=$((report_taken + 1))
+    else
+      upload_ok=false
+      echo "report upload failed for ${report_blob}; report body will point at native logs"
+    fi
+  done
+
+  if [ "$screenshot_total" -eq 0 ] && [ "$video_total" -eq 0 ] && [ "$observation_total" -eq 0 ] && [ "$report_taken" -eq 0 ]; then
     rm -rf "$screenshot_staging" "$video_staging" "$observation_staging"
     return 0
   fi
@@ -1118,6 +1259,20 @@ upload_evidence() {
     echo ""
     if [ "$upload_ok" = "false" ]; then
       echo "_Evidence upload failed; see the Glimmung native run logs._"
+      echo ""
+    fi
+
+    if [ "$report_taken" -gt 0 ]; then
+      echo "### Verification reports"
+      echo ""
+      for report_file in \
+        "${EVIDENCE_DIR}/issue-agent-verification.md" \
+        "${EVIDENCE_DIR}/issue-agent-verification.json" \
+        "$VERIFICATION_CASE_FILE"; do
+        [ -s "$report_file" ] || continue
+        report_base="$(basename "$report_file")"
+        echo "- [${VERIFY_CASE_JOB_ID}-${report_base}](${container_url}/${report_prefix}/${VERIFY_CASE_JOB_ID}-${report_base})"
+      done
       echo ""
     fi
 
@@ -1185,18 +1340,48 @@ write_summary() {
   fi
 }
 
+# Human-readable digest of the case verdict for the step log. The structured
+# JSON still flows to glimmung via native_completed — this is what a person
+# scanning the step page reads first: what was being verified, what was
+# observed, and why it failed (when it did). One fact per line.
+emit_verification_digest() {
+  jq -r '
+    def trunc: tostring | if length > 500 then .[:500] + "…" else . end;
+    (.metadata.verification_case // {}) as $case
+    | "=== verification case \($case.id // $case.job_id // "unknown"): \((.status // "?") | ascii_upcase) ===",
+      (if ($case.must_show // "") != "" then "expected (must_show): \($case.must_show | trunc)" else empty end),
+      (if ($case.url_path // "") != "" then
+        "surface: \($case.url_path)\(if ($case.trigger_event // "") != "" then "  trigger: \($case.trigger_event)" else "" end)"
+      else empty end),
+      (if (.failure.observed // "") != "" then
+        "observed: \(.failure.observed | trunc)\(if (.failure.where // "") != "" then "  [\(.failure.where)]" else "" end)"
+      else empty end),
+      (if (.failure.suspected_cause // "") != "" then
+        "suspected cause: \(.failure.suspected_cause)\(if (.failure.cause_detail // "") != "" then " — \(.failure.cause_detail | trunc)" else "" end)"
+      else empty end),
+      (if ((.reasons // []) | length) > 0 then "reasons:", ((.reasons // [])[] | "  - \(trunc)") else empty end),
+      (if ((.evidence_refs // []) | length) > 0 then "evidence:", ((.evidence_refs // [])[] | "  - \(.)") else empty end)
+  ' "$VERIFICATION_JSON" 2>/dev/null || true
+}
+
 emit() {
   if [ ! -s "$VERIFICATION_JSON" ]; then
     add_reason "verification result was not produced"
     write_verification "error"
   fi
-  cat "$VERIFICATION_JSON"
+  # Rebuild cross-step outputs from durable evidence state: managed per-step
+  # mode runs emit in its own invocation, so /tmp scratch written by finalize
+  # or upload-screenshots is not visible here. EVIDENCE_DIR is.
+  write_summary
+  write_evidence_artifacts "$EVIDENCE_ARTIFACTS" "$EVIDENCE_REFS"
+  emit_verification_digest
+  jq -c . "$VERIFICATION_JSON"
 
   native_completed \
     "{}" \
     "$(cat "$VERIFICATION_JSON")" \
-    "$(cat "$SCREENSHOTS_MD")" \
-    "$(cat "$SUMMARY_MD")" \
+    "$(cat "$SCREENSHOTS_MD" 2>/dev/null || true)" \
+    "$(cat "$SUMMARY_MD" 2>/dev/null || true)" \
     "$(cat "$EVIDENCE_ARTIFACTS")"
 
   # Per-case teardown. The verdict + evidence are already emitted/uploaded,

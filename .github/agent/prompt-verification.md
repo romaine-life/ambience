@@ -161,6 +161,7 @@ test-plan items; this job owns only the selected verification case.
   "schema_version": 1,
   "status": "pass",
   "abort_reason": "",
+  "failure": null,
   "evidence": [
     {
       "kind": "video",
@@ -175,25 +176,47 @@ test-plan items; this job owns only the selected verification case.
       "id": "dev-distant-storm-default",
       "status": "pass",
       "video": "videos/dev-distant-storm.webm",
-      "observed_text": null
-    },
-    {
-      "id": "dev-distant-storm-ending",
-      "status": "pass",
-      "video": "videos/dev-distant-storm-ending.webm",
-      "screenshot": "screenshots/dev-distant-storm-ending-terminal.png",
-      "observation": "observations/dev-distant-storm-ending.json",
-      "observed_text": "ending trigger applied and terminal state held"
-    },
-    {
-      "id": "dev-distant-storm-still",
-      "status": "pass",
-      "screenshot": "screenshots/dev-distant-storm.png",
-      "observed_text": null
+      "observed_text": "steady horizon line with a dim layered cloud bank; no flash fired during the clip"
     }
   ]
 }
 ```
+
+`observed_text` is **required on the selected case's result, pass or
+fail**: one or two sentences stating what the artifact literally shows
+(visible elements, event-log lines, counts). It is the reviewer's
+ground truth that you looked at the evidence; `null` is only acceptable
+on non-selected incidental artifacts.
+
+When `status` is not `pass`, or the selected `evidence_results` entry is
+`fail`, the top-level `failure` object is **required**:
+
+```json
+"failure": {
+  "expected": "the must_show clause being verified, quoted",
+  "observed": "the literal observation that contradicts it (event-log line, count, missing element)",
+  "where": "event log | decoded frame | /dev/snapshot | http response",
+  "suspected_cause": "code_bug | test_expectation_mismatch | environment_config | harness_flake",
+  "cause_detail": "1-3 sentences of causal analysis"
+}
+```
+
+Investigate before you classify. You may read the repo and query
+`/dev/snapshot` to determine *why* the observation diverges:
+
+- `code_bug` — the implementation does not do what the issue/contract says.
+- `test_expectation_mismatch` — the claim itself is wrong or unverifiable
+  against the pinned config (e.g. it hard-codes numbers the config does
+  not pin).
+- `environment_config` — the validation environment is in a state the
+  plan did not declare (wrong build, unpinned/drifted session config).
+- `harness_flake` — capture/tooling failed in a way unrelated to the
+  claim (trigger 5xx, truncated recording).
+
+The wrapper copies `failure` into the per-case verdict glimmung stores
+and renders, and folds `expected`/`observed`/`suspected_cause` into the
+step failure message — write them to be read. Omitting the block on a
+failing verdict is itself flagged as a contract violation.
 
 The selected `verification-case.required_evidence.id` must appear in
 your `evidence_results` with `status` either `pass` or `fail`. Do not
