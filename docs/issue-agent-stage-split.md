@@ -263,7 +263,12 @@ Each active case then recomputes pass/fail for its selected
 (`video` for video requirements, `screenshot` for screenshot requirements).
 For `/dev/<effect>` cases the wrapper also re-checks the pinned session
 contract (`enforce_session_config_pinned`): the live session config must
-equal schema defaults + the case's `session_config`, knob for knob. A
+equal schema defaults + the case's `session_config`, knob for knob. Dev
+sessions are reaped after 60s with no listeners and lazily recreated
+randomized, so the wrapper holds a background SSE listener on the case's
+session from prepare through emit teardown (and pins at prepare); without
+it the pinned session would die between capture and enforcement and the
+check would false-fail against a freshly randomized session. A
 verifier-claimed pass with a missing selected item flips to `fail` with
 `abort_reason: target_evidence_missing`. For selected video requirements, the
 wrapper also opens the reported local WebM with `inspect-video.mjs`, enforces

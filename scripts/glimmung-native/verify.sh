@@ -160,6 +160,8 @@ prepare_context() {
     return 0
   fi
 
+  start_session_keepalive_and_pin
+
   native_azure_login
   native_install_preview_package "${REPO_DIR}/mcp"
   copy_claude_ca
@@ -645,14 +647,67 @@ selected_case_session() {
   ' "$VERIFICATION_CASE_FILE" 2>/dev/null || true
 }
 
+# Dev sessions are reaped after 60s with no listeners (devSessionIdle in
+# cmd/ambience/main.go), and the gap between the verifier's capture and the
+# wrapper's finalize enforcement is minutes. Without a listener the pinned
+# session would die mid-case and every snapshot read after that would lazily
+# create a fresh RANDOMIZED session — turning enforcement into a guaranteed
+# false failure. The product contract is "a session lives while someone
+# listens", so the wrapper is that someone: hold one background SSE listener
+# on the case's session from prepare until emit teardown. Pin immediately
+# after opening it so the session is deterministic from (near) birth — the
+# verifier agent's own pin step is then an idempotent re-assert.
+SESSION_KEEPALIVE_PID_FILE="/tmp/session-keepalive.pid"
+
+start_session_keepalive_and_pin() {
+  local effect session overrides pin_out
+  effect="$(selected_case_dev_effect)"
+  session="$(selected_case_session)"
+  if [ -z "$effect" ] || [ -z "$session" ]; then
+    return 0
+  fi
+  stop_session_keepalive
+  nohup curl -sS -N --max-time 7200 \
+    "${VALIDATION_URL}/dev/events?session=${session}&effect=${effect}" \
+    >/dev/null 2>&1 &
+  printf '%s\n' "$!" >"$SESSION_KEEPALIVE_PID_FILE"
+  disown || true
+  echo "session keepalive listener started for effect=${effect} session=${session} (pid $(cat "$SESSION_KEEPALIVE_PID_FILE"))"
+
+  if command -v node >/dev/null 2>&1; then
+    overrides="$(jq -c '.required_evidence.session_config // {}' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '{}')"
+    if pin_out="$(
+      node "${REPO_DIR}/scripts/agent/pin-session-config.mjs" \
+        --base-url "$VALIDATION_URL" \
+        --effect "$effect" \
+        --session "$session" \
+        --overrides "$overrides" 2>&1
+    )"; then
+      echo "session pinned at prepare: $(printf '%s' "$pin_out" | jq -r '"\(.knob_count // "?") knobs, tick \(.pinned_at_tick // "?")"' 2>/dev/null || printf 'ok')"
+    else
+      # Do not fail prepare: the verifier agent pins again before capture,
+      # and finalize enforcement is the authoritative gate. This logs why
+      # an early pin could not land (e.g. env still warming).
+      echo "session pin at prepare failed (verifier will pin before capture): $(printf '%s' "$pin_out" | tail -1)"
+    fi
+  fi
+}
+
+stop_session_keepalive() {
+  if [ -s "$SESSION_KEEPALIVE_PID_FILE" ]; then
+    kill "$(cat "$SESSION_KEEPALIVE_PID_FILE")" 2>/dev/null || true
+    rm -f "$SESSION_KEEPALIVE_PID_FILE"
+  fi
+}
+
 # Dev sessions start with randomized knob values by design. Verification
 # claims are written against the pinned contract — schema defaults plus the
 # case's optional session_config — so the session the evidence was captured
-# from must actually carry that config. The verifier agent pins via
-# scripts/agent/pin-session-config.mjs before loading the page; this check
-# makes the pin a contract instead of a convention. Glimmung issue ambience#167
-# run 5 is the motivating failure: a "5-10 lantern cluster" claim judged
-# against a session whose randomized cluster_min/cluster_max was 2/23.
+# from must actually carry that config. The session is pinned at prepare and
+# re-asserted by the verifier agent before capture; this check makes the pin
+# a contract instead of a convention. Glimmung issue ambience#167 run 5 is
+# the motivating failure: a "5-10 lantern cluster" claim judged against a
+# session whose randomized cluster_min/cluster_max was 2/23.
 enforce_session_config_pinned() {
   local effect session evidence_id overrides check_out check_exit
   effect="$(selected_case_dev_effect)"
@@ -687,6 +742,7 @@ enforce_session_config_pinned() {
         if (.mismatches // []) | length > 0 then
           (.mismatches[:6] | map("\(.key) expected=\(.expected) actual=\(.actual)") | join(", "))
           + (if (.mismatches | length) > 6 then " (+\((.mismatches | length) - 6) more)" else "" end)
+          + " [session tick=\(.tick // "?") — a low tick means the session was reaped and recreated randomized; check the keepalive listener]"
         else
           (.error // "pin check failed")
         end
@@ -1374,6 +1430,7 @@ emit() {
   # all N cases' videos, extracted evidence tarballs, and pod logs and is
   # evicted (ephemeral storage) or OOM-killed — the run 14.1 failure mode.
   # The top-of-script mkdir re-creates the structure for the next case.
+  stop_session_keepalive
   rm -rf "${EVIDENCE_DIR:?}/"* 2>/dev/null || true
   : >"$POD_LOG" 2>/dev/null || true
   : >"$EVENTS_LOG" 2>/dev/null || true
