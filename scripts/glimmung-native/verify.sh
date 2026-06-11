@@ -1089,6 +1089,16 @@ upload_evidence() {
       done
     fi
   } >"$SCREENSHOTS_MD"
+  if [ "$upload_ok" = "true" ]; then
+    native_rewrite_uploaded_evidence_refs \
+      "$container_url" \
+      "$screenshot_prefix" \
+      "$video_prefix" \
+      "$observation_prefix" \
+      "$EVIDENCE_ARTIFACTS" \
+      "$VERIFICATION_JSON" \
+      "$EVIDENCE_REFS"
+  fi
   rm -rf "$screenshot_staging" "$video_staging" "$observation_staging"
 }
 

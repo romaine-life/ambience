@@ -145,6 +145,41 @@ if [ -e "${NATIVE_CONTRACT_CURL_CAPTURE}.url" ]; then
   exit 1
 fi
 
+ARTIFACTS_JSON="${TMP_DIR}/artifacts.json"
+VERIFICATION_JSON="${TMP_DIR}/verification.json"
+REFS_TXT="${TMP_DIR}/refs.txt"
+cat >"$ARTIFACTS_JSON" <<'JSON'
+[
+  {"kind":"screenshot","ref":"screenshots/frame.png","content_type":"image/png"},
+  {"kind":"video","ref":"/workspace/evidence/videos/demo.webm","content_type":"video/webm"},
+  {"kind":"artifact","ref":"observations/state.json","content_type":"application/json"},
+  {"kind":"video","ref":"/v1/artifacts/runs/ambience/run-1/videos/already.webm","content_type":"video/webm"}
+]
+JSON
+cat >"$VERIFICATION_JSON" <<'JSON'
+{"status":"fail","reasons":["example"],"evidence_refs":[],"evidence":[]}
+JSON
+native_rewrite_uploaded_evidence_refs \
+  "https://glimmung.romaine.life/v1/artifacts/" \
+  "runs/ambience/run-1/screenshots" \
+  "runs/ambience/run-1/videos" \
+  "runs/ambience/run-1/observations" \
+  "$ARTIFACTS_JSON" \
+  "$VERIFICATION_JSON" \
+  "$REFS_TXT"
+jq -e '
+  .[0].ref == "https://glimmung.romaine.life/v1/artifacts/runs/ambience/run-1/screenshots/frame.png"
+  and .[1].ref == "https://glimmung.romaine.life/v1/artifacts/runs/ambience/run-1/videos/demo.webm"
+  and .[2].ref == "https://glimmung.romaine.life/v1/artifacts/runs/ambience/run-1/observations/state.json"
+  and .[3].ref == "https://glimmung.romaine.life/v1/artifacts/runs/ambience/run-1/videos/already.webm"
+' "$ARTIFACTS_JSON" >/dev/null
+jq -e '
+  (.evidence | length) == 4
+  and (.evidence_refs | length) == 4
+  and (.evidence_refs[] | startswith("https://glimmung.romaine.life/v1/artifacts/runs/ambience/run-1/"))
+' "$VERIFICATION_JSON" >/dev/null
+grep -Fx "https://glimmung.romaine.life/v1/artifacts/runs/ambience/run-1/videos/demo.webm" "$REFS_TXT" >/dev/null
+
 native_failed "managed failure"
 jq -e '.summary_markdown == "managed failure"' "$GLIMMUNG_COMPLETION_FILE" >/dev/null
 

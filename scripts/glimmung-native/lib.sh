@@ -374,6 +374,62 @@ native_completed() {
   native_post_json "$GLIMMUNG_COMPLETED_URL" "$payload"
 }
 
+native_rewrite_uploaded_evidence_refs() {
+  local container_url="$1"
+  local screenshot_prefix="$2"
+  local video_prefix="$3"
+  local observation_prefix="$4"
+  local artifacts_file="$5"
+  local verification_file="${6:-}"
+  local refs_file="${7:-}"
+  local rewritten
+
+  if [ ! -s "$artifacts_file" ]; then
+    return 0
+  fi
+
+  rewritten="$(mktemp)"
+  jq \
+    --arg container_url "$container_url" \
+    --arg screenshot_prefix "$screenshot_prefix" \
+    --arg video_prefix "$video_prefix" \
+    --arg observation_prefix "$observation_prefix" \
+    '
+      def clean_container:
+        $container_url | sub("/+$"; "");
+      def normalize_ref($ref):
+        ($ref | tostring
+          | sub("^/workspace/evidence/"; "")
+          | sub("^/tmp/evidence/"; "")
+          | sub("^/v1/artifacts/"; ""));
+      def basename($ref): ($ref | split("/")[-1]);
+      def uploaded_ref($ref):
+        normalize_ref($ref) as $r
+        | if ($r | test("^https?://")) then $r
+          elif ($r | startswith("screenshots/")) then clean_container + "/" + $screenshot_prefix + "/" + basename($r)
+          elif ($r | startswith("videos/")) then clean_container + "/" + $video_prefix + "/" + basename($r)
+          elif ($r | startswith("observations/")) then clean_container + "/" + $observation_prefix + "/" + basename($r)
+          elif ($r | startswith("runs/")) then clean_container + "/" + $r
+          else $r
+          end;
+      map(. + {ref: uploaded_ref(.ref // .artifact_path // .url // "")})
+    ' "$artifacts_file" >"$rewritten"
+  mv "$rewritten" "$artifacts_file"
+
+  if [ -n "$refs_file" ]; then
+    jq -r '.[].ref' "$artifacts_file" >"$refs_file"
+  fi
+
+  if [ -n "$verification_file" ] && [ -s "$verification_file" ]; then
+    rewritten="$(mktemp)"
+    jq --slurpfile evidence "$artifacts_file" '
+      .evidence = ($evidence[0] // [])
+      | .evidence_refs = (($evidence[0] // []) | map(.ref))
+    ' "$verification_file" >"$rewritten"
+    mv "$rewritten" "$verification_file"
+  fi
+}
+
 native_failed() {
   local reason="$1"
   local payload
