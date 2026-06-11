@@ -163,6 +163,11 @@ if (checkOnly) {
     session,
     knob_count: knobs.length,
     override_keys: Object.keys(overrides),
+    // A low tick relative to the case duration means the session was
+    // reaped and lazily recreated (randomized) after the pin — a session
+    // lifecycle problem, not a config drift. Keepalive listeners exist to
+    // prevent this; surface the tick so the failure reads correctly.
+    tick: snapshot.tick ?? null,
     mismatches,
   };
   console.log(JSON.stringify(result));

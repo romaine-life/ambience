@@ -28,6 +28,13 @@ sequence is:
 #    schema defaults (+ the case's session_config overrides), so pin BEFORE
 #    loading the page or firing triggers. The verify wrapper re-checks the
 #    pin and fails the case when the session does not match it.
+#
+#    Lifecycle: sessions are reaped after 60s with no listeners
+#    (devSessionIdle) and a later read lazily recreates them RANDOMIZED.
+#    The verify wrapper holds a background SSE listener on the case's
+#    session (/dev/events) from prepare to emit so the pinned session
+#    survives the whole case; ad hoc runs that pause longer than 60s
+#    between pin and capture must hold their own listener.
 SESSION=test1
 node scripts/agent/pin-session-config.mjs \
   --base-url "$VALIDATION_URL" \
