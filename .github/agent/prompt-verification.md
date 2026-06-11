@@ -19,12 +19,36 @@ Glimmung selects the concrete provider/model for this invocation through the
    below. If an issue-contract section is present, its canonical target
    and public surface are also contract. The selected
    `verification-case.required_evidence` item is the evidence contract.
-2. Do exactly what the selected case's `kind` says:
+2. **Pin the case's dev session before loading any page or firing any
+   trigger.** Dev sessions are created with randomized knob values; the
+   claim you are verifying is written against the pinned contract (schema
+   defaults + the case's optional `session_config`). For a `url_path` of
+   `/dev/<effect>?session=<session>` run:
+
+   ```sh
+   node /workspace/repo/scripts/agent/pin-session-config.mjs \
+     --base-url "$VALIDATION_URL" \
+     --effect "<effect>" \
+     --session "<session>" \
+     --overrides '<the case session_config object, or omit the flag>' \
+     --manifest /workspace/evidence/observations/<case-id>-pin.json
+   ```
+
+   The wrapper independently re-checks the pin after your run and fails the
+   case if the session does not match it. If pinning itself fails (schema or
+   config endpoint errors), abort with `session_pin_failed`. The pin
+   manifest's `pre_pin_events` lists events applied before the pin landed;
+   judge triggered behavior from events at or after `pinned_at_tick`.
+   Non-`/dev` pages have no session to pin — skip this step for those.
+3. Do exactly what the selected case's `kind` says:
    - **`video`**: hit `$VALIDATION_URL$url_path`, record a WebM.
      Use `node /workspace/repo/scripts/agent/capture-video.mjs`.
      If the entry has a `trigger_event`, use the helper's
      `--trigger-url` option so the event is POSTed after the page is
-     loaded and recording has started.
+     loaded and recording has started. Trigger URLs require the effect
+     query: `/dev/trigger/<session>/<trigger_event>?effect=<effect>` —
+     a trigger without `?effect=` routes to the default effect and is
+     rejected with `unknown event`.
      Save under `/workspace/evidence/videos/`. Then inspect that exact
      WebM with `node /workspace/repo/scripts/agent/inspect-video.mjs`.
      If the entry also has `terminal_state_path`, run
@@ -36,7 +60,8 @@ Glimmung selects the concrete provider/model for this invocation through the
    - **`screenshot`**: hit `$VALIDATION_URL$url_path`, capture a PNG.
      Use `node /workspace/repo/scripts/agent/capture-screenshot.mjs`.
      If the entry has a `trigger_event`, POST to
-     `$VALIDATION_URL/dev/trigger/<session>/<trigger_event>` first, and
+     `$VALIDATION_URL/dev/trigger/<session>/<trigger_event>?effect=<effect>`
+     first, and
      load the page with the **same** `?session=<session>` you triggered.
      A frame alone is not proof the trigger fired: after POSTing, GET
      `$VALIDATION_URL/dev/snapshot?session=<session>&effect=<slug>` and
@@ -47,14 +72,14 @@ Glimmung selects the concrete provider/model for this invocation through the
    Non-media evidence kinds are invalid in this workflow. If the selected case
    is not `video` or `screenshot`, abort with `target_evidence_missing`;
    deterministic checks such as Go tests are owned by PR CI before this phase.
-3. After capture, sanity-check the selected artifact before writing the
+4. After capture, sanity-check the selected artifact before writing the
    verification JSON. Read each PNG. For each WebM, run
    `inspect-video.mjs` with `--min-duration-ms` matching the selected
    case duration and optional `--screenshot` under
    `/workspace/evidence/screenshots/`. Use the inspection output, not an
    ad hoc local server, to confirm duration and decodability. A `pass`
    claim over the wrong artifact is worse than an honest `abort`.
-4. Write `/workspace/evidence/issue-agent-verification.json` and
+5. Write `/workspace/evidence/issue-agent-verification.json` and
    `/workspace/evidence/issue-agent-verification.md` per the schemas
    below. **The JSON file is required.**
 
@@ -91,14 +116,19 @@ node /workspace/repo/scripts/agent/capture-screenshot.mjs \
 ```
 
 For event-triggered captures, pass a `session` query param to keep
-your dev session isolated:
+your dev session isolated, pin it first, and include `?effect=` on the
+trigger URL:
 
 ```sh
 SESSION=verify1
+node /workspace/repo/scripts/agent/pin-session-config.mjs \
+  --base-url "$VALIDATION_URL" \
+  --effect distant-storm \
+  --session "$SESSION"
 node /workspace/repo/scripts/agent/capture-video.mjs \
   --url "$VALIDATION_URL/dev/distant-storm?session=$SESSION" \
   --output /workspace/evidence/videos/dev-distant-storm-flash.webm \
-  --trigger-url "$VALIDATION_URL/dev/trigger/$SESSION/lightning-flash" \
+  --trigger-url "$VALIDATION_URL/dev/trigger/$SESSION/lightning-flash?effect=distant-storm" \
   --wait-ms 6000
 ```
 
@@ -192,6 +222,9 @@ Allowed `abort_reason` values when `status` is `abort`:
 - `target_evidence_missing` — a `required_evidence.id` has no
   corresponding `evidence_results` entry.
 - `validation_env_unreachable` — `$VALIDATION_URL` doesn't respond.
+- `session_pin_failed` — the case's dev session could not be pinned
+  (schema or config endpoint failed, or `session_config` named an
+  unknown/out-of-range knob).
 
 ## Output Markdown
 

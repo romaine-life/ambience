@@ -637,6 +637,80 @@ selected_required_evidence_kind() {
   ' "$VERIFICATION_CASE_FILE" 2>/dev/null || true
 }
 
+selected_case_dev_effect() {
+  # /dev/<effect>[?query] -> <effect>; empty for non-dev pages.
+  jq -r '
+    (.required_evidence.url_path // "")
+    | split("?")[0]
+    | if startswith("/dev/") then (ltrimstr("/dev/") | split("/")[0]) else "" end
+  ' "$VERIFICATION_CASE_FILE" 2>/dev/null || true
+}
+
+selected_case_session() {
+  jq -r '
+    (.required_evidence.url_path // "")
+    | (split("?")[1] // "")
+    | split("&")
+    | map(select(startswith("session=")))
+    | (first // "")
+    | ltrimstr("session=")
+  ' "$VERIFICATION_CASE_FILE" 2>/dev/null || true
+}
+
+# Dev sessions start with randomized knob values by design. Verification
+# claims are written against the pinned contract — schema defaults plus the
+# case's optional session_config — so the session the evidence was captured
+# from must actually carry that config. The verifier agent pins via
+# scripts/agent/pin-session-config.mjs before loading the page; this check
+# makes the pin a contract instead of a convention. Glimmung issue ambience#167
+# run 5 is the motivating failure: a "5-10 lantern cluster" claim judged
+# against a session whose randomized cluster_min/cluster_max was 2/23.
+enforce_session_config_pinned() {
+  local effect session evidence_id overrides check_out check_exit
+  effect="$(selected_case_dev_effect)"
+  if [ -z "$effect" ]; then
+    # Non-/dev surface (e.g. the shared monitor page): no per-session config
+    # contract exists there; claims must be config-agnostic by plan rule.
+    return 0
+  fi
+  evidence_id="$(jq -r '.required_evidence.id // ""' "$VERIFICATION_CASE_FILE" 2>/dev/null || true)"
+  session="$(selected_case_session)"
+  if [ -z "$session" ]; then
+    add_reason "session config: case ${evidence_id:-unknown} url_path has no session param; test-plan normalization must assign one so the session can be pinned"
+    return 1
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    add_reason "session config: node is unavailable; cannot verify pinned session config"
+    return 1
+  fi
+  overrides="$(jq -c '.required_evidence.session_config // {}' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '{}')"
+  check_out="$(
+    node "${REPO_DIR}/scripts/agent/pin-session-config.mjs" \
+      --check-only \
+      --base-url "$VALIDATION_URL" \
+      --effect "$effect" \
+      --session "$session" \
+      --overrides "$overrides" 2>&1
+  )" && check_exit=0 || check_exit=$?
+  if [ "$check_exit" -ne 0 ]; then
+    local detail
+    detail="$(
+      printf '%s' "$check_out" | jq -r '
+        if (.mismatches // []) | length > 0 then
+          (.mismatches[:6] | map("\(.key) expected=\(.expected) actual=\(.actual)") | join(", "))
+          + (if (.mismatches | length) > 6 then " (+\((.mismatches | length) - 6) more)" else "" end)
+        else
+          (.error // "pin check failed")
+        end
+      ' 2>/dev/null || printf 'pin check produced no parseable output'
+    )"
+    add_reason "session config: case ${evidence_id:-unknown} session ${session} (effect ${effect}) does not match the pinned contract (schema defaults + session_config): ${detail}"
+    return 1
+  fi
+  echo "session config pinned for ${evidence_id:-unknown}: effect=${effect} session=${session} ($(printf '%s' "$check_out" | jq -r '.knob_count // "?"') knobs)"
+  return 0
+}
+
 evidence_ref_path() {
   local ref="$1"
   case "$ref" in
@@ -905,6 +979,11 @@ finalize() {
   fi
 
   if ! enforce_evidence_contract; then
+    write_verification "fail"
+    return 0
+  fi
+
+  if ! enforce_session_config_pinned; then
     write_verification "fail"
     return 0
   fi
