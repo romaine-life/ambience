@@ -15,6 +15,7 @@ func (r *dustRuntime) Frame() [][]sim.Pixel          { return r.sim.GridCopy() }
 func (r *firefliesRuntime) Frame() [][]sim.Pixel     { return r.sim.GridCopy() }
 func (r *lighthouseRuntime) Frame() [][]sim.Pixel    { return r.sim.GridCopy() }
 func (r *mysteriousManRuntime) Frame() [][]sim.Pixel { return r.sim.GridCopy() }
+func (r *paperLanternsRuntime) Frame() [][]sim.Pixel { return r.sim.GridCopy() }
 func (r *pondRuntime) Frame() [][]sim.Pixel          { return r.sim.GridCopy() }
 func (r *rowboatRuntime) Frame() [][]sim.Pixel       { return r.sim.GridCopy() }
 func (r *sandRuntime) Frame() [][]sim.Pixel          { return r.sim.GridCopy() }

@@ -74,6 +74,12 @@ func (m *MysteriousMan) GridCopy() [][]Pixel {
 	return renderProceduralGrid("mysterious-man", m.W, m.H, m.tick, m.cfg, m.timers, m.values, m.rng.State())
 }
 
+func (p *PaperLanterns) GridCopy() [][]Pixel {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return copyPixelGrid(p.Grid)
+}
+
 func (p *Pond) GridCopy() [][]Pixel {
 	p.mu.Lock()
 	defer p.mu.Unlock()

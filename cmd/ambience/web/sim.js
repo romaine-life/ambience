@@ -27,6 +27,25 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 		},
 	];
 
+	api.presets['paper-lanterns'] = [
+		{
+			key: 'spirits-eve', label: "spirit's eve", note: 'amber hush, long gaps',
+			config: { hue: 30, hue_sp: 10, sat: 0.76, lmin: 0.15, lmax: 0.84, wind: 0.02, wind_drift: 0.045, rise_speed: 0.15, sway: 0.24, emit_p: 0.0045, release_p: 0.00065, quiet_p: 0.00018, cluster_min: 5, cluster_max: 9, release_window: 28, glow: 0.7, fade_alt: 0.32 },
+		},
+		{
+			key: 'temple-festival', label: 'temple festival', note: 'gold clusters, steady drift',
+			config: { hue: 42, hue_sp: 16, sat: 0.82, lmin: 0.18, lmax: 0.92, wind: 0.055, wind_drift: 0.075, rise_speed: 0.18, sway: 0.28, emit_p: 0.006, release_p: 0.001, quiet_p: 0.0001, cluster_min: 7, cluster_max: 12, release_window: 22, glow: 0.82, fade_alt: 0.27 },
+		},
+		{
+			key: 'slow-drift', label: 'slow drift', note: 'few lanterns, soft ascent',
+			config: { hue: 36, hue_sp: 8, sat: 0.64, lmin: 0.13, lmax: 0.78, wind: -0.025, wind_drift: 0.035, rise_speed: 0.11, speed_jit: 0.18, sway: 0.18, emit_p: 0.003, release_p: 0.00042, quiet_p: 0.00016, cluster_min: 4, cluster_max: 7, release_window: 36, glow: 0.58, fade_alt: 0.38 },
+		},
+		{
+			key: 'lantern-flock', label: 'lantern flock', note: 'dense release, brighter sky',
+			config: { hue: 34, hue_sp: 20, sat: 0.88, lmin: 0.2, lmax: 0.95, wind: 0.075, wind_drift: 0.11, rise_speed: 0.2, speed_jit: 0.34, sway: 0.36, emit_p: 0.009, release_p: 0.0014, quiet_p: 0.00006, cluster_min: 9, cluster_max: 16, release_window: 18, glow: 0.9, fade_alt: 0.24 },
+		},
+	];
+
 	function makeRNG(seed) {
 		let state = seed >>> 0;
 		const rng = () => {
