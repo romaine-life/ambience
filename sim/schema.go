@@ -63,4 +63,13 @@ type Knob struct {
 type EffectSchema struct {
 	Name  string `json:"name"`
 	Knobs []Knob `json:"knobs"`
+	// EndingTerminal declares the effect's outro arc: true means the
+	// `ending` trigger resolves to a held terminal look (lifecycle
+	// "ended" until an `intro` restarts it); false means the outro
+	// completes and the effect resumes steady state (lifecycle returns
+	// to "running"). Verification plans read this to know which
+	// lifecycle value a terminal claim may assert — it is the schema
+	// anchor for outro claims, the way knob defaults anchor config
+	// claims.
+	EndingTerminal bool `json:"ending_terminal,omitempty"`
 }

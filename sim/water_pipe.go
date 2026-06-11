@@ -287,16 +287,17 @@ func WaterPipeSchema() EffectSchema {
 }
 
 type WaterPipeState struct {
-	Tick           int     `json:"tick"`
-	SurgeTicks     int     `json:"surgeTicks"`
-	DryTicks       int     `json:"dryTicks"`
-	IntroTicks     int     `json:"introTicks"`
-	IntroTotal     int     `json:"introTotal"`
-	EndingTicks    int     `json:"endingTicks"`
-	EndingTotal    int     `json:"endingTotal"`
-	EndingFade     int     `json:"endingFade"`
-	RippleCooldown int     `json:"rippleCooldown"`
-	Fill           float64 `json:"fill"`
+	Tick           int       `json:"tick"`
+	SurgeTicks     int       `json:"surgeTicks"`
+	DryTicks       int       `json:"dryTicks"`
+	IntroTicks     int       `json:"introTicks"`
+	IntroTotal     int       `json:"introTotal"`
+	EndingTicks    int       `json:"endingTicks"`
+	EndingTotal    int       `json:"endingTotal"`
+	EndingFade     int       `json:"endingFade"`
+	Lifecycle      Lifecycle `json:"lifecycle"`
+	RippleCooldown int       `json:"rippleCooldown"`
+	Fill           float64   `json:"fill"`
 }
 
 type WaterPipeDroplet struct {
@@ -589,8 +590,25 @@ func (p *WaterPipe) snapshotStateLocked() WaterPipeState {
 		EndingTicks:    p.endingTicks,
 		EndingTotal:    p.endingTotal,
 		EndingFade:     p.endingFade,
+		Lifecycle:      p.lifecycleLocked(),
 		RippleCooldown: p.rippleCooldown,
 		Fill:           p.fill,
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the water pipe's internal counters. The outro is non-terminal: once the
+// ending fade + linger expire, baseline inflow and automatic surge/dry-up
+// rolls resume, so lifecycle returns to running (the schema declares
+// ending_terminal: false by omission).
+func (p *WaterPipe) lifecycleLocked() Lifecycle {
+	switch {
+	case p.introTicks > 0:
+		return LifecycleIntro
+	case p.endingTicks > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

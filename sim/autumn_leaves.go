@@ -12,9 +12,25 @@ import (
 // browser-first prototype doesn't need a typed-struct cleanup pass yet.
 type AutumnLeavesConfig = ProceduralConfig
 
-type AutumnLeavesState = ProceduralState
-type AutumnLeavesSnapshot = ProceduralSnapshot
-type AutumnLeavesPersistedState = ProceduralPersistedState
+// AutumnLeavesState is the shared procedural timer/value state plus the
+// derived lifecycle contract field (computed at snapshot time, never
+// restored).
+type AutumnLeavesState struct {
+	ProceduralState
+	Lifecycle Lifecycle `json:"lifecycle"`
+}
+
+// AutumnLeavesSnapshot is the client-facing wire snapshot for AutumnLeaves.
+type AutumnLeavesSnapshot struct {
+	AutumnLeavesState
+	RNGState uint64 `json:"rngState,omitempty"`
+}
+
+// AutumnLeavesPersistedState is the server-side resume state for AutumnLeaves.
+type AutumnLeavesPersistedState struct {
+	AutumnLeavesState
+	RNGState uint64 `json:"rngState"`
+}
 
 // AutumnLeaves is a dedicated sim type for the autumn-leaves effect,
 // replacing the kind="autumn-leaves" branch of the old Procedural type.
@@ -237,8 +253,8 @@ func (a *AutumnLeaves) Snapshot() AutumnLeavesSnapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return AutumnLeavesSnapshot{
-		ProceduralState: a.snapshotStateLocked(),
-		RNGState:        a.rng.State(),
+		AutumnLeavesState: a.snapshotStateLocked(),
+		RNGState:          a.rng.State(),
 	}
 }
 
@@ -255,8 +271,8 @@ func (a *AutumnLeaves) SnapshotPersistedState() AutumnLeavesPersistedState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return AutumnLeavesPersistedState{
-		ProceduralState: a.snapshotStateLocked(),
-		RNGState:        a.rng.State(),
+		AutumnLeavesState: a.snapshotStateLocked(),
+		RNGState:          a.rng.State(),
 	}
 }
 
@@ -269,11 +285,30 @@ func (a *AutumnLeaves) RestorePersistedState(ps AutumnLeavesPersistedState) {
 	}
 }
 
-func (a *AutumnLeaves) snapshotStateLocked() ProceduralState {
-	return ProceduralState{
-		Tick:   a.tick,
-		Timers: cloneTimerMap(a.timers),
-		Values: cloneValueMap(a.values),
+func (a *AutumnLeaves) snapshotStateLocked() AutumnLeavesState {
+	return AutumnLeavesState{
+		ProceduralState: ProceduralState{
+			Tick:   a.tick,
+			Timers: cloneTimerMap(a.timers),
+			Values: cloneValueMap(a.values),
+		},
+		Lifecycle: a.lifecycleLocked(),
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the intro/ending timers. The autumn-leaves outro is non-terminal: when the
+// ending timer expires the leaf fall returns to steady state and automatic
+// events resume, so lifecycle returns to running (the schema declares
+// ending_terminal: false by omission).
+func (a *AutumnLeaves) lifecycleLocked() Lifecycle {
+	switch {
+	case a.timers["intro"] > 0:
+		return LifecycleIntro
+	case a.timers["ending"] > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

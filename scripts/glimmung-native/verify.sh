@@ -507,10 +507,10 @@ enforce_evidence_contract() {
           elif $match[0].status != "pass" then "not_pass:" + ($r.id // "")
           elif kind($r.kind) == "video" and (($match[0].video // "") == "") then "missing_video:" + ($r.id // "")
           elif kind($r.kind) == "screenshot" and (($match[0].screenshot // "") == "") then "missing_screenshot:" + ($r.id // "")
-          elif (($r.terminal_state_path // "") != "") and (($match[0].observation // "") == "") then "missing_observation:" + ($r.id // "")
+          elif (($r.terminal_lifecycle // "") != "") and (($match[0].observation // "") == "") then "missing_observation:" + ($r.id // "")
           else empty
           end
-      ' || true
+      ' || printf 'jq_error:evidence_contract'
   )"
   local missing_files
   missing_files="$(
@@ -555,14 +555,13 @@ enforce_terminal_observation_artifact() {
     add_reason "terminal observation: missing handoff JSON; cannot inspect selected observation"
     return 1
   fi
-  if ! jq -e '(.required_evidence.terminal_state_path // "") != ""' "$VERIFICATION_CASE_FILE" >/dev/null 2>&1; then
+  if ! jq -e '(.required_evidence.terminal_lifecycle // "") != ""' "$VERIFICATION_CASE_FILE" >/dev/null 2>&1; then
     return 0
   fi
 
-  local evidence_id ref observation_path expected_path expected_equals expected_hold failures
+  local evidence_id ref observation_path expected_lifecycle expected_hold failures
   evidence_id="$(jq -r '.required_evidence.id // ""' "$VERIFICATION_CASE_FILE" 2>/dev/null || true)"
-  expected_path="$(jq -r '.required_evidence.terminal_state_path // ""' "$VERIFICATION_CASE_FILE" 2>/dev/null || true)"
-  expected_equals="$(jq -r '.required_evidence.terminal_state_equals // "true"' "$VERIFICATION_CASE_FILE" 2>/dev/null || true)"
+  expected_lifecycle="$(jq -r '.required_evidence.terminal_lifecycle // ""' "$VERIFICATION_CASE_FILE" 2>/dev/null || true)"
   expected_hold="$(jq -r '.required_evidence.hold_ticks // 0 | tonumber? // 0' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '0')"
   ref="$(
     jq -r --arg id "$evidence_id" '
@@ -589,14 +588,12 @@ enforce_terminal_observation_artifact() {
 
   failures="$(
     jq -r \
-      --arg path "$expected_path" \
-      --arg equals "$expected_equals" \
+      --arg lifecycle "$expected_lifecycle" \
       --argjson hold "${expected_hold:-0}" \
       '
         if (.applied != true) then "not_applied"
         elif (.observed != true) then "not_observed"
-        elif ((.statePath // "") != $path) then "wrong_state_path:" + (.statePath // "")
-        elif ((.stateEquals // "true" | tostring) != ($equals | tostring)) then "wrong_state_equals:" + (.stateEquals // "" | tostring)
+        elif ((.lifecycle // "") != $lifecycle) then "wrong_lifecycle:" + (.lifecycle // "")
         elif (((.holdTicks // 0) | tonumber? // 0) < $hold) then "hold_too_short:" + ((.holdTicks // 0) | tostring)
         elif (((.heldUntilTick // 0) | tonumber? // 0) < (((.observedTick // 0) | tonumber? // 0) + $hold)) then "held_until_before_required_tick"
         else empty

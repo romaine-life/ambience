@@ -9,9 +9,25 @@ import (
 )
 
 type CampfireConfig = ProceduralConfig
-type CampfireState = ProceduralState
-type CampfireSnapshot = ProceduralSnapshot
-type CampfirePersistedState = ProceduralPersistedState
+
+// CampfireState is the shared procedural timer/value state plus the derived
+// lifecycle contract field (computed at snapshot time, never restored).
+type CampfireState struct {
+	ProceduralState
+	Lifecycle Lifecycle `json:"lifecycle"`
+}
+
+// CampfireSnapshot is the client-facing wire snapshot for Campfire.
+type CampfireSnapshot struct {
+	CampfireState
+	RNGState uint64 `json:"rngState,omitempty"`
+}
+
+// CampfirePersistedState is the server-side resume state for Campfire.
+type CampfirePersistedState struct {
+	CampfireState
+	RNGState uint64 `json:"rngState"`
+}
 
 // Campfire is a dedicated sim type for the campfire effect.
 type Campfire struct {
@@ -229,8 +245,8 @@ func (c *Campfire) Snapshot() CampfireSnapshot {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return CampfireSnapshot{
-		ProceduralState: c.snapshotStateLocked(),
-		RNGState:        c.rng.State(),
+		CampfireState: c.snapshotStateLocked(),
+		RNGState:      c.rng.State(),
 	}
 }
 
@@ -247,8 +263,8 @@ func (c *Campfire) SnapshotPersistedState() CampfirePersistedState {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return CampfirePersistedState{
-		ProceduralState: c.snapshotStateLocked(),
-		RNGState:        c.rng.State(),
+		CampfireState: c.snapshotStateLocked(),
+		RNGState:      c.rng.State(),
 	}
 }
 
@@ -261,11 +277,30 @@ func (c *Campfire) RestorePersistedState(ps CampfirePersistedState) {
 	}
 }
 
-func (c *Campfire) snapshotStateLocked() ProceduralState {
-	return ProceduralState{
-		Tick:   c.tick,
-		Timers: cloneTimerMap(c.timers),
-		Values: cloneValueMap(c.values),
+func (c *Campfire) snapshotStateLocked() CampfireState {
+	return CampfireState{
+		ProceduralState: ProceduralState{
+			Tick:   c.tick,
+			Timers: cloneTimerMap(c.timers),
+			Values: cloneValueMap(c.values),
+		},
+		Lifecycle: c.lifecycleLocked(),
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the intro/ending timers. Campfire's outro is non-terminal: when the ending
+// timer expires the fire returns to steady state and automatic events
+// resume, so lifecycle returns to running (the schema declares
+// ending_terminal: false by omission).
+func (c *Campfire) lifecycleLocked() Lifecycle {
+	switch {
+	case c.timers["intro"] > 0:
+		return LifecycleIntro
+	case c.timers["ending"] > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

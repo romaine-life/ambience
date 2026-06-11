@@ -88,6 +88,21 @@ transient or terminal and names the terminal resting state — treat that
 classification as binding, and verify your terminal states actually hold
 (see "Self-checking visual behavior" below).
 
+**Publish the lifecycle contract.** Every effect that registers `intro`
+or `ending` triggers MUST surface a `lifecycle` field
+(`sim.Lifecycle`: `intro | running | ending | ended`) in the snapshot
+state struct its runtime adapter marshals, computed from the effect's
+own internals at snapshot time (derived — never restored). If the
+`ending` resolves to a held terminal look, also set
+`EndingTerminal: true` in the effect's `Schema()`; if the outro resolves
+back to steady state, leave it unset and report `running` after the
+outro. Verification plans assert lifecycle values — never your internal
+counter names — and
+`cmd/ambience/effects_lifecycle_test.go` enforces the transitions for
+every registered effect, so a new effect cannot land without honoring
+this. See `sim/lifecycle.go` for semantics and `sim/rain.go`
+(`lifecycleLocked`) for the reference implementation.
+
 ## Self-checking visual behavior
 
 `go build` and `go test` cannot see pixels, so a visual or temporal

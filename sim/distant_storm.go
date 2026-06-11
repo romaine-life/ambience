@@ -9,9 +9,26 @@ import (
 )
 
 type DistantStormConfig = ProceduralConfig
-type DistantStormState = ProceduralState
-type DistantStormSnapshot = ProceduralSnapshot
-type DistantStormPersistedState = ProceduralPersistedState
+
+// DistantStormState is the shared procedural timer/value state plus the
+// derived lifecycle contract field (computed at snapshot time, never
+// restored).
+type DistantStormState struct {
+	ProceduralState
+	Lifecycle Lifecycle `json:"lifecycle"`
+}
+
+// DistantStormSnapshot is the client-facing wire snapshot for DistantStorm.
+type DistantStormSnapshot struct {
+	DistantStormState
+	RNGState uint64 `json:"rngState,omitempty"`
+}
+
+// DistantStormPersistedState is the server-side resume state for DistantStorm.
+type DistantStormPersistedState struct {
+	DistantStormState
+	RNGState uint64 `json:"rngState"`
+}
 
 // DistantStorm is a seascape effect: a dark cloud bank squats over the
 // horizon, the sea below rolls in slow swells, and silent lightning
@@ -265,8 +282,8 @@ func (d *DistantStorm) Snapshot() DistantStormSnapshot {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return DistantStormSnapshot{
-		ProceduralState: d.snapshotStateLocked(),
-		RNGState:        d.rng.State(),
+		DistantStormState: d.snapshotStateLocked(),
+		RNGState:          d.rng.State(),
 	}
 }
 
@@ -283,8 +300,8 @@ func (d *DistantStorm) SnapshotPersistedState() DistantStormPersistedState {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return DistantStormPersistedState{
-		ProceduralState: d.snapshotStateLocked(),
-		RNGState:        d.rng.State(),
+		DistantStormState: d.snapshotStateLocked(),
+		RNGState:          d.rng.State(),
 	}
 }
 
@@ -297,11 +314,30 @@ func (d *DistantStorm) RestorePersistedState(ps DistantStormPersistedState) {
 	}
 }
 
-func (d *DistantStorm) snapshotStateLocked() ProceduralState {
-	return ProceduralState{
-		Tick:   d.tick,
-		Timers: cloneTimerMap(d.timers),
-		Values: cloneValueMap(d.values),
+func (d *DistantStorm) snapshotStateLocked() DistantStormState {
+	return DistantStormState{
+		ProceduralState: ProceduralState{
+			Tick:   d.tick,
+			Timers: cloneTimerMap(d.timers),
+			Values: cloneValueMap(d.values),
+		},
+		Lifecycle: d.lifecycleLocked(),
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the intro/ending timers. The distant-storm outro is non-terminal: when the
+// ending timer expires the horizon returns to steady state and automatic
+// events resume, so lifecycle returns to running (the schema declares
+// ending_terminal: false by omission).
+func (d *DistantStorm) lifecycleLocked() Lifecycle {
+	switch {
+	case d.timers["intro"] > 0:
+		return LifecycleIntro
+	case d.timers["ending"] > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

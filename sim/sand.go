@@ -280,6 +280,7 @@ type SandState struct {
 	IntroTotal  int       `json:"introTotal"`
 	EndingTicks int       `json:"endingTicks"`
 	EndingTotal int       `json:"endingTotal"`
+	Lifecycle   Lifecycle `json:"lifecycle"`
 	EndingFade  int       `json:"endingFade"`
 	Pile        []float64 `json:"pile"`
 	PileLeft    int       `json:"pileLeft"`
@@ -552,9 +553,26 @@ func (s *Sand) snapshotStateLocked() SandState {
 		IntroTotal:  s.introTotal,
 		EndingTicks: s.endingTicks,
 		EndingTotal: s.endingTotal,
+		Lifecycle:   s.lifecycleLocked(),
 		EndingFade:  s.endingFade,
 		Pile:        pile,
 		PileLeft:    s.pileLeft,
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// sand's internal counters. The outro is non-terminal: once endingTicks
+// expires, flowLevelLocked returns to baseline and surge/calm events keep
+// rolling, so lifecycle returns to running (the schema declares
+// ending_terminal: false by omission).
+func (s *Sand) lifecycleLocked() Lifecycle {
+	switch {
+	case s.introTicks > 0:
+		return LifecycleIntro
+	case s.endingTicks > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

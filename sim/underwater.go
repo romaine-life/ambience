@@ -9,9 +9,23 @@ import (
 )
 
 type UnderwaterConfig = ProceduralConfig
-type UnderwaterState = ProceduralState
-type UnderwaterSnapshot = ProceduralSnapshot
-type UnderwaterPersistedState = ProceduralPersistedState
+
+// UnderwaterState is the shared procedural state plus the lifecycle observer
+// contract field. Lifecycle is derived at snapshot time and never restored.
+type UnderwaterState struct {
+	ProceduralState
+	Lifecycle Lifecycle `json:"lifecycle"`
+}
+
+type UnderwaterSnapshot struct {
+	UnderwaterState
+	RNGState uint64 `json:"rngState,omitempty"`
+}
+
+type UnderwaterPersistedState struct {
+	UnderwaterState
+	RNGState uint64 `json:"rngState"`
+}
 
 // Underwater is a dedicated sim type for the underwater effect.
 type Underwater struct {
@@ -247,7 +261,7 @@ func (u *Underwater) Snapshot() UnderwaterSnapshot {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	return UnderwaterSnapshot{
-		ProceduralState: u.snapshotStateLocked(),
+		UnderwaterState: u.snapshotStateLocked(),
 		RNGState:        u.rng.State(),
 	}
 }
@@ -265,7 +279,7 @@ func (u *Underwater) SnapshotPersistedState() UnderwaterPersistedState {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	return UnderwaterPersistedState{
-		ProceduralState: u.snapshotStateLocked(),
+		UnderwaterState: u.snapshotStateLocked(),
 		RNGState:        u.rng.State(),
 	}
 }
@@ -279,11 +293,30 @@ func (u *Underwater) RestorePersistedState(ps UnderwaterPersistedState) {
 	}
 }
 
-func (u *Underwater) snapshotStateLocked() ProceduralState {
-	return ProceduralState{
-		Tick:   u.tick,
-		Timers: cloneTimerMap(u.timers),
-		Values: cloneValueMap(u.values),
+func (u *Underwater) snapshotStateLocked() UnderwaterState {
+	return UnderwaterState{
+		ProceduralState: ProceduralState{
+			Tick:   u.tick,
+			Timers: cloneTimerMap(u.timers),
+			Values: cloneValueMap(u.values),
+		},
+		Lifecycle: u.lifecycleLocked(),
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// underwater's timers. The outro is non-terminal: once the ending timer
+// expires, automatic bubble-burst/current-shift/calm rolls resume, so
+// lifecycle returns to running (the schema declares ending_terminal: false
+// by omission).
+func (u *Underwater) lifecycleLocked() Lifecycle {
+	switch {
+	case u.timers["intro"] > 0:
+		return LifecycleIntro
+	case u.timers["ending"] > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

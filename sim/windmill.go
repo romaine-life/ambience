@@ -9,9 +9,23 @@ import (
 )
 
 type WindmillConfig = ProceduralConfig
-type WindmillState = ProceduralState
-type WindmillSnapshot = ProceduralSnapshot
-type WindmillPersistedState = ProceduralPersistedState
+
+// WindmillState is the shared procedural state plus the lifecycle observer
+// contract field. Lifecycle is derived at snapshot time and never restored.
+type WindmillState struct {
+	ProceduralState
+	Lifecycle Lifecycle `json:"lifecycle"`
+}
+
+type WindmillSnapshot struct {
+	WindmillState
+	RNGState uint64 `json:"rngState,omitempty"`
+}
+
+type WindmillPersistedState struct {
+	WindmillState
+	RNGState uint64 `json:"rngState"`
+}
 
 // Windmill is a dedicated sim type for the windmill effect.
 type Windmill struct {
@@ -229,8 +243,8 @@ func (w *Windmill) Snapshot() WindmillSnapshot {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return WindmillSnapshot{
-		ProceduralState: w.snapshotStateLocked(),
-		RNGState:        w.rng.State(),
+		WindmillState: w.snapshotStateLocked(),
+		RNGState:      w.rng.State(),
 	}
 }
 
@@ -247,8 +261,8 @@ func (w *Windmill) SnapshotPersistedState() WindmillPersistedState {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return WindmillPersistedState{
-		ProceduralState: w.snapshotStateLocked(),
-		RNGState:        w.rng.State(),
+		WindmillState: w.snapshotStateLocked(),
+		RNGState:      w.rng.State(),
 	}
 }
 
@@ -261,11 +275,29 @@ func (w *Windmill) RestorePersistedState(ps WindmillPersistedState) {
 	}
 }
 
-func (w *Windmill) snapshotStateLocked() ProceduralState {
-	return ProceduralState{
-		Tick:   w.tick,
-		Timers: cloneTimerMap(w.timers),
-		Values: cloneValueMap(w.values),
+func (w *Windmill) snapshotStateLocked() WindmillState {
+	return WindmillState{
+		ProceduralState: ProceduralState{
+			Tick:   w.tick,
+			Timers: cloneTimerMap(w.timers),
+			Values: cloneValueMap(w.values),
+		},
+		Lifecycle: w.lifecycleLocked(),
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the windmill's timers. The outro is non-terminal: once the ending timer
+// expires, automatic gust/lull rolls resume, so lifecycle returns to running
+// (the schema declares ending_terminal: false by omission).
+func (w *Windmill) lifecycleLocked() Lifecycle {
+	switch {
+	case w.timers["intro"] > 0:
+		return LifecycleIntro
+	case w.timers["ending"] > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

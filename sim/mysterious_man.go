@@ -9,9 +9,27 @@ import (
 )
 
 type MysteriousManConfig = ProceduralConfig
-type MysteriousManState = ProceduralState
-type MysteriousManSnapshot = ProceduralSnapshot
-type MysteriousManPersistedState = ProceduralPersistedState
+
+// MysteriousManState is the shared procedural timers/values state plus the
+// derived lifecycle observer field (recomputed at snapshot time, ignored on
+// restore).
+type MysteriousManState struct {
+	ProceduralState
+	Lifecycle Lifecycle `json:"lifecycle"`
+}
+
+// MysteriousManSnapshot is the wire shape returned by Snapshot().
+type MysteriousManSnapshot struct {
+	MysteriousManState
+	RNGState uint64 `json:"rngState,omitempty"`
+}
+
+// MysteriousManPersistedState is the on-disk shape returned by
+// SnapshotPersistedState().
+type MysteriousManPersistedState struct {
+	MysteriousManState
+	RNGState uint64 `json:"rngState"`
+}
 
 // MysteriousMan is a dedicated sim type for the mysterious-man effect.
 type MysteriousMan struct {
@@ -297,8 +315,8 @@ func (m *MysteriousMan) Snapshot() MysteriousManSnapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return MysteriousManSnapshot{
-		ProceduralState: m.snapshotStateLocked(),
-		RNGState:        m.rng.State(),
+		MysteriousManState: m.snapshotStateLocked(),
+		RNGState:           m.rng.State(),
 	}
 }
 
@@ -315,8 +333,8 @@ func (m *MysteriousMan) SnapshotPersistedState() MysteriousManPersistedState {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return MysteriousManPersistedState{
-		ProceduralState: m.snapshotStateLocked(),
-		RNGState:        m.rng.State(),
+		MysteriousManState: m.snapshotStateLocked(),
+		RNGState:           m.rng.State(),
 	}
 }
 
@@ -329,11 +347,29 @@ func (m *MysteriousMan) RestorePersistedState(ps MysteriousManPersistedState) {
 	}
 }
 
-func (m *MysteriousMan) snapshotStateLocked() ProceduralState {
-	return ProceduralState{
-		Tick:   m.tick,
-		Timers: cloneTimerMap(m.timers),
-		Values: cloneValueMap(m.values),
+func (m *MysteriousMan) snapshotStateLocked() MysteriousManState {
+	return MysteriousManState{
+		ProceduralState: ProceduralState{
+			Tick:   m.tick,
+			Timers: cloneTimerMap(m.timers),
+			Values: cloneValueMap(m.values),
+		},
+		Lifecycle: m.lifecycleLocked(),
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the figure's internal timers. The outro is non-terminal: once
+// timers["ending"] expires, automatic events resume, so lifecycle returns to
+// running (the schema declares ending_terminal: false by omission).
+func (m *MysteriousMan) lifecycleLocked() Lifecycle {
+	switch {
+	case m.timers["intro"] > 0:
+		return LifecycleIntro
+	case m.timers["ending"] > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

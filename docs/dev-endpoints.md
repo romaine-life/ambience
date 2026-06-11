@@ -9,11 +9,11 @@ shared broadcast.
 | Route | Method | Purpose |
 | --- | --- | --- |
 | `/dev/<effect>` | GET | Per-session dev page. Loads the named effect and renders it via the shared client. Each new browser session gets its own isolated atmosphere. |
-| `/dev/snapshot` | GET | JSON snapshot of the calling session's dev atmosphere. Includes `appliedEvents` — a bounded ring of `{tick,event}` for events actually applied to this session's sim. Use it to mechanically confirm a fired trigger reached the session you are observing, rather than inferring it from a single frame (a pristine, never-triggered sim can coincidentally match a resting look). |
+| `/dev/snapshot` | GET | JSON snapshot of the calling session's dev atmosphere. Includes `appliedEvents` — a bounded ring of `{tick,event}` for events actually applied to this session's sim — and a top-level `lifecycle` (`intro\|running\|ending\|ended`), the effect-generic arc contract every intro/ending-capable effect publishes. Use them to mechanically confirm a fired trigger reached the session you are observing, rather than inferring it from a single frame (a pristine, never-triggered sim can coincidentally match a resting look). |
 | `/dev/events` | GET (SSE) | Per-session command stream (snapshot/config/trigger/scene/metric). |
 | `/dev/config` | POST | Override the dev atmosphere's config. Body is the effect-specific config JSON or query-string-encoded knobs depending on the registered config parser. Returns 204 on success. |
 | `/dev/trigger/<session>/<event>?effect=<effect>` | POST | Fire a discrete event in the named session. `session` is the dev-session identifier. The `effect` query param is required in practice: sessions are keyed by (effect, session), so a trigger without it routes to the default effect's session and is rejected with `unknown event` when the event belongs to another effect. To observe the effect, load the page with the matching `?session=<session>` — the dev page honors that query param so an external driver addresses the same session it triggers (a fired trigger only affects the page when both sides agree on the id). `event` is the effect-specific event name (e.g. `lightning-flash`, `ignite`, `gust`, `downpour`). |
-| `/dev/observe` | POST | Verification-only lifecycle observer. It can trigger an event, wait for a lifecycle log marker and/or state predicate, require the predicate to hold for `hold_ticks`, then store a frozen grid frame and return a JSON trace with `appliedEvents`, ticks, config, final state, `observationId`, and `frameUrl`. |
+| `/dev/observe` | POST | Verification-only lifecycle observer. It can trigger an event, wait for a lifecycle log marker and/or a `lifecycle=<intro\|running\|ending\|ended>` contract predicate, require it to hold for `hold_ticks`, then store a frozen grid frame and return a JSON trace with `appliedEvents`, ticks, config, final state, `observationId`, and `frameUrl`. Raw state-path probing was retired (ambience#174): observers assert the lifecycle contract, not effect-internal field names. |
 | `/dev/frame` | GET | Returns an `image/png` for a frozen observation frame from `/dev/observe` via `?session=<session>&effect=<effect>&observation=<observationId>`. |
 | `/effects/<effect>/schema` | GET | JSON schema for the effect's dev-panel knobs (used by the dev page to render controls). |
 
@@ -76,14 +76,16 @@ node scripts/agent/capture-screenshot.mjs \
   --output /workspace/evidence/screenshots/dev-<effect>-flash.png \
   --full-page --wait-ms 1000
 
-# 5. Terminal lifecycle proof: trigger, wait for state, then freeze a frame
+# 5. Terminal lifecycle proof: trigger, wait for the lifecycle contract
+#    value, then freeze a frame. Use `ended` only when the effect schema
+#    declares ending_terminal: true; non-terminal effects resume, so their
+#    post-outro claim is `running`.
 node scripts/agent/capture-observation.mjs \
   --base-url "$VALIDATION_URL" \
   --effect "<effect>" \
   --session "$SESSION" \
   --trigger ending \
-  --state-path endingTicks \
-  --state-equals 0 \
+  --lifecycle ended \
   --hold-ticks 12 \
   --output /workspace/evidence/observations/dev-<effect>-ending.json \
   --screenshot /workspace/evidence/screenshots/dev-<effect>-ending-terminal.png
@@ -92,9 +94,10 @@ node scripts/agent/capture-observation.mjs \
 `/dev/observe` is the preferred proof path for terminal lifecycle claims. A
 video can still accompany the run so reviewers see motion, but terminal
 correctness should come from the observer trace: the trigger reached the named
-session, the state predicate became true, it held for the requested ticks, and
-the frozen PNG came from that observed state. Do not infer terminal correctness
-from an arbitrary video timestamp when a state predicate is available.
+session, the lifecycle contract value was observed, it held for the requested
+ticks, and the frozen PNG came from that observed state. Do not infer terminal
+correctness from an arbitrary video timestamp when a lifecycle predicate is
+available.
 
 ## Server readiness
 

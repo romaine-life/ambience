@@ -27,7 +27,7 @@
 //	GET  /dev/events?session=&effect=
 //	POST /dev/config?session=&effect=
 //	POST /dev/randomize?session=&effect=
-//	POST /dev/observe?session=&effect=&trigger=&state_path=&state_equals=
+//	POST /dev/observe?session=&effect=&trigger=&lifecycle=
 //	GET  /dev/frame?session=&effect=&observation=
 //	POST /dev/trigger/:session/:event?effect=
 //	                            — fire a discrete event on the dev atmosphere

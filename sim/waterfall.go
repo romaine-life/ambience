@@ -237,16 +237,17 @@ func WaterfallSchema() EffectSchema {
 }
 
 type WaterfallState struct {
-	Tick           int `json:"tick"`
-	SurgeTicks     int `json:"surgeTicks"`
-	CalmTicks      int `json:"calmTicks"`
-	MistBurstTicks int `json:"mistBurstTicks"`
-	IntroTicks     int `json:"introTicks"`
-	IntroTotal     int `json:"introTotal"`
-	EndingTicks    int `json:"endingTicks"`
-	EndingTotal    int `json:"endingTotal"`
-	EndingFade     int `json:"endingFade"`
-	RippleCooldown int `json:"rippleCooldown"`
+	Tick           int       `json:"tick"`
+	SurgeTicks     int       `json:"surgeTicks"`
+	CalmTicks      int       `json:"calmTicks"`
+	MistBurstTicks int       `json:"mistBurstTicks"`
+	IntroTicks     int       `json:"introTicks"`
+	IntroTotal     int       `json:"introTotal"`
+	EndingTicks    int       `json:"endingTicks"`
+	EndingTotal    int       `json:"endingTotal"`
+	EndingFade     int       `json:"endingFade"`
+	Lifecycle      Lifecycle `json:"lifecycle"`
+	RippleCooldown int       `json:"rippleCooldown"`
 }
 
 type WaterfallMist struct {
@@ -541,7 +542,24 @@ func (w *Waterfall) snapshotStateLocked() WaterfallState {
 		EndingTicks:    w.endingTicks,
 		EndingTotal:    w.endingTotal,
 		EndingFade:     w.endingFade,
+		Lifecycle:      w.lifecycleLocked(),
 		RippleCooldown: w.rippleCooldown,
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the waterfall's internal counters. The outro is non-terminal: once the
+// ending fade + linger expire, baseline flow and automatic surge/calm/
+// mist-burst rolls resume, so lifecycle returns to running (the schema
+// declares ending_terminal: false by omission).
+func (w *Waterfall) lifecycleLocked() Lifecycle {
+	switch {
+	case w.introTicks > 0:
+		return LifecycleIntro
+	case w.endingTicks > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

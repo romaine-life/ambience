@@ -9,9 +9,23 @@ import (
 )
 
 type WheatFieldConfig = ProceduralConfig
-type WheatFieldState = ProceduralState
-type WheatFieldSnapshot = ProceduralSnapshot
-type WheatFieldPersistedState = ProceduralPersistedState
+
+// WheatFieldState is the shared procedural state plus the lifecycle observer
+// contract field. Lifecycle is derived at snapshot time and never restored.
+type WheatFieldState struct {
+	ProceduralState
+	Lifecycle Lifecycle `json:"lifecycle"`
+}
+
+type WheatFieldSnapshot struct {
+	WheatFieldState
+	RNGState uint64 `json:"rngState,omitempty"`
+}
+
+type WheatFieldPersistedState struct {
+	WheatFieldState
+	RNGState uint64 `json:"rngState"`
+}
 
 // WheatField is a dedicated sim type for the wheat-field effect, replacing
 // the kind="wheat-field" branch of the old Procedural type.
@@ -233,7 +247,7 @@ func (s *WheatField) Snapshot() WheatFieldSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return WheatFieldSnapshot{
-		ProceduralState: s.snapshotStateLocked(),
+		WheatFieldState: s.snapshotStateLocked(),
 		RNGState:        s.rng.State(),
 	}
 }
@@ -251,7 +265,7 @@ func (s *WheatField) SnapshotPersistedState() WheatFieldPersistedState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return WheatFieldPersistedState{
-		ProceduralState: s.snapshotStateLocked(),
+		WheatFieldState: s.snapshotStateLocked(),
 		RNGState:        s.rng.State(),
 	}
 }
@@ -265,11 +279,29 @@ func (s *WheatField) RestorePersistedState(ps WheatFieldPersistedState) {
 	}
 }
 
-func (s *WheatField) snapshotStateLocked() ProceduralState {
-	return ProceduralState{
-		Tick:   s.tick,
-		Timers: cloneTimerMap(s.timers),
-		Values: cloneValueMap(s.values),
+func (s *WheatField) snapshotStateLocked() WheatFieldState {
+	return WheatFieldState{
+		ProceduralState: ProceduralState{
+			Tick:   s.tick,
+			Timers: cloneTimerMap(s.timers),
+			Values: cloneValueMap(s.values),
+		},
+		Lifecycle: s.lifecycleLocked(),
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the wheat field's timers. The outro is non-terminal: once the ending timer
+// expires, automatic gust/calm rolls resume, so lifecycle returns to running
+// (the schema declares ending_terminal: false by omission).
+func (s *WheatField) lifecycleLocked() Lifecycle {
+	switch {
+	case s.timers["intro"] > 0:
+		return LifecycleIntro
+	case s.timers["ending"] > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

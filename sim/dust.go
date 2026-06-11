@@ -215,16 +215,17 @@ func DustSchema() EffectSchema {
 }
 
 type DustState struct {
-	Tick        int     `json:"tick"`
-	GustTicks   int     `json:"gustTicks"`
-	CalmTicks   int     `json:"calmTicks"`
-	GustCenter  float64 `json:"gustCenter"`
-	GustPush    float64 `json:"gustPush"`
-	IntroTicks  int     `json:"introTicks"`
-	IntroTotal  int     `json:"introTotal"`
-	EndingTicks int     `json:"endingTicks"`
-	EndingTotal int     `json:"endingTotal"`
-	EndingFade  int     `json:"endingFade"`
+	Tick        int       `json:"tick"`
+	GustTicks   int       `json:"gustTicks"`
+	CalmTicks   int       `json:"calmTicks"`
+	GustCenter  float64   `json:"gustCenter"`
+	GustPush    float64   `json:"gustPush"`
+	IntroTicks  int       `json:"introTicks"`
+	IntroTotal  int       `json:"introTotal"`
+	EndingTicks int       `json:"endingTicks"`
+	EndingTotal int       `json:"endingTotal"`
+	EndingFade  int       `json:"endingFade"`
+	Lifecycle   Lifecycle `json:"lifecycle"`
 }
 
 type DustMote struct {
@@ -498,6 +499,23 @@ func (d *Dust) snapshotStateLocked() DustState {
 		EndingTicks: d.endingTicks,
 		EndingTotal: d.endingTotal,
 		EndingFade:  d.endingFade,
+		Lifecycle:   d.lifecycleLocked(),
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// dust's internal counters. Dust's outro is non-terminal: once the ending
+// window expires the haze and automatic events resume steady state, so
+// lifecycle returns to running (the schema declares ending_terminal: false
+// by omission).
+func (d *Dust) lifecycleLocked() Lifecycle {
+	switch {
+	case d.introTicks > 0:
+		return LifecycleIntro
+	case d.endingTicks > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

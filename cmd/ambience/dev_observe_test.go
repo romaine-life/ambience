@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/romaine-life/ambience/sim"
 )
 
 func TestDevObserveWaitsForTriggeredStatePredicate(t *testing.T) {
@@ -19,13 +21,12 @@ func TestDevObserveWaitsForTriggeredStatePredicate(t *testing.T) {
 	}
 
 	got, err := s.observe(context.Background(), devObserveRequest{
-		Effect:      "rain",
-		Session:     "observe-test",
-		Trigger:     "ending",
-		StatePath:   "endingTicks",
-		StateEquals: "0",
-		MaxTicks:    20,
-		HoldTicks:   2,
+		Effect:    "rain",
+		Session:   "observe-test",
+		Trigger:   "ending",
+		Lifecycle: string(sim.LifecycleRunning),
+		MaxTicks:  60,
+		HoldTicks: 2,
 	})
 	if err != nil {
 		t.Fatalf("observe: %v", err)
@@ -53,17 +54,16 @@ func TestDevObserveWaitsForTriggeredStatePredicate(t *testing.T) {
 	}
 }
 
-func TestDevObserveTimesOutForMissingStatePredicate(t *testing.T) {
+func TestDevObserveTimesOutForUnreachedLifecycle(t *testing.T) {
 	s, err := newDevSession("rain")
 	if err != nil {
 		t.Fatalf("newDevSession: %v", err)
 	}
 	_, err = s.observe(context.Background(), devObserveRequest{
-		Effect:      "rain",
-		Session:     "observe-test",
-		StatePath:   "endingTicks",
-		StateEquals: "9999",
-		MaxTicks:    3,
+		Effect:    "rain",
+		Session:   "observe-test",
+		Lifecycle: string(sim.LifecycleEnded),
+		MaxTicks:  3,
 	})
 	if err == nil {
 		t.Fatal("observe unexpectedly succeeded")

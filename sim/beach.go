@@ -9,9 +9,25 @@ import (
 )
 
 type BeachConfig = ProceduralConfig
-type BeachState = ProceduralState
-type BeachSnapshot = ProceduralSnapshot
-type BeachPersistedState = ProceduralPersistedState
+
+// BeachState is the shared procedural timer/value state plus the derived
+// lifecycle contract field (computed at snapshot time, never restored).
+type BeachState struct {
+	ProceduralState
+	Lifecycle Lifecycle `json:"lifecycle"`
+}
+
+// BeachSnapshot is the client-facing wire snapshot for Beach.
+type BeachSnapshot struct {
+	BeachState
+	RNGState uint64 `json:"rngState,omitempty"`
+}
+
+// BeachPersistedState is the server-side resume state for Beach.
+type BeachPersistedState struct {
+	BeachState
+	RNGState uint64 `json:"rngState"`
+}
 
 // Beach is a dedicated sim type for the beach effect, replacing the
 // kind="beach" branch of the old Procedural type.
@@ -248,8 +264,8 @@ func (b *Beach) Snapshot() BeachSnapshot {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return BeachSnapshot{
-		ProceduralState: b.snapshotStateLocked(),
-		RNGState:        b.rng.State(),
+		BeachState: b.snapshotStateLocked(),
+		RNGState:   b.rng.State(),
 	}
 }
 
@@ -266,8 +282,8 @@ func (b *Beach) SnapshotPersistedState() BeachPersistedState {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return BeachPersistedState{
-		ProceduralState: b.snapshotStateLocked(),
-		RNGState:        b.rng.State(),
+		BeachState: b.snapshotStateLocked(),
+		RNGState:   b.rng.State(),
 	}
 }
 
@@ -280,11 +296,30 @@ func (b *Beach) RestorePersistedState(ps BeachPersistedState) {
 	}
 }
 
-func (b *Beach) snapshotStateLocked() ProceduralState {
-	return ProceduralState{
-		Tick:   b.tick,
-		Timers: cloneTimerMap(b.timers),
-		Values: cloneValueMap(b.values),
+func (b *Beach) snapshotStateLocked() BeachState {
+	return BeachState{
+		ProceduralState: ProceduralState{
+			Tick:   b.tick,
+			Timers: cloneTimerMap(b.timers),
+			Values: cloneValueMap(b.values),
+		},
+		Lifecycle: b.lifecycleLocked(),
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the intro/ending timers. Beach's outro is non-terminal: when the ending
+// timer expires the surf returns to steady state and automatic events
+// resume, so lifecycle returns to running (the schema declares
+// ending_terminal: false by omission).
+func (b *Beach) lifecycleLocked() Lifecycle {
+	switch {
+	case b.timers["intro"] > 0:
+		return LifecycleIntro
+	case b.timers["ending"] > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

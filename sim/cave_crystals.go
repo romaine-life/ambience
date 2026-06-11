@@ -243,6 +243,7 @@ type CaveCrystalsState struct {
 	EndingTicks int           `json:"endingTicks"`
 	EndingTotal int           `json:"endingTotal"`
 	EndingFade  int           `json:"endingFade"`
+	Lifecycle   Lifecycle     `json:"lifecycle"`
 	QuietTicks  int           `json:"quietTicks"`
 	RNGState    uint64        `json:"rngState,omitempty"`
 }
@@ -401,6 +402,7 @@ func (c *CaveCrystals) snapshotStateLocked() CaveCrystalsState {
 		EndingTicks: c.endingTicks,
 		EndingTotal: c.endingTotal,
 		EndingFade:  c.endingFade,
+		Lifecycle:   c.lifecycleLocked(),
 		QuietTicks:  c.quietTicks,
 		RNGState:    c.rng.State(),
 	}
@@ -418,6 +420,21 @@ func (c *CaveCrystals) snapshotStateLocked() CaveCrystalsState {
 		}
 	}
 	return out
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the field's counters. The outro is non-terminal: when the ending window
+// expires Step auto-restarts the intro, so lifecycle passes through intro
+// back to running (the schema declares ending_terminal: false by omission).
+func (c *CaveCrystals) lifecycleLocked() Lifecycle {
+	switch {
+	case c.introTicks > 0:
+		return LifecycleIntro
+	case c.endingTicks > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
+	}
 }
 
 func (c *CaveCrystals) restoreStateLocked(s CaveCrystalsState) {

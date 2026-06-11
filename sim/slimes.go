@@ -44,13 +44,13 @@ type SlimesConfig struct {
 	GrassHeight float64 `json:"grass_h"`
 	GrassDens   float64 `json:"grass_dens"`
 	// LEVERS — physics
-	HopPower    float64 `json:"hop_power"`
-	HopJitter   float64 `json:"hop_jit"`
-	HopForward  float64 `json:"hop_fwd"`
-	Gravity     float64 `json:"gravity"`
-	HopChance   float64 `json:"hop_p"`
-	SquashDur   int     `json:"squash_dur"`
-	DriftHome   float64 `json:"drift_home"`
+	HopPower   float64 `json:"hop_power"`
+	HopJitter  float64 `json:"hop_jit"`
+	HopForward float64 `json:"hop_fwd"`
+	Gravity    float64 `json:"gravity"`
+	HopChance  float64 `json:"hop_p"`
+	SquashDur  int     `json:"squash_dur"`
+	DriftHome  float64 `json:"drift_home"`
 	// LEVERS — color
 	SlimeHue   float64 `json:"slime_hue"`
 	HueSpread  float64 `json:"hue_sp"`
@@ -261,16 +261,17 @@ func SlimesSchema() EffectSchema {
 
 // SlimesState is the scalar wire/persisted snapshot of the meadow timers.
 type SlimesState struct {
-	Tick        int `json:"tick"`
-	IntroTicks  int `json:"introTicks"`
-	IntroTotal  int `json:"introTotal"`
-	EndingTicks int `json:"endingTicks"`
-	EndingTotal int `json:"endingTotal"`
-	EndingFade  int `json:"endingFade"`
-	WaveTicks   int `json:"waveTicks"`
-	WaveTotal   int `json:"waveTotal"`
-	CalmTicks   int `json:"calmTicks"`
-	BigHopTicks int `json:"bigHopTicks"`
+	Tick        int       `json:"tick"`
+	IntroTicks  int       `json:"introTicks"`
+	IntroTotal  int       `json:"introTotal"`
+	EndingTicks int       `json:"endingTicks"`
+	EndingTotal int       `json:"endingTotal"`
+	Lifecycle   Lifecycle `json:"lifecycle"`
+	EndingFade  int       `json:"endingFade"`
+	WaveTicks   int       `json:"waveTicks"`
+	WaveTotal   int       `json:"waveTotal"`
+	CalmTicks   int       `json:"calmTicks"`
+	BigHopTicks int       `json:"bigHopTicks"`
 }
 
 // Slime is the serializable shape of one slime in the meadow.
@@ -453,11 +454,28 @@ func (s *Slimes) snapshotStateLocked() SlimesState {
 		IntroTotal:  s.introTotal,
 		EndingTicks: s.endingTicks,
 		EndingTotal: s.endingTotal,
+		Lifecycle:   s.lifecycleLocked(),
 		EndingFade:  s.endingFade,
 		WaveTicks:   s.waveTicks,
 		WaveTotal:   s.waveTotal,
 		CalmTicks:   s.calmTicks,
 		BigHopTicks: s.bigHopTicks,
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the meadow's internal counters. The outro is non-terminal: when
+// endingTicks expires Step auto-restarts the intro, so lifecycle walks
+// ending -> intro -> running (the schema declares ending_terminal: false by
+// omission).
+func (s *Slimes) lifecycleLocked() Lifecycle {
+	switch {
+	case s.introTicks > 0:
+		return LifecycleIntro
+	case s.endingTicks > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 
@@ -804,4 +822,3 @@ func (s *Slimes) advanceSlimesLocked() {
 		}
 	}
 }
-

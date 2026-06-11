@@ -307,6 +307,39 @@ finalize() {
       return 0
     fi
 
+    # Terminal lifecycle claims assert the closed lifecycle contract
+    # (ambience#174). The retired terminal_state_path/terminal_state_equals
+    # fields probed effect-internal state names and are rejected outright;
+    # terminal_lifecycle must be one of the enum values.
+    local invalid_terminal
+    invalid_terminal="$(
+      jq -r '
+        (.required_evidence // [])[]
+        | (.terminal_lifecycle // null) as $tl
+        | select(
+            has("terminal_state_path") or has("terminal_state_equals")
+            or (has("terminal_lifecycle") and (
+                 ($tl | type) != "string"
+                 or ((["intro", "running", "ending", "ended"] | index($tl)) == null)
+               ))
+          )
+        | (.id // "<missing-id>")
+      ' "$TEST_PLAN_JSON" 2>/dev/null || printf 'jq_error:terminal_lifecycle_guard'
+    )"
+    if [ -n "$(printf '%s\n' "$invalid_terminal" | sed '/^$/d')" ]; then
+      jq -n \
+        --argjson invalid "$(printf '%s\n' "$invalid_terminal" | sed '/^$/d' | jq -R . | jq -s .)" \
+        '{
+          schema_version: 1,
+          status: "fail",
+          abort_reason: "invalid_terminal_lifecycle",
+          summary: "Test plan used retired terminal_state_path/terminal_state_equals or an invalid terminal_lifecycle. Terminal claims assert the lifecycle contract: terminal_lifecycle one of intro|running|ending|ended.",
+          invalid_terminal_lifecycle_cases: $invalid
+        }' >"$TEST_PLAN_JSON"
+      printf '1\n' >"$PLAN_EXIT_CODE_FILE"
+      return 0
+    fi
+
     # session_config must be a flat object of numeric knob overrides. Knob
     # names are validated against the live effect schema at verify time;
     # shape problems fail here so a malformed plan never reaches a verifier.

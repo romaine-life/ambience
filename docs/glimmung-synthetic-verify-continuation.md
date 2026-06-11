@@ -359,7 +359,7 @@ non-media evidence kind. Go tests are PR CI checks.
 
 That run proved the JSON-artifact workaround was the wrong finish-out shape.
 Terminal lifecycle observation JSON remains valid only as supporting evidence
-attached to a `video` case that declares `terminal_state_path`; it is not a
+attached to a `video` case that declares `terminal_lifecycle`; it is not a
 standalone touchpoint artifact for deterministic checks.
 
 One more discovered runtime gap: the verifier agent container did not have

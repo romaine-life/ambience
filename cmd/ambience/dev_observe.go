@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"image/png"
 	"net/http"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -31,14 +30,18 @@ type devObservation struct {
 }
 
 type devObserveRequest struct {
-	Effect      string
-	Session     string
-	Trigger     string
-	WaitEvent   string
-	StatePath   string
-	StateEquals string
-	MaxTicks    int
-	HoldTicks   int
+	Effect    string
+	Session   string
+	Trigger   string
+	WaitEvent string
+	// Lifecycle is the state predicate: observe until the session's
+	// effect reports this lifecycle value (sim.Lifecycle closed enum)
+	// and it holds for HoldTicks. This replaced the retired raw
+	// state_path/state_equals JSON probing — lifecycle claims assert the
+	// contract, not effect-internal field names (ambience#174).
+	Lifecycle string
+	MaxTicks  int
+	HoldTicks int
 }
 
 type devObserveResponse struct {
@@ -56,8 +59,7 @@ type devObserveResponse struct {
 	HoldTicks     int             `json:"holdTicks"`
 	Trigger       string          `json:"trigger,omitempty"`
 	WaitEvent     string          `json:"waitEvent,omitempty"`
-	StatePath     string          `json:"statePath,omitempty"`
-	StateEquals   string          `json:"stateEquals,omitempty"`
+	Lifecycle     string          `json:"lifecycle,omitempty"`
 	Applied       bool            `json:"applied"`
 	Observed      bool            `json:"observed"`
 	MatchedEvents []appliedEvent  `json:"matchedEvents,omitempty"`
@@ -125,20 +127,26 @@ func serveDevSessionFrame(w http.ResponseWriter, req *http.Request) {
 func parseDevObserveRequest(req *http.Request, effect, session string) (devObserveRequest, error) {
 	q := req.URL.Query()
 	out := devObserveRequest{
-		Effect:      effect,
-		Session:     session,
-		Trigger:     strings.TrimSpace(q.Get("trigger")),
-		WaitEvent:   strings.TrimSpace(q.Get("wait_event")),
-		StatePath:   strings.TrimSpace(q.Get("state_path")),
-		StateEquals: strings.TrimSpace(q.Get("state_equals")),
-		MaxTicks:    parseBoundedInt(q.Get("max_ticks"), defaultObserveMaxTicks, 1, maxObserveTicks),
-		HoldTicks:   parseBoundedInt(q.Get("hold_ticks"), 0, 0, maxObserveHoldTicks),
+		Effect:    effect,
+		Session:   session,
+		Trigger:   strings.TrimSpace(q.Get("trigger")),
+		WaitEvent: strings.TrimSpace(q.Get("wait_event")),
+		Lifecycle: strings.TrimSpace(q.Get("lifecycle")),
+		MaxTicks:  parseBoundedInt(q.Get("max_ticks"), defaultObserveMaxTicks, 1, maxObserveTicks),
+		HoldTicks: parseBoundedInt(q.Get("hold_ticks"), 0, 0, maxObserveHoldTicks),
 	}
-	if out.WaitEvent == "" && out.StatePath == "" && out.Trigger == "" {
-		return out, fmt.Errorf("one of trigger, wait_event, or state_path is required")
+	if q.Get("state_path") != "" || q.Get("state_equals") != "" {
+		return out, fmt.Errorf("state_path/state_equals were retired: lifecycle claims assert the lifecycle contract (lifecycle=intro|running|ending|ended), not effect-internal state fields")
 	}
-	if out.StatePath != "" && out.StateEquals == "" {
-		out.StateEquals = "true"
+	if out.WaitEvent == "" && out.Lifecycle == "" && out.Trigger == "" {
+		return out, fmt.Errorf("one of trigger, wait_event, or lifecycle is required")
+	}
+	if out.Lifecycle != "" {
+		switch sim.Lifecycle(out.Lifecycle) {
+		case sim.LifecycleIntro, sim.LifecycleRunning, sim.LifecycleEnding, sim.LifecycleEnded:
+		default:
+			return out, fmt.Errorf("unknown lifecycle %q: must be one of intro, running, ending, ended", out.Lifecycle)
+		}
 	}
 	return out, nil
 }
@@ -199,11 +207,8 @@ func (s *devSession) observe(ctx context.Context, params devObserveRequest) (dev
 }
 
 func observeStatePredicateMet(snap devSnapshotData, params devObserveRequest) (bool, error) {
-	if params.StatePath != "" {
-		ok, err := statePredicateMet(snap.State, params.StatePath, params.StateEquals)
-		if err != nil || !ok {
-			return ok, err
-		}
+	if params.Lifecycle != "" && snap.Lifecycle != sim.Lifecycle(params.Lifecycle) {
+		return false, nil
 	}
 	return true, nil
 }
@@ -224,56 +229,6 @@ func hasAppliedEvent(events []appliedEvent, event string, minTick int) bool {
 		}
 	}
 	return false
-}
-
-func statePredicateMet(raw json.RawMessage, path, wantRaw string) (bool, error) {
-	got, ok, err := lookupJSONPath(raw, path)
-	if err != nil || !ok {
-		return false, err
-	}
-	want, err := parseJSONComparable(wantRaw)
-	if err != nil {
-		return false, err
-	}
-	return jsonComparableEqual(got, want), nil
-}
-
-func lookupJSONPath(raw json.RawMessage, path string) (any, bool, error) {
-	var node any
-	if err := json.Unmarshal(raw, &node); err != nil {
-		return nil, false, err
-	}
-	current := node
-	for _, part := range strings.Split(path, ".") {
-		if part == "" {
-			return nil, false, nil
-		}
-		obj, ok := current.(map[string]any)
-		if !ok {
-			return nil, false, nil
-		}
-		current, ok = obj[part]
-		if !ok {
-			return nil, false, nil
-		}
-	}
-	return current, true, nil
-}
-
-func parseJSONComparable(raw string) (any, error) {
-	raw = strings.TrimSpace(raw)
-	var out any
-	if err := json.Unmarshal([]byte(raw), &out); err == nil {
-		return out, nil
-	}
-	return raw, nil
-}
-
-func jsonComparableEqual(left, right any) bool {
-	if reflect.DeepEqual(left, right) {
-		return true
-	}
-	return fmt.Sprint(left) == fmt.Sprint(right)
 }
 
 func (s *devSession) storeObservation(params devObserveRequest, startTick, observedTick int, applied bool, matched []appliedEvent, snap devSnapshotData) devObserveResponse {
@@ -306,8 +261,7 @@ func (s *devSession) storeObservation(params devObserveRequest, startTick, obser
 		HoldTicks:     params.HoldTicks,
 		Trigger:       params.Trigger,
 		WaitEvent:     params.WaitEvent,
-		StatePath:     params.StatePath,
-		StateEquals:   params.StateEquals,
+		Lifecycle:     params.Lifecycle,
 		Applied:       applied,
 		Observed:      true,
 		MatchedEvents: matched,

@@ -14,15 +14,24 @@ import (
 // in its own dedicated Go file instead of mutating a 3000-line shared file.
 type SnowConfig = ProceduralConfig
 
-// SnowState mirrors ProceduralState; kept as an alias so snapshot wire
-// shapes stay byte-identical with the legacy Procedural type.
-type SnowState = ProceduralState
+// SnowState is the shared procedural timers/values state plus the derived
+// lifecycle observer field (recomputed at snapshot time, ignored on restore).
+type SnowState struct {
+	ProceduralState
+	Lifecycle Lifecycle `json:"lifecycle"`
+}
 
 // SnowSnapshot is the wire shape returned by Snapshot().
-type SnowSnapshot = ProceduralSnapshot
+type SnowSnapshot struct {
+	SnowState
+	RNGState uint64 `json:"rngState,omitempty"`
+}
 
 // SnowPersistedState is the on-disk shape returned by SnapshotPersistedState().
-type SnowPersistedState = ProceduralPersistedState
+type SnowPersistedState struct {
+	SnowState
+	RNGState uint64 `json:"rngState"`
+}
 
 // Snow is a dedicated sim type for the snow effect, replacing the kind="snow"
 // branch of the old Procedural type.
@@ -231,8 +240,8 @@ func (s *Snow) Snapshot() SnowSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return SnowSnapshot{
-		ProceduralState: s.snapshotStateLocked(),
-		RNGState:        s.rng.State(),
+		SnowState: s.snapshotStateLocked(),
+		RNGState:  s.rng.State(),
 	}
 }
 
@@ -249,8 +258,8 @@ func (s *Snow) SnapshotPersistedState() SnowPersistedState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return SnowPersistedState{
-		ProceduralState: s.snapshotStateLocked(),
-		RNGState:        s.rng.State(),
+		SnowState: s.snapshotStateLocked(),
+		RNGState:  s.rng.State(),
 	}
 }
 
@@ -263,11 +272,29 @@ func (s *Snow) RestorePersistedState(ps SnowPersistedState) {
 	}
 }
 
-func (s *Snow) snapshotStateLocked() ProceduralState {
-	return ProceduralState{
-		Tick:   s.tick,
-		Timers: cloneTimerMap(s.timers),
-		Values: cloneValueMap(s.values),
+func (s *Snow) snapshotStateLocked() SnowState {
+	return SnowState{
+		ProceduralState: ProceduralState{
+			Tick:   s.tick,
+			Timers: cloneTimerMap(s.timers),
+			Values: cloneValueMap(s.values),
+		},
+		Lifecycle: s.lifecycleLocked(),
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the snowfall's internal timers. The outro is non-terminal: once
+// timers["ending"] expires, automatic events resume, so lifecycle returns to
+// running (the schema declares ending_terminal: false by omission).
+func (s *Snow) lifecycleLocked() Lifecycle {
+	switch {
+	case s.timers["intro"] > 0:
+		return LifecycleIntro
+	case s.timers["ending"] > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 
