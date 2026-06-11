@@ -20,7 +20,7 @@ image:
   # notably Glimmung-managed test slots — always default to the same
   # image prod is running. Quote so all-digit short SHAs aren't
   # reformatted as scientific notation by YAML.
-  tag: "app-15dfebc97044ff4459efd578bfc920a9ed2405928901d4d5f3f88ac42a5874ef"
+  tag: "app-e7fb5ee145e25987ffbcb280f090984b39d57db9227b6be02426300a72b788ce"
   pullPolicy: Always
 
 domain:
