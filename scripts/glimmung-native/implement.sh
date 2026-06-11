@@ -138,22 +138,6 @@ prepare_context() {
   export GITHUB_PROXY_IP
   printf '%s\n' "$GITHUB_PROXY_IP" >"$GITHUB_PROXY_IP_FILE"
 
-  local dest="/tmp/agent-prompt-context.md"
-  : >"$dest"
-  {
-    echo "# Glimmung issue ${ISSUE_REFERENCE}: ${ISSUE_TITLE}"
-    echo "URL: ${ISSUE_URL}"
-    echo "Validation env: ${VALIDATION_URL}"
-    echo "Glimmung run: ${GLIMMUNG_RUN_ID}"
-    echo "Glimmung attempt index: ${ATTEMPT_INDEX:-unknown}"
-    if [ -n "${GLIMMUNG_ISSUE_BODY:-}" ]; then
-      echo ""
-      echo "## Issue body"
-      echo ""
-      printf '%s\n' "$GLIMMUNG_ISSUE_BODY"
-    fi
-  } >>"$dest"
-
   # Stage the GitHub token the implementation agent Job mounts as
   # GITHUB_TOKEN_FILE — used to push its branch and read its draft PR's CI.
   # Mirrors the other agent stages (issue-contract/test-plan/verify). Branch

@@ -95,25 +95,6 @@ prepare_context() {
   export PROXY_IP
   printf '%s\n' "$PROXY_IP" >"$PROXY_IP_FILE"
 
-  write_prompt_context() {
-    local dest="/tmp/agent-prompt-context.md"
-    : >"$dest"
-    {
-      echo "# Glimmung issue ${ISSUE_REFERENCE}: ${ISSUE_TITLE}"
-      echo "URL: ${ISSUE_URL}"
-      echo "Validation env: ${VALIDATION_URL}"
-      echo "Glimmung run: ${GLIMMUNG_RUN_ID}"
-      echo "Glimmung attempt index: ${ATTEMPT_INDEX:-unknown}"
-      if [ -n "${GLIMMUNG_ISSUE_BODY:-}" ]; then
-        echo ""
-        echo "## Issue body"
-        echo ""
-        printf '%s\n' "$GLIMMUNG_ISSUE_BODY"
-      fi
-    } >>"$dest"
-  }
-  write_prompt_context
-
   prepare_agent_github_token() {
     local token
     token="$(native_github_token)"

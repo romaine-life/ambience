@@ -182,22 +182,6 @@ prepare_context() {
   export CODEX_PROXY_IP
   printf '%s\n' "$CODEX_PROXY_IP" >"$CODEX_PROXY_IP_FILE"
 
-  local dest="/tmp/agent-prompt-context.md"
-  : >"$dest"
-  {
-    echo "# Glimmung issue ${ISSUE_REFERENCE}: ${ISSUE_TITLE}"
-    echo "URL: ${ISSUE_URL}"
-    echo "Validation env: ${VALIDATION_URL}"
-    echo "Glimmung run: ${GLIMMUNG_RUN_ID}"
-    echo "Glimmung attempt index: ${ATTEMPT_INDEX:-unknown}"
-    if [ -n "${GLIMMUNG_ISSUE_BODY:-}" ]; then
-      echo ""
-      echo "## Issue body"
-      echo ""
-      printf '%s\n' "$GLIMMUNG_ISSUE_BODY"
-    fi
-  } >>"$dest"
-
   local token
   token="$(native_github_token)"
   kubectl -n "$NAMESPACE" create secret generic agent-github-token \
