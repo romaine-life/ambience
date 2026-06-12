@@ -9,9 +9,23 @@ import (
 )
 
 type TrainConfig = ProceduralConfig
-type TrainState = ProceduralState
-type TrainSnapshot = ProceduralSnapshot
-type TrainPersistedState = ProceduralPersistedState
+
+// TrainState is the shared procedural state plus the lifecycle observer
+// contract field. Lifecycle is derived at snapshot time and never restored.
+type TrainState struct {
+	ProceduralState
+	Lifecycle Lifecycle `json:"lifecycle"`
+}
+
+type TrainSnapshot struct {
+	TrainState
+	RNGState uint64 `json:"rngState,omitempty"`
+}
+
+type TrainPersistedState struct {
+	TrainState
+	RNGState uint64 `json:"rngState"`
+}
 
 // Train is a dedicated sim type for the train effect: a horizontal locomotive
 // pull that crosses the frame at long intervals, with the horizon mostly
@@ -258,8 +272,8 @@ func (t *Train) Snapshot() TrainSnapshot {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return TrainSnapshot{
-		ProceduralState: t.snapshotStateLocked(),
-		RNGState:        t.rng.State(),
+		TrainState: t.snapshotStateLocked(),
+		RNGState:   t.rng.State(),
 	}
 }
 
@@ -276,8 +290,8 @@ func (t *Train) SnapshotPersistedState() TrainPersistedState {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return TrainPersistedState{
-		ProceduralState: t.snapshotStateLocked(),
-		RNGState:        t.rng.State(),
+		TrainState: t.snapshotStateLocked(),
+		RNGState:   t.rng.State(),
 	}
 }
 
@@ -290,11 +304,29 @@ func (t *Train) RestorePersistedState(ps TrainPersistedState) {
 	}
 }
 
-func (t *Train) snapshotStateLocked() ProceduralState {
-	return ProceduralState{
-		Tick:   t.tick,
-		Timers: cloneTimerMap(t.timers),
-		Values: cloneValueMap(t.values),
+func (t *Train) snapshotStateLocked() TrainState {
+	return TrainState{
+		ProceduralState: ProceduralState{
+			Tick:   t.tick,
+			Timers: cloneTimerMap(t.timers),
+			Values: cloneValueMap(t.values),
+		},
+		Lifecycle: t.lifecycleLocked(),
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// train's timers. The outro is non-terminal: once the ending timer expires,
+// automatic pass/express/quiet rolls resume, so lifecycle returns to running
+// (the schema declares ending_terminal: false by omission).
+func (t *Train) lifecycleLocked() Lifecycle {
+	switch {
+	case t.timers["intro"] > 0:
+		return LifecycleIntro
+	case t.timers["ending"] > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

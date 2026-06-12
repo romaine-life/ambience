@@ -289,6 +289,7 @@ type TetrisState struct {
 	EndingTicks    int                `json:"endingTicks"`
 	EndingTotal    int                `json:"endingTotal"`
 	EndingFade     int                `json:"endingFade"`
+	Lifecycle      Lifecycle          `json:"lifecycle"`
 	RNGState       uint32             `json:"rngState"`
 }
 
@@ -759,7 +760,25 @@ func (t *Tetris) snapshotStateLocked() TetrisState {
 		EndingTicks:    t.endingTicks,
 		EndingTotal:    t.endingTotal,
 		EndingFade:     t.endingFade,
+		Lifecycle:      t.lifecycleLocked(),
 		RNGState:       t.seqState,
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// tetris's internal counters. The ending phase is the lose-state hold (fade +
+// linger); it is non-terminal because Step auto-restarts the well through the
+// intro the moment the hold expires, so lifecycle walks ending -> intro ->
+// running and never holds a terminal look (the schema declares
+// ending_terminal: false by omission).
+func (t *Tetris) lifecycleLocked() Lifecycle {
+	switch {
+	case t.introTicks > 0:
+		return LifecycleIntro
+	case t.endingTicks > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

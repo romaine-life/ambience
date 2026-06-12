@@ -9,9 +9,27 @@ import (
 )
 
 type LighthouseConfig = ProceduralConfig
-type LighthouseState = ProceduralState
-type LighthouseSnapshot = ProceduralSnapshot
-type LighthousePersistedState = ProceduralPersistedState
+
+// LighthouseState is the shared procedural timers/values state plus the
+// derived lifecycle observer field (recomputed at snapshot time, ignored on
+// restore).
+type LighthouseState struct {
+	ProceduralState
+	Lifecycle Lifecycle `json:"lifecycle"`
+}
+
+// LighthouseSnapshot is the wire shape returned by Snapshot().
+type LighthouseSnapshot struct {
+	LighthouseState
+	RNGState uint64 `json:"rngState,omitempty"`
+}
+
+// LighthousePersistedState is the on-disk shape returned by
+// SnapshotPersistedState().
+type LighthousePersistedState struct {
+	LighthouseState
+	RNGState uint64 `json:"rngState"`
+}
 
 // Lighthouse is a dedicated sim type for the lighthouse effect.
 type Lighthouse struct {
@@ -250,7 +268,7 @@ func (l *Lighthouse) Snapshot() LighthouseSnapshot {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return LighthouseSnapshot{
-		ProceduralState: l.snapshotStateLocked(),
+		LighthouseState: l.snapshotStateLocked(),
 		RNGState:        l.rng.State(),
 	}
 }
@@ -268,7 +286,7 @@ func (l *Lighthouse) SnapshotPersistedState() LighthousePersistedState {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return LighthousePersistedState{
-		ProceduralState: l.snapshotStateLocked(),
+		LighthouseState: l.snapshotStateLocked(),
 		RNGState:        l.rng.State(),
 	}
 }
@@ -282,11 +300,29 @@ func (l *Lighthouse) RestorePersistedState(ps LighthousePersistedState) {
 	}
 }
 
-func (l *Lighthouse) snapshotStateLocked() ProceduralState {
-	return ProceduralState{
-		Tick:   l.tick,
-		Timers: cloneTimerMap(l.timers),
-		Values: cloneValueMap(l.values),
+func (l *Lighthouse) snapshotStateLocked() LighthouseState {
+	return LighthouseState{
+		ProceduralState: ProceduralState{
+			Tick:   l.tick,
+			Timers: cloneTimerMap(l.timers),
+			Values: cloneValueMap(l.values),
+		},
+		Lifecycle: l.lifecycleLocked(),
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the lighthouse's internal timers. The outro is non-terminal: once
+// timers["ending"] expires, automatic events resume, so lifecycle returns to
+// running (the schema declares ending_terminal: false by omission).
+func (l *Lighthouse) lifecycleLocked() Lifecycle {
+	switch {
+	case l.timers["intro"] > 0:
+		return LifecycleIntro
+	case l.timers["ending"] > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

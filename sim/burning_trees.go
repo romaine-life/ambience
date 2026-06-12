@@ -283,19 +283,20 @@ func BurningTreesSchema() EffectSchema {
 
 // BurningTreesState is the wire/persisted snapshot of the burn row.
 type BurningTreesState struct {
-	Tick        int     `json:"tick"`
-	States      []byte  `json:"states"`
-	PhaseLeft   []int   `json:"phaseLeft"`
-	PhaseTotal  []int   `json:"phaseTotal"`
-	IntroTicks  int     `json:"introTicks"`
-	IntroTotal  int     `json:"introTotal"`
-	EndingTicks int     `json:"endingTicks"`
-	EndingTotal int     `json:"endingTotal"`
-	EndingFade  int     `json:"endingFade"`
-	FlareTicks  int     `json:"flareTicks"`
-	FlareGain   float64 `json:"flareGain"`
-	LullTicks   int     `json:"lullTicks"`
-	RNGState    uint64  `json:"rngState,omitempty"`
+	Tick        int       `json:"tick"`
+	States      []byte    `json:"states"`
+	PhaseLeft   []int     `json:"phaseLeft"`
+	PhaseTotal  []int     `json:"phaseTotal"`
+	IntroTicks  int       `json:"introTicks"`
+	IntroTotal  int       `json:"introTotal"`
+	EndingTicks int       `json:"endingTicks"`
+	EndingTotal int       `json:"endingTotal"`
+	EndingFade  int       `json:"endingFade"`
+	Lifecycle   Lifecycle `json:"lifecycle"`
+	FlareTicks  int       `json:"flareTicks"`
+	FlareGain   float64   `json:"flareGain"`
+	LullTicks   int       `json:"lullTicks"`
+	RNGState    uint64    `json:"rngState,omitempty"`
 }
 
 type BurningTreesSnapshot struct {
@@ -445,6 +446,7 @@ func (b *BurningTrees) snapshotStateLocked(includeRNG bool) BurningTreesState {
 		EndingTicks: b.endingTicks,
 		EndingTotal: b.endingTotal,
 		EndingFade:  b.endingFade,
+		Lifecycle:   b.lifecycleLocked(),
 		FlareTicks:  b.flareTicks,
 		FlareGain:   b.flareGain,
 		LullTicks:   b.lullTicks,
@@ -453,6 +455,21 @@ func (b *BurningTrees) snapshotStateLocked(includeRNG bool) BurningTreesState {
 		out.RNGState = b.rng.State()
 	}
 	return out
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the burn row's counters. The outro is non-terminal: when the ending window
+// expires Step auto-restarts the intro, so lifecycle passes through intro
+// back to running (the schema declares ending_terminal: false by omission).
+func (b *BurningTrees) lifecycleLocked() Lifecycle {
+	switch {
+	case b.introTicks > 0:
+		return LifecycleIntro
+	case b.endingTicks > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
+	}
 }
 
 func (b *BurningTrees) restoreStateLocked(s BurningTreesState) {

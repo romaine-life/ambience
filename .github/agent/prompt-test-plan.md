@@ -96,10 +96,16 @@ verification case. Use no more than 10 entries. Each entry has an `id`, a
   `/dev/trigger/<session>/<event>?effect=<effect>` before recording),
   `session_config` (knob overrides pinned onto the case's session — see
   "Verification environment contract"), `expected_text`, and for terminal
-  lifecycle checks `terminal_state_path`, `terminal_state_equals`,
-  `hold_ticks`, and `max_ticks`. Use terminal fields when the evidence
-  claims a final held state, so verification can prove the trigger reached
-  the session and the state predicate held before judging the frozen frame.
+  lifecycle checks `terminal_lifecycle` (one of `intro`, `running`,
+  `ending`, `ended`), `hold_ticks`, and `max_ticks`. Lifecycle claims
+  assert the effect-generic lifecycle contract surfaced in dev snapshots —
+  never effect-internal state field names (those were retired). Use
+  `terminal_lifecycle: "ended"` ONLY when the effect schema declares
+  `ending_terminal: true`; effects without it resume after the outro, so
+  the post-outro claim is `terminal_lifecycle: "running"`. Use terminal
+  fields when the evidence claims a final held state, so verification can
+  prove the trigger reached the session and the lifecycle held before
+  judging the frozen frame.
 - **`screenshot`**: pages whose final/static rendering should be inspected.
   Required fields: `id`, `url_path` (the path under `$VALIDATION_URL`
   to capture, e.g. `/dev/distant-storm`), `must_show` (one-sentence

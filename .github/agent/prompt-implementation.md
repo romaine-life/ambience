@@ -112,7 +112,7 @@ Glimmung selects the concrete provider/model for this invocation through the
   "behavior_evidence": {
     "lifecycle_assertions": "pass: TestMagicPortalEndingTerminal — gate stays dark past outro expiry",
     "visual_selfcheck": "localhost /dev/magic-portal ending: final frame gate dark, matches contract resting_state",
-    "terminal_observer": "pass: /dev/observe trigger=ending state_path=gateDark state_equals=true hold_ticks=12"
+    "terminal_observer": "pass: /dev/observe trigger=ending lifecycle=ended hold_ticks=12"
   }
 }
 ```

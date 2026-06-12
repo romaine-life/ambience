@@ -29,12 +29,22 @@ const effect = readArg("--effect", "rain");
 const session = readArg("--session", "observe");
 const trigger = readArg("--trigger");
 const waitEvent = readArg("--wait-event");
-const statePath = readArg("--state-path");
-const stateEquals = readArg("--state-equals");
+// Lifecycle predicate: observe until the session reports this lifecycle
+// value (intro | running | ending | ended) and it holds for --hold-ticks.
+// This replaced the retired --state-path/--state-equals raw state probing —
+// lifecycle claims assert the contract, not effect-internal field names
+// (ambience#174).
+const lifecycle = readArg("--lifecycle");
 const maxTicks = readArg("--max-ticks");
 const holdTicks = readArg("--hold-ticks");
 const output = readArg("--output");
 const screenshot = readArg("--screenshot");
+
+if (readArg("--state-path") || readArg("--state-equals")) {
+  throw new Error(
+    "--state-path/--state-equals were retired: assert the lifecycle contract with --lifecycle intro|running|ending|ended (ambience#174)",
+  );
+}
 
 if (!baseUrl) {
   throw new Error("--base-url or VALIDATION_URL is required");
@@ -48,14 +58,13 @@ observeUrl.searchParams.set("effect", effect);
 observeUrl.searchParams.set("session", session);
 appendIf(observeUrl.searchParams, "trigger", trigger);
 appendIf(observeUrl.searchParams, "wait_event", waitEvent);
-appendIf(observeUrl.searchParams, "state_path", statePath);
-appendIf(observeUrl.searchParams, "state_equals", stateEquals);
+appendIf(observeUrl.searchParams, "lifecycle", lifecycle);
 appendIf(observeUrl.searchParams, "max_ticks", maxTicks);
 appendIf(observeUrl.searchParams, "hold_ticks", holdTicks);
 
 const response = await fetch(observeUrl, { method: "POST" });
 if (!response.ok) {
-  throw new Error(`observe failed ${response.status()}: ${await response.text()}`);
+  throw new Error(`observe failed ${response.status}: ${await response.text()}`);
 }
 const payload = await response.json();
 
@@ -71,7 +80,7 @@ if (screenshot) {
   const frameUrl = new URL(payload.frameUrl, baseUrl);
   const frameResponse = await fetch(frameUrl);
   if (!frameResponse.ok) {
-    throw new Error(`frame fetch failed ${frameResponse.status()}: ${await frameResponse.text()}`);
+    throw new Error(`frame fetch failed ${frameResponse.status}: ${await frameResponse.text()}`);
   }
   const shot = path.resolve(screenshot);
   await mkdir(path.dirname(shot), { recursive: true });

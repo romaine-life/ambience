@@ -12,17 +12,39 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/romaine-life/ambience/sim"
 )
 
 type devSnapshotData struct {
-	Type          string          `json:"type"`
-	Tick          int             `json:"tick"`
-	Config        json.RawMessage `json:"config"`
-	State         json.RawMessage `json:"state"`
-	Seed          int64           `json:"seed"`
-	GridW         int             `json:"gridW"`
-	GridH         int             `json:"gridH"`
-	AppliedEvents []appliedEvent  `json:"appliedEvents"`
+	Type   string          `json:"type"`
+	Tick   int             `json:"tick"`
+	Config json.RawMessage `json:"config"`
+	State  json.RawMessage `json:"state"`
+	// Lifecycle is the effect-generic intro/running/ending/ended contract
+	// (sim.Lifecycle), surfaced top-level so observers assert against the
+	// closed enum instead of effect-internal state fields. Extracted from
+	// the effect state's `lifecycle` field; effects without an intro/outro
+	// arc report "running".
+	Lifecycle     sim.Lifecycle  `json:"lifecycle"`
+	Seed          int64          `json:"seed"`
+	GridW         int            `json:"gridW"`
+	GridH         int            `json:"gridH"`
+	AppliedEvents []appliedEvent `json:"appliedEvents"`
+}
+
+// lifecycleFromState reads the contract field out of an effect's serialized
+// snapshot state. Effects without the field are steady-state-only and report
+// LifecycleRunning; the registry test in effects_lifecycle_test.go keeps
+// every intro/ending-capable effect honest about publishing it.
+func lifecycleFromState(state json.RawMessage) sim.Lifecycle {
+	var probe struct {
+		Lifecycle sim.Lifecycle `json:"lifecycle"`
+	}
+	if len(state) == 0 || json.Unmarshal(state, &probe) != nil || probe.Lifecycle == "" {
+		return sim.LifecycleRunning
+	}
+	return probe.Lifecycle
 }
 
 // appliedEvent records a lifecycle/trigger event actually applied to this dev
@@ -408,8 +430,9 @@ func (s *devSession) snapshot() devSnapshotData {
 	effectSnap, err := s.effect.Snapshot()
 	if err != nil {
 		return devSnapshotData{
-			Type: s.effect.Type(),
-			Seed: seed,
+			Type:      s.effect.Type(),
+			Lifecycle: sim.LifecycleRunning,
+			Seed:      seed,
 		}
 	}
 	return devSnapshotData{
@@ -417,6 +440,7 @@ func (s *devSession) snapshot() devSnapshotData {
 		Tick:          effectSnap.Tick,
 		Config:        cloneRaw(effectSnap.Config),
 		State:         cloneRaw(effectSnap.State),
+		Lifecycle:     lifecycleFromState(effectSnap.State),
 		Seed:          seed,
 		GridW:         effectSnap.GridW,
 		GridH:         effectSnap.GridH,

@@ -51,7 +51,7 @@ Glimmung selects the concrete provider/model for this invocation through the
      rejected with `unknown event`.
      Save under `/workspace/evidence/videos/`. Then inspect that exact
      WebM with `node /workspace/repo/scripts/agent/inspect-video.mjs`.
-     If the entry also has `terminal_state_path`, run
+     If the entry also has `terminal_lifecycle`, run
      `node /workspace/repo/scripts/agent/capture-observation.mjs` for the
      same effect/session/trigger before deciding pass/fail. That observer
      trace is the proof that the trigger reached the session and the
@@ -141,8 +141,7 @@ node /workspace/repo/scripts/agent/capture-observation.mjs \
   --effect distant-storm \
   --session "$SESSION" \
   --trigger ending \
-  --state-path endingTicks \
-  --state-equals 0 \
+  --lifecycle ended \
   --hold-ticks 12 \
   --output /workspace/evidence/observations/dev-distant-storm-ending.json \
   --screenshot /workspace/evidence/screenshots/dev-distant-storm-ending-terminal.png
@@ -225,7 +224,7 @@ include the matching `video` or `screenshot` path on that result. The
 wrapper recomputes pass/fail for the selected case — a verifier `pass`
 with a missing selected item flips to `fail` with
 `target_evidence_missing`.
-For terminal lifecycle video cases that declare `terminal_state_path`, also
+For terminal lifecycle video cases that declare `terminal_lifecycle`, also
 include `observation: "observations/<id>.json"` on the selected result; the
 wrapper rejects a terminal pass without a local observation trace whose
 `applied` and `observed` fields are true.

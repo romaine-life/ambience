@@ -134,6 +134,19 @@ whose randomized `cluster_min`/`cluster_max` was 2/23. The settled contract:
   flat numeric object (`invalid_session_config`); unknown or out-of-range
   knob keys fail at verify time with the knob named.
 
+**Lifecycle observer contract.** Terminal claims assert the effect-generic
+lifecycle enum, never effect-internal state fields: cases declare
+`terminal_lifecycle` (`intro | running | ending | ended`) + `hold_ticks`,
+and `/dev/observe` proves it (`lifecycle=` predicate). The retired
+`terminal_state_path` / `terminal_state_equals` fields fail the plan
+(`invalid_terminal_lifecycle`) — ambience#167 run 8.1 failed because a plan
+guessed `introTicks` semantics that a correct implementation did not share.
+`terminal_lifecycle: "ended"` is valid only for effects whose schema
+declares `ending_terminal: true`; non-terminal effects resume after the
+outro, so their post-outro claim is `running`. Every intro/ending-capable
+effect publishes the field (enforced by
+`cmd/ambience/effects_lifecycle_test.go`).
+
 ### Stage 2 — `run-implementation`
 
 **Goal:** Edit code only. Implement what the issue calls for while respecting

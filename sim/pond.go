@@ -14,13 +14,13 @@ import (
 // ducks stay roughly in sync even though pixel-level wake noise drifts.
 
 type pondDuck struct {
-	CX, CY      float64 // circle center in normalized [0,1] frame coords
-	Radius      float64 // circle radius in pixels
-	Angle       float64 // current angle in radians
-	AngularVel  float64 // radians per tick
-	Hue         float64 // base body hue
-	DiveLeft    int     // ticks of dive remaining (0 = on surface)
-	DiveTotal   int     // total dive duration when started
+	CX, CY     float64 // circle center in normalized [0,1] frame coords
+	Radius     float64 // circle radius in pixels
+	Angle      float64 // current angle in radians
+	AngularVel float64 // radians per tick
+	Hue        float64 // base body hue
+	DiveLeft   int     // ticks of dive remaining (0 = on surface)
+	DiveTotal  int     // total dive duration when started
 }
 
 type pondRipple struct {
@@ -45,11 +45,11 @@ type PondConfig struct {
 	WaveFreq   float64 `json:"wave_freq"`
 	RippleLife int     `json:"ripple_life"`
 	// LEVERS — ducks
-	DuckCount  int     `json:"duck_count"`
-	CircleMin  float64 `json:"circle_min"`
-	CircleMax  float64 `json:"circle_max"`
-	SwimSpeed  float64 `json:"swim_speed"`
-	WakeRate   int     `json:"wake_rate"`
+	DuckCount int     `json:"duck_count"`
+	CircleMin float64 `json:"circle_min"`
+	CircleMax float64 `json:"circle_max"`
+	SwimSpeed float64 `json:"swim_speed"`
+	WakeRate  int     `json:"wake_rate"`
 	// LEVERS — color
 	WaterHue   float64 `json:"water_hue"`
 	DuckHue    float64 `json:"duck_hue"`
@@ -63,12 +63,12 @@ type PondConfig struct {
 	GustChance  float64 `json:"gust_p"`
 	CalmChance  float64 `json:"calm_p"`
 	// EVENT MODIFIERS
-	DiveDur   int     `json:"dive_dur"`
-	QuackBurst int    `json:"quack_burst"`
-	GustDur   int     `json:"gust_dur"`
-	GustMult  float64 `json:"gust_mult"`
-	CalmDur   int     `json:"calm_dur"`
-	CalmMult  float64 `json:"calm_mult"`
+	DiveDur    int     `json:"dive_dur"`
+	QuackBurst int     `json:"quack_burst"`
+	GustDur    int     `json:"gust_dur"`
+	GustMult   float64 `json:"gust_mult"`
+	CalmDur    int     `json:"calm_dur"`
+	CalmMult   float64 `json:"calm_mult"`
 }
 
 func (c PondConfig) withDefaults() PondConfig {
@@ -275,15 +275,16 @@ type PondRipple struct {
 
 // PondState is the wire/persisted scalar shape of the pond runtime.
 type PondState struct {
-	Tick        int     `json:"tick"`
-	IntroTicks  int     `json:"introTicks"`
-	IntroTotal  int     `json:"introTotal"`
-	EndingTicks int     `json:"endingTicks"`
-	EndingTotal int     `json:"endingTotal"`
-	EndingFade  int     `json:"endingFade"`
-	GustTicks   int     `json:"gustTicks"`
-	GustGain    float64 `json:"gustGain"`
-	CalmTicks   int     `json:"calmTicks"`
+	Tick        int       `json:"tick"`
+	IntroTicks  int       `json:"introTicks"`
+	IntroTotal  int       `json:"introTotal"`
+	EndingTicks int       `json:"endingTicks"`
+	EndingTotal int       `json:"endingTotal"`
+	Lifecycle   Lifecycle `json:"lifecycle"`
+	EndingFade  int       `json:"endingFade"`
+	GustTicks   int       `json:"gustTicks"`
+	GustGain    float64   `json:"gustGain"`
+	CalmTicks   int       `json:"calmTicks"`
 }
 
 type PondSnapshot struct {
@@ -461,10 +462,26 @@ func (p *Pond) snapshotStateLocked() PondState {
 		IntroTotal:  p.introTotal,
 		EndingTicks: p.endingTicks,
 		EndingTotal: p.endingTotal,
+		Lifecycle:   p.lifecycleLocked(),
 		EndingFade:  p.endingFade,
 		GustTicks:   p.gustTicks,
 		GustGain:    p.gustGain,
 		CalmTicks:   p.calmTicks,
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the pond's internal counters. The outro is non-terminal: once endingTicks
+// expires, automatic events resume, so lifecycle returns to running (the
+// schema declares ending_terminal: false by omission).
+func (p *Pond) lifecycleLocked() Lifecycle {
+	switch {
+	case p.introTicks > 0:
+		return LifecycleIntro
+	case p.endingTicks > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

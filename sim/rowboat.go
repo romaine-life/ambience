@@ -9,9 +9,26 @@ import (
 )
 
 type RowboatConfig = ProceduralConfig
-type RowboatState = ProceduralState
-type RowboatSnapshot = ProceduralSnapshot
-type RowboatPersistedState = ProceduralPersistedState
+
+// RowboatState is the shared procedural timers/values state plus the derived
+// lifecycle observer field (recomputed at snapshot time, ignored on restore).
+type RowboatState struct {
+	ProceduralState
+	Lifecycle Lifecycle `json:"lifecycle"`
+}
+
+// RowboatSnapshot is the wire shape returned by Snapshot().
+type RowboatSnapshot struct {
+	RowboatState
+	RNGState uint64 `json:"rngState,omitempty"`
+}
+
+// RowboatPersistedState is the on-disk shape returned by
+// SnapshotPersistedState().
+type RowboatPersistedState struct {
+	RowboatState
+	RNGState uint64 `json:"rngState"`
+}
 
 // Rowboat is a dedicated sim type for the rowboat effect.
 type Rowboat struct {
@@ -256,8 +273,8 @@ func (r *Rowboat) Snapshot() RowboatSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return RowboatSnapshot{
-		ProceduralState: r.snapshotStateLocked(),
-		RNGState:        r.rng.State(),
+		RowboatState: r.snapshotStateLocked(),
+		RNGState:     r.rng.State(),
 	}
 }
 
@@ -274,8 +291,8 @@ func (r *Rowboat) SnapshotPersistedState() RowboatPersistedState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return RowboatPersistedState{
-		ProceduralState: r.snapshotStateLocked(),
-		RNGState:        r.rng.State(),
+		RowboatState: r.snapshotStateLocked(),
+		RNGState:     r.rng.State(),
 	}
 }
 
@@ -288,11 +305,29 @@ func (r *Rowboat) RestorePersistedState(ps RowboatPersistedState) {
 	}
 }
 
-func (r *Rowboat) snapshotStateLocked() ProceduralState {
-	return ProceduralState{
-		Tick:   r.tick,
-		Timers: cloneTimerMap(r.timers),
-		Values: cloneValueMap(r.values),
+func (r *Rowboat) snapshotStateLocked() RowboatState {
+	return RowboatState{
+		ProceduralState: ProceduralState{
+			Tick:   r.tick,
+			Timers: cloneTimerMap(r.timers),
+			Values: cloneValueMap(r.values),
+		},
+		Lifecycle: r.lifecycleLocked(),
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the rowboat's internal timers. The outro is non-terminal: once
+// timers["ending"] expires, automatic events resume, so lifecycle returns to
+// running (the schema declares ending_terminal: false by omission).
+func (r *Rowboat) lifecycleLocked() Lifecycle {
+	switch {
+	case r.timers["intro"] > 0:
+		return LifecycleIntro
+	case r.timers["ending"] > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

@@ -9,9 +9,23 @@ import (
 )
 
 type VolcanoConfig = ProceduralConfig
-type VolcanoState = ProceduralState
-type VolcanoSnapshot = ProceduralSnapshot
-type VolcanoPersistedState = ProceduralPersistedState
+
+// VolcanoState is the shared procedural state plus the lifecycle observer
+// contract field. Lifecycle is derived at snapshot time and never restored.
+type VolcanoState struct {
+	ProceduralState
+	Lifecycle Lifecycle `json:"lifecycle"`
+}
+
+type VolcanoSnapshot struct {
+	VolcanoState
+	RNGState uint64 `json:"rngState,omitempty"`
+}
+
+type VolcanoPersistedState struct {
+	VolcanoState
+	RNGState uint64 `json:"rngState"`
+}
 
 // Volcano is a dedicated sim type for the volcano effect.
 type Volcano struct {
@@ -256,8 +270,8 @@ func (v *Volcano) Snapshot() VolcanoSnapshot {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	return VolcanoSnapshot{
-		ProceduralState: v.snapshotStateLocked(),
-		RNGState:        v.rng.State(),
+		VolcanoState: v.snapshotStateLocked(),
+		RNGState:     v.rng.State(),
 	}
 }
 
@@ -274,8 +288,8 @@ func (v *Volcano) SnapshotPersistedState() VolcanoPersistedState {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	return VolcanoPersistedState{
-		ProceduralState: v.snapshotStateLocked(),
-		RNGState:        v.rng.State(),
+		VolcanoState: v.snapshotStateLocked(),
+		RNGState:     v.rng.State(),
 	}
 }
 
@@ -288,11 +302,29 @@ func (v *Volcano) RestorePersistedState(ps VolcanoPersistedState) {
 	}
 }
 
-func (v *Volcano) snapshotStateLocked() ProceduralState {
-	return ProceduralState{
-		Tick:   v.tick,
-		Timers: cloneTimerMap(v.timers),
-		Values: cloneValueMap(v.values),
+func (v *Volcano) snapshotStateLocked() VolcanoState {
+	return VolcanoState{
+		ProceduralState: ProceduralState{
+			Tick:   v.tick,
+			Timers: cloneTimerMap(v.timers),
+			Values: cloneValueMap(v.values),
+		},
+		Lifecycle: v.lifecycleLocked(),
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// volcano's timers. The outro is non-terminal: once the ending timer expires,
+// automatic eruption/smolder/flare rolls resume, so lifecycle returns to
+// running (the schema declares ending_terminal: false by omission).
+func (v *Volcano) lifecycleLocked() Lifecycle {
+	switch {
+	case v.timers["intro"] > 0:
+		return LifecycleIntro
+	case v.timers["ending"] > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

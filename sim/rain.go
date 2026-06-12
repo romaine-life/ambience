@@ -477,19 +477,20 @@ func (r *Rain) Resize(w, h int) {
 // State is the subset of Rain state a snapshot exposes to clients so they
 // can initialize a matching local replica.
 type State struct {
-	Tick              int     `json:"tick"`
-	DownpourTicks     int     `json:"downpourTicks"`
-	DownpourMult      float64 `json:"downpourMult"`
-	CalmTicks         int     `json:"calmTicks"`
-	GustTicks         int     `json:"gustTicks"`
-	GustWind          float64 `json:"gustWind"`
-	IntroTicks        int     `json:"introTicks"`
-	IntroTotal        int     `json:"introTotal"`
-	EndingTicks       int     `json:"endingTicks"`
-	EndingTotal       int     `json:"endingTotal"`
-	EndingFade        int     `json:"endingFade"`
-	EndingSplashLeft  int     `json:"endingSplashLeft"`
-	EndingSplashTotal int     `json:"endingSplashTotal"`
+	Tick              int       `json:"tick"`
+	DownpourTicks     int       `json:"downpourTicks"`
+	DownpourMult      float64   `json:"downpourMult"`
+	CalmTicks         int       `json:"calmTicks"`
+	GustTicks         int       `json:"gustTicks"`
+	GustWind          float64   `json:"gustWind"`
+	IntroTicks        int       `json:"introTicks"`
+	IntroTotal        int       `json:"introTotal"`
+	EndingTicks       int       `json:"endingTicks"`
+	EndingTotal       int       `json:"endingTotal"`
+	Lifecycle         Lifecycle `json:"lifecycle"`
+	EndingFade        int       `json:"endingFade"`
+	EndingSplashLeft  int       `json:"endingSplashLeft"`
+	EndingSplashTotal int       `json:"endingSplashTotal"`
 }
 
 // PersistedState is the server-side subset of Rain state needed to resume
@@ -558,9 +559,25 @@ func (r *Rain) SnapshotState() State {
 		IntroTotal:        r.introTotal,
 		EndingTicks:       r.endingTicks,
 		EndingTotal:       r.endingTotal,
+		Lifecycle:         r.lifecycleLocked(),
 		EndingFade:        r.endingFade,
 		EndingSplashLeft:  r.endingSplashLeft,
 		EndingSplashTotal: r.endingSplashTotal,
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// rain's internal counters. Rain's outro is non-terminal: once the ending
+// fade completes, automatic events resume, so lifecycle returns to running
+// (the schema declares ending_terminal: false by omission).
+func (r *Rain) lifecycleLocked() Lifecycle {
+	switch {
+	case r.introTicks > 0:
+		return LifecycleIntro
+	case r.endingTicks > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 
@@ -679,6 +696,7 @@ func (r *Rain) snapshotStateLocked() State {
 		IntroTotal:        r.introTotal,
 		EndingTicks:       r.endingTicks,
 		EndingTotal:       r.endingTotal,
+		Lifecycle:         r.lifecycleLocked(),
 		EndingFade:        r.endingFade,
 		EndingSplashLeft:  r.endingSplashLeft,
 		EndingSplashTotal: r.endingSplashTotal,

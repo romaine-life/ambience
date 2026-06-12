@@ -194,6 +194,9 @@ func (c MagicPortalConfig) withDefaults() MagicPortalConfig {
 func MagicPortalSchema() EffectSchema {
 	return EffectSchema{
 		Name: "magic-portal",
+		// The ending resolves to a held dark gate (gateDark) until an
+		// intro relights it — the catalog's terminal outro.
+		EndingTerminal: true,
 		Knobs: []Knob{
 			{Key: "intro_event", Label: "intro", Slot: SlotSpawn, Group: "introduction", Type: KnobInt, Min: 0, Max: 1, Step: 1, Default: 0, Trigger: MagicPortalEventIntro,
 				Description: "Preview the gate resolving from darkness into its steady pulse."},
@@ -301,6 +304,7 @@ type MagicPortalState struct {
 	ShiftedRune     int                    `json:"shiftedRune"`
 	LastPulseBeat   int                    `json:"lastPulseBeat"`
 	GateDark        bool                   `json:"gateDark"`
+	Lifecycle       Lifecycle              `json:"lifecycle"`
 	Embers          []MagicPortalEmberSnap `json:"embers,omitempty"`
 	RNGState        uint64                 `json:"rngState,omitempty"`
 }
@@ -473,6 +477,7 @@ func (m *MagicPortal) snapshotStateLocked() MagicPortalState {
 		ShiftedRune:     m.shiftedRune,
 		LastPulseBeat:   m.lastPulseBeat,
 		GateDark:        m.gateDark,
+		Lifecycle:       m.lifecycleLocked(),
 		RNGState:        m.rng.State(),
 	}
 	if len(m.embers) > 0 {
@@ -697,6 +702,23 @@ func (m *MagicPortal) startQuietLocked(verb string) {
 	dur := jitterInt(m.rng, m.cfg.QuietDur, 0.25)
 	m.quietTicks = dur
 	m.appendLog(MagicPortalEventQuietGate, fmt.Sprintf("%s (dur=%d, x%.2f)", verb, dur, m.cfg.QuietMult))
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value.
+// Magic-portal's outro is terminal: finishEndingLocked sets gateDark and the
+// gate holds its dark terminal look until an intro trigger relights it, so
+// the schema declares ending_terminal: true.
+func (m *MagicPortal) lifecycleLocked() Lifecycle {
+	switch {
+	case m.introTicks > 0:
+		return LifecycleIntro
+	case m.endingTicks > 0:
+		return LifecycleEnding
+	case m.gateDark:
+		return LifecycleEnded
+	default:
+		return LifecycleRunning
+	}
 }
 
 func (m *MagicPortal) startIntroLocked() {

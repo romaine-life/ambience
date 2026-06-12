@@ -9,9 +9,27 @@ import (
 )
 
 type StarfieldConfig = ProceduralConfig
-type StarfieldState = ProceduralState
-type StarfieldSnapshot = ProceduralSnapshot
-type StarfieldPersistedState = ProceduralPersistedState
+
+// StarfieldState is the shared procedural timers/values state plus the
+// derived lifecycle observer field (recomputed at snapshot time, ignored on
+// restore).
+type StarfieldState struct {
+	ProceduralState
+	Lifecycle Lifecycle `json:"lifecycle"`
+}
+
+// StarfieldSnapshot is the wire shape returned by Snapshot().
+type StarfieldSnapshot struct {
+	StarfieldState
+	RNGState uint64 `json:"rngState,omitempty"`
+}
+
+// StarfieldPersistedState is the on-disk shape returned by
+// SnapshotPersistedState().
+type StarfieldPersistedState struct {
+	StarfieldState
+	RNGState uint64 `json:"rngState"`
+}
 
 // Starfield is a dedicated sim type for the starfield effect, replacing the
 // kind="starfield" branch of the old Procedural type.
@@ -215,8 +233,8 @@ func (s *Starfield) Snapshot() StarfieldSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return StarfieldSnapshot{
-		ProceduralState: s.snapshotStateLocked(),
-		RNGState:        s.rng.State(),
+		StarfieldState: s.snapshotStateLocked(),
+		RNGState:       s.rng.State(),
 	}
 }
 
@@ -233,8 +251,8 @@ func (s *Starfield) SnapshotPersistedState() StarfieldPersistedState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return StarfieldPersistedState{
-		ProceduralState: s.snapshotStateLocked(),
-		RNGState:        s.rng.State(),
+		StarfieldState: s.snapshotStateLocked(),
+		RNGState:       s.rng.State(),
 	}
 }
 
@@ -247,11 +265,29 @@ func (s *Starfield) RestorePersistedState(ps StarfieldPersistedState) {
 	}
 }
 
-func (s *Starfield) snapshotStateLocked() ProceduralState {
-	return ProceduralState{
-		Tick:   s.tick,
-		Timers: cloneTimerMap(s.timers),
-		Values: cloneValueMap(s.values),
+func (s *Starfield) snapshotStateLocked() StarfieldState {
+	return StarfieldState{
+		ProceduralState: ProceduralState{
+			Tick:   s.tick,
+			Timers: cloneTimerMap(s.timers),
+			Values: cloneValueMap(s.values),
+		},
+		Lifecycle: s.lifecycleLocked(),
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the starfield's internal timers. The outro is non-terminal: once
+// timers["ending"] expires, automatic events resume, so lifecycle returns to
+// running (the schema declares ending_terminal: false by omission).
+func (s *Starfield) lifecycleLocked() Lifecycle {
+	switch {
+	case s.timers["intro"] > 0:
+		return LifecycleIntro
+	case s.timers["ending"] > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 

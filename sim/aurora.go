@@ -9,9 +9,25 @@ import (
 )
 
 type AuroraConfig = ProceduralConfig
-type AuroraState = ProceduralState
-type AuroraSnapshot = ProceduralSnapshot
-type AuroraPersistedState = ProceduralPersistedState
+
+// AuroraState is the shared procedural timer/value state plus the derived
+// lifecycle contract field (computed at snapshot time, never restored).
+type AuroraState struct {
+	ProceduralState
+	Lifecycle Lifecycle `json:"lifecycle"`
+}
+
+// AuroraSnapshot is the client-facing wire snapshot for Aurora.
+type AuroraSnapshot struct {
+	AuroraState
+	RNGState uint64 `json:"rngState,omitempty"`
+}
+
+// AuroraPersistedState is the server-side resume state for Aurora.
+type AuroraPersistedState struct {
+	AuroraState
+	RNGState uint64 `json:"rngState"`
+}
 
 // Aurora is a dedicated sim type for the aurora effect, replacing the
 // kind="aurora" branch of the old Procedural type.
@@ -248,8 +264,8 @@ func (a *Aurora) Snapshot() AuroraSnapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return AuroraSnapshot{
-		ProceduralState: a.snapshotStateLocked(),
-		RNGState:        a.rng.State(),
+		AuroraState: a.snapshotStateLocked(),
+		RNGState:    a.rng.State(),
 	}
 }
 
@@ -266,8 +282,8 @@ func (a *Aurora) SnapshotPersistedState() AuroraPersistedState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return AuroraPersistedState{
-		ProceduralState: a.snapshotStateLocked(),
-		RNGState:        a.rng.State(),
+		AuroraState: a.snapshotStateLocked(),
+		RNGState:    a.rng.State(),
 	}
 }
 
@@ -280,11 +296,30 @@ func (a *Aurora) RestorePersistedState(ps AuroraPersistedState) {
 	}
 }
 
-func (a *Aurora) snapshotStateLocked() ProceduralState {
-	return ProceduralState{
-		Tick:   a.tick,
-		Timers: cloneTimerMap(a.timers),
-		Values: cloneValueMap(a.values),
+func (a *Aurora) snapshotStateLocked() AuroraState {
+	return AuroraState{
+		ProceduralState: ProceduralState{
+			Tick:   a.tick,
+			Timers: cloneTimerMap(a.timers),
+			Values: cloneValueMap(a.values),
+		},
+		Lifecycle: a.lifecycleLocked(),
+	}
+}
+
+// lifecycleLocked derives the effect-generic lifecycle contract value from
+// the intro/ending timers. Aurora's outro is non-terminal: when the ending
+// timer expires the ribbons return to steady state and automatic events
+// resume, so lifecycle returns to running (the schema declares
+// ending_terminal: false by omission).
+func (a *Aurora) lifecycleLocked() Lifecycle {
+	switch {
+	case a.timers["intro"] > 0:
+		return LifecycleIntro
+	case a.timers["ending"] > 0:
+		return LifecycleEnding
+	default:
+		return LifecycleRunning
 	}
 }
 
