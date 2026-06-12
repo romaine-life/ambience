@@ -2,9 +2,12 @@
 # Glimmung phase: verify.
 #
 # Runs after both test-plan and implement. Each verify-case-NN job selects
-# one required_evidence item from the test-plan JSON, mounts that single case
-# in the verifier pod's configmap, and runs the verification LLM against the
-# rebuilt validation env for that case only.
+# one required_evidence item from the test-plan JSON. Judged cases (non-empty
+# must_show) mount that single case in the verifier pod's configmap and run
+# the verification LLM against the rebuilt validation env for that case only.
+# Mechanical-only cases (no must_show) never launch an LLM: the wrapper pins,
+# triggers, observes, and captures itself (run_mechanical_case) and
+# synthesizes the same verifier-output files.
 #
 # Also enforces the selected required_evidence item against the verifier's
 # evidence_results before emitting pass.
@@ -76,7 +79,7 @@ VERIFICATION_REASONS="/tmp/verification-reasons.txt"
 EVIDENCE_REFS="/tmp/evidence-refs.txt"
 EVIDENCE_ARTIFACTS="/tmp/evidence-artifacts.json"
 EVENTS_LOG="/tmp/agent-events.jsonl"
-EVIDENCE_DIR="/tmp/evidence"
+EVIDENCE_DIR="${AMBIENCE_EVIDENCE_DIR:-/tmp/evidence}"
 # Cross-step markdown lives under EVIDENCE_DIR, not /tmp scratch: in managed
 # per-step invocation mode every step re-runs this script from the top, so a
 # /tmp file truncated here is empty by the time emit reads it. EVIDENCE_DIR
@@ -162,6 +165,17 @@ prepare_context() {
 
   start_session_keepalive_and_pin
 
+  if verification_case_is_mechanical; then
+    # Agentless mechanical case: no inner verifier Job is launched, so the
+    # agent-job preparation (provider proxy IPs, CA copy, codex credentials,
+    # GitHub token Secret, prompt configmap) is skipped — a mechanical case
+    # must not fail because agent infrastructure is unavailable. Azure login
+    # still runs: upload-screenshots authenticates with it.
+    native_azure_login
+    echo "${VERIFY_CASE_JOB_ID} is mechanical-only (no must_show); skipped verifier-agent preparation"
+    return 0
+  fi
+
   native_azure_login
   native_install_preview_package "${REPO_DIR}/mcp"
   copy_claude_ca
@@ -210,6 +224,22 @@ prepare_context() {
 # skipped/plan_error branches.
 verification_case_status() {
   jq -r '.status // "active"' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf 'active'
+}
+
+# A case carrying a non-empty must_show is a judged case: an inner
+# verification LLM looks at the artifact and judges the claim. A case
+# without one is mechanical-only: every declared expectation
+# (session_config pin, trigger_event application, terminal_lifecycle hold)
+# is wrapper-checkable, so no LLM job is launched and the wrapper produces
+# the evidence and verdict itself (run_mechanical_case). Routing fails
+# toward the judged path: when the case file cannot be read, the inner LLM
+# job still runs — an agentless mis-route would synthesize an unjudged pass
+# (fail open), while a judged mis-route merely costs an LLM invocation.
+verification_case_is_mechanical() {
+  [ "$(
+    jq -r 'if ((.required_evidence.must_show // "") == "") then "mechanical" else "judged" end' \
+      "$VERIFICATION_CASE_FILE" 2>/dev/null || printf 'judged'
+  )" = "mechanical" ]
 }
 
 write_verification_case_file() {
@@ -304,6 +334,10 @@ run_llm() {
       return 0
       ;;
   esac
+  if verification_case_is_mechanical; then
+    run_mechanical_case
+    return $?
+  fi
   ensure_proxy_ip
   (
     cd "$REPO_DIR"
@@ -341,9 +375,238 @@ verify_exit_code() {
   native_read_exit_code "$VERIFY_EXIT_CODE_FILE"
 }
 
+# Synthesize the two verifier-output files for an agentless mechanical case
+# in the exact schema the verifier agent writes (prompt-verification.md):
+# issue-agent-verification.json drives finalize's verdict + enforcement and
+# write_verification, issue-agent-verification.md feeds write_summary and the
+# durable reports/ upload. Downstream steps cannot tell wrapper-synthesized
+# output from agent-written output, so finalize / upload-screenshots / emit
+# run unchanged.
+write_mechanical_verifier_output() {
+  local status="$1" abort_reason="$2" case_id="$3" expected="$4" observed_text="$5" screenshot_ref="$6" observation_ref="$7"
+  jq -n \
+    --arg status "$status" \
+    --arg abort_reason "$abort_reason" \
+    --arg id "${case_id:-<missing-id>}" \
+    --arg expected "$expected" \
+    --arg observed_text "$observed_text" \
+    --arg screenshot "$screenshot_ref" \
+    --arg observation "$observation_ref" \
+    '{
+      schema_version: 1,
+      status: $status,
+      abort_reason: $abort_reason,
+      failure: (if $status == "pass" then null else {
+        expected: $expected,
+        observed: $observed_text,
+        where: "wrapper-mechanical",
+        suspected_cause: null,
+        cause_detail: null
+      } end),
+      evidence: (
+        (if $screenshot != "" then
+          [{kind: "screenshot", ref: $screenshot, label: ($id + " mechanical frame"), content_type: "image/png"}]
+        else [] end)
+        + (if $observation != "" then
+          [{kind: "artifact", ref: $observation, label: ($id + " mechanical observation"), content_type: "application/json"}]
+        else [] end)
+      ),
+      evidence_results: [
+        ({
+          id: $id,
+          status: (if $status == "pass" then "pass" else "fail" end),
+          observed_text: $observed_text
+        }
+        + (if $screenshot != "" then {screenshot: $screenshot} else {} end)
+        + (if $observation != "" then {observation: $observation} else {} end))
+      ]
+    }' >"${EVIDENCE_DIR}/issue-agent-verification.json"
+
+  {
+    printf '## Mechanical verification — %s\n\n' "${case_id:-<missing-id>}"
+    printf -- '- **What I observed** — %s\n' "$observed_text"
+    printf -- '- **Test process** — agentless mechanical case (no must_show, so no verification LLM was launched); the verify wrapper executed and checked the declared mechanical facts itself. Expected: %s\n' "$expected"
+    if [ "$status" = "pass" ]; then
+      printf -- '- **Observed deviations** — none\n'
+    else
+      printf -- '- **Observed deviations** — %s (%s)\n' "$observed_text" "$abort_reason"
+    fi
+  } >"${EVIDENCE_DIR}/issue-agent-verification.md"
+}
+
+# Agentless verification for a mechanical-only case (no must_show). The
+# wrapper performs the case itself, in plan order: re-assert the session pin
+# (the same pin path prepare used — finalize's enforce_session_config_pinned
+# stays the authoritative re-check), fire the declared trigger through the
+# documented flow (POST /dev/trigger/<session>/<event>?effect=<effect>, then
+# require the event to register in snapshot.appliedEvents — accepted is not
+# applied), prove a declared terminal_lifecycle with the lifecycle observer,
+# and freeze a frame for screenshot cases. Every step fails closed: any
+# mechanical step that cannot be completed writes a fail verdict with the
+# literal failure as observed_text. The function itself returns 0 — the
+# verdict travels in issue-agent-verification.json, exactly as it does for
+# the agent path, and all existing finalize enforcement applies identically.
+run_mechanical_case() {
+  local case_id kind effect session trigger_event terminal_lifecycle hold_ticks max_ticks safe_id
+  local overrides expected observed screenshot_ref observation_ref pin_out observe_out
+  case_id="$(jq -r '.required_evidence.id // ""' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '')"
+  kind="$(selected_required_evidence_kind)"
+  effect="$(selected_case_dev_effect)"
+  session="$(selected_case_session)"
+  trigger_event="$(jq -r '.required_evidence.trigger_event // ""' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '')"
+  terminal_lifecycle="$(jq -r '.required_evidence.terminal_lifecycle // ""' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '')"
+  hold_ticks="$(jq -r '.required_evidence.hold_ticks // 0 | tonumber? // 0 | floor' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '0')"
+  max_ticks="$(jq -r '.required_evidence.max_ticks // 0 | tonumber? // 0 | floor' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '0')"
+  safe_id="$(printf '%s' "${case_id:-mechanical-case}" | tr -c 'A-Za-z0-9_.-' '-')"
+  screenshot_ref=""
+  observation_ref=""
+  observed="mechanical:"
+
+  expected="mechanical contract: session_config pinned"
+  [ -n "$trigger_event" ] && expected="${expected}; trigger ${trigger_event} applied"
+  [ -n "$terminal_lifecycle" ] && expected="${expected}; lifecycle ${terminal_lifecycle} held ${hold_ticks} ticks"
+  [ "$kind" = "screenshot" ] && expected="${expected}; frozen frame captured"
+
+  mechanical_fail() {
+    local fail_reason="$1" detail="$2"
+    echo "${VERIFY_CASE_JOB_ID} mechanical case ${case_id:-<missing-id>} failed (${fail_reason}): ${detail}"
+    write_mechanical_verifier_output "fail" "$fail_reason" "$case_id" "$expected" "mechanical: ${detail}" "$screenshot_ref" "$observation_ref"
+    return 0
+  }
+
+  echo "${VERIFY_CASE_JOB_ID} case ${case_id:-<missing-id>} is mechanical-only (no must_show): wrapper verification, no verifier agent"
+
+  if [ "$kind" = "video" ]; then
+    mechanical_fail "mechanical_case_invalid" "kind=video requires judgment (non-empty must_show); the test-plan gate rejects this shape (video_requires_judgment)"
+    return 0
+  fi
+  if [ -z "$effect" ] || [ -z "$session" ]; then
+    mechanical_fail "mechanical_case_invalid" "mechanical cases require a /dev/<effect> url_path with a session param; got url_path=$(jq -r '.required_evidence.url_path // "<missing>"' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '<unreadable>')"
+    return 0
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    mechanical_fail "mechanical_case_invalid" "node is unavailable; cannot pin, observe, or capture for the mechanical case"
+    return 0
+  fi
+
+  overrides="$(jq -c '.required_evidence.session_config // {}' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '{}')"
+  if ! pin_out="$(
+    node "${REPO_DIR}/scripts/agent/pin-session-config.mjs" \
+      --base-url "$VALIDATION_URL" \
+      --effect "$effect" \
+      --session "$session" \
+      --overrides "$overrides" 2>&1
+  )"; then
+    mechanical_fail "session_pin_failed" "session pin failed for effect=${effect} session=${session}: $(printf '%s' "$pin_out" | tail -1)"
+    return 0
+  fi
+  observed="${observed} pin verified ($(printf '%s' "$pin_out" | jq -r '.knob_count // "?"' 2>/dev/null || printf '?') knobs)"
+
+  if [ -n "$trigger_event" ]; then
+    local trigger_status applied attempt
+    trigger_status="$(curl -sS -o /dev/null -w "%{http_code}" \
+      -X POST "${VALIDATION_URL}/dev/trigger/${session}/${trigger_event}?effect=${effect}" || printf '000')"
+    case "$trigger_status" in
+      2*|3*) ;;
+      *)
+        mechanical_fail "trigger_not_observed" "trigger ${trigger_event} for effect ${effect} returned HTTP ${trigger_status}"
+        return 0
+        ;;
+    esac
+    applied=0
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+      if curl -sS "${VALIDATION_URL}/dev/snapshot?session=${session}&effect=${effect}" 2>/dev/null \
+          | jq -e --arg ev "$trigger_event" '(.appliedEvents // []) | any(.event == $ev)' >/dev/null 2>&1; then
+        applied=1
+        break
+      fi
+      sleep 0.3
+    done
+    if [ "$applied" -ne 1 ]; then
+      mechanical_fail "trigger_not_observed" "trigger ${trigger_event} was accepted (HTTP ${trigger_status}) but never registered on session ${session} (snapshot.appliedEvents)"
+      return 0
+    fi
+    observed="${observed}; trigger ${trigger_event} accepted and applied"
+  fi
+
+  # Lifecycle observation runs without --trigger: the trigger (when declared)
+  # was already fired above, and /dev/observe treats `applied` as vacuously
+  # true when it fires no trigger itself — enforce_terminal_observation_artifact
+  # still requires observed/lifecycle/hold from the trace.
+  if [ -n "$terminal_lifecycle" ]; then
+    local -a observe_args
+    observation_ref="observations/${safe_id}.json"
+    observe_args=(
+      --base-url "$VALIDATION_URL"
+      --effect "$effect"
+      --session "$session"
+      --lifecycle "$terminal_lifecycle"
+      --hold-ticks "$hold_ticks"
+      --output "${EVIDENCE_DIR}/${observation_ref}"
+    )
+    if [ "${max_ticks:-0}" -gt 0 ] 2>/dev/null; then
+      observe_args+=(--max-ticks "$max_ticks")
+    fi
+    if [ "$kind" = "screenshot" ]; then
+      screenshot_ref="screenshots/${safe_id}.png"
+      observe_args+=(--screenshot "${EVIDENCE_DIR}/${screenshot_ref}")
+    fi
+    if ! observe_out="$(EVIDENCE_DIR="$EVIDENCE_DIR" node "${REPO_DIR}/scripts/agent/capture-observation.mjs" "${observe_args[@]}" 2>&1)"; then
+      observation_ref=""
+      screenshot_ref=""
+      mechanical_fail "lifecycle_not_observed" "lifecycle ${terminal_lifecycle} (hold ${hold_ticks} ticks) was not observed: $(printf '%s' "$observe_out" | tail -1)"
+      return 0
+    fi
+    observed="${observed}; lifecycle ${terminal_lifecycle} held $(jq -r '.holdTicks // 0' "${EVIDENCE_DIR}/${observation_ref}" 2>/dev/null || printf '?') ticks"
+  fi
+
+  # Screenshot cases that did not get a frame from the lifecycle observation
+  # still owe one (enforce_evidence_contract requires it). /dev/observe is
+  # the only frozen-frame source (/dev/frame needs an observationId) and it
+  # requires a predicate, so echo the session's current lifecycle back as a
+  # self-satisfying predicate — dev snapshots always report one (effects
+  # without the field surface the running fallback).
+  if [ "$kind" = "screenshot" ] && [ -z "$screenshot_ref" ]; then
+    local current_lifecycle
+    current_lifecycle="$(
+      curl -sS "${VALIDATION_URL}/dev/snapshot?session=${session}&effect=${effect}" 2>/dev/null \
+        | jq -r '.lifecycle // ""' 2>/dev/null || printf ''
+    )"
+    case "$current_lifecycle" in
+      intro|running|ending|ended) ;;
+      *)
+        mechanical_fail "screenshot_missing" "cannot freeze a frame: session ${session} snapshot did not report a usable lifecycle (got \"${current_lifecycle}\")"
+        return 0
+        ;;
+    esac
+    observation_ref="observations/${safe_id}-frame.json"
+    screenshot_ref="screenshots/${safe_id}.png"
+    if ! observe_out="$(EVIDENCE_DIR="$EVIDENCE_DIR" node "${REPO_DIR}/scripts/agent/capture-observation.mjs" \
+      --base-url "$VALIDATION_URL" \
+      --effect "$effect" \
+      --session "$session" \
+      --lifecycle "$current_lifecycle" \
+      --output "${EVIDENCE_DIR}/${observation_ref}" \
+      --screenshot "${EVIDENCE_DIR}/${screenshot_ref}" 2>&1)"; then
+      observation_ref=""
+      screenshot_ref=""
+      mechanical_fail "screenshot_missing" "frame freeze via /dev/observe (lifecycle=${current_lifecycle}) failed: $(printf '%s' "$observe_out" | tail -1)"
+      return 0
+    fi
+    observed="${observed}; frame frozen at lifecycle ${current_lifecycle}"
+  fi
+
+  write_mechanical_verifier_output "pass" "" "$case_id" "$expected" "$observed" "$screenshot_ref" "$observation_ref"
+  echo "${VERIFY_CASE_JOB_ID} mechanical case ${case_id:-<missing-id>}: ${observed}"
+}
+
 collect_evidence() {
   if [ "$(verification_case_status)" != "active" ]; then
     echo "${VERIFY_CASE_JOB_ID} did not launch a verifier pod; skipping evidence collection"
+    return 0
+  fi
+  if verification_case_is_mechanical; then
+    echo "${VERIFY_CASE_JOB_ID} ran agentless (mechanical case); no verifier pod logs to collect"
     return 0
   fi
   local pod=""
@@ -1432,6 +1695,14 @@ emit() {
   : >"$POD_LOG" 2>/dev/null || true
   : >"$EVENTS_LOG" 2>/dev/null || true
 }
+
+# Test seam: the contract harness sources this file to exercise the case
+# functions directly against stubbed tools (see
+# scripts/test-glimmung-native-contract.sh). Sourcing must define the
+# functions and globals without running any step.
+if [ "${AMBIENCE_VERIFY_SOURCE_ONLY:-}" = "1" ]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 if native_selected_step; then
   case "${GLIMMUNG_STEP_SLUG}" in

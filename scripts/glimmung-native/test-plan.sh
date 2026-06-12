@@ -36,6 +36,14 @@ ATTEMPT_INDEX="${GLIMMUNG_ATTEMPT_INDEX:-0}"
 JOB_NAME="agent-${RUN_SLUG}-tp-${ATTEMPT_INDEX}"
 CONFIG_MAP_NAME="agent-config-test-plan"
 
+# Gestalt cap: at most this many judged cases (cases carrying a non-empty
+# must_show) per plan. Verification judgment is a holistic look at a handful
+# of moments, not a checklist sweep — every additional judged case dilutes
+# attention and adds an independent chance of a prose claim being misread.
+# Mechanical-only cases (no must_show) are wrapper-enforced and stay capped
+# only by the existing 10-case total.
+MAX_JUDGED_CASES=3
+
 ISSUE_TITLE="${GLIMMUNG_ISSUE_TITLE:-Glimmung issue ${GLIMMUNG_ISSUE_ID:-${GLIMMUNG_RUN_ID}}}"
 ISSUE_NUMBER="${GLIMMUNG_ISSUE_NUMBER:-}"
 ISSUE_PROJECT="${GLIMMUNG_PROJECT:-ambience}"
@@ -302,6 +310,176 @@ finalize() {
           abort_reason: "unsupported_required_evidence_kind",
           summary: "Test plan included non-media verification cases. Ambience LLM verification only accepts screenshot and video evidence; deterministic checks belong in PR CI.",
           unsupported_required_evidence: $unsupported
+        }' >"$TEST_PLAN_JSON"
+      printf '1\n' >"$PLAN_EXIT_CODE_FILE"
+      return 0
+    fi
+
+    # Closed claim vocabulary (ambience#167 runs 9.1/10.1). must_show is one
+    # gestalt judgment clause — what the artifact should LOOK like — not a
+    # measurement protocol. Digits, comparator phrases, and camelCase
+    # identifier tokens each make a prose claim decidable only by counting,
+    # measuring, or reaching into effect-internal state, which an LLM judge
+    # cannot do reliably (and which the parallel, mutually-blind
+    # implementation never promised). Decidable expectations belong in the
+    # structured fields the wrapper enforces mechanically: session_config,
+    # trigger_event, terminal_lifecycle. Kebab-case trigger names are prose-
+    # safe and allowed.
+    local unverifiable_must_show
+    unverifiable_must_show="$(
+      jq -r '
+        (.required_evidence // [])[]
+        | (.id // "<missing-id>") as $id
+        | (.must_show // null) as $ms
+        | if $ms == null then empty
+          elif ($ms | type) != "string" then
+            $id + ": must_show is not a string (" + ($ms | type) + ")"
+          elif $ms == "" then empty
+          elif ($ms | test("[0-9]")) then
+            $id + ": digit \"" + ($ms | match("[0-9]+").string) + "\""
+          elif ($ms | test("(?:>=|<=)|\\b(?:no more than|at least|at most|more than|less than|exactly|within|between)\\b"; "i")) then
+            $id + ": comparator \"" + ($ms | match("(?:>=|<=)|\\b(?:no more than|at least|at most|more than|less than|exactly|within|between)\\b"; "i").string) + "\""
+          elif ($ms | test("[a-z]+[A-Z][A-Za-z]*")) then
+            $id + ": camelCase identifier \"" + ($ms | match("[a-z]+[A-Z][A-Za-z]*").string) + "\""
+          else empty
+          end
+      ' "$TEST_PLAN_JSON" 2>/dev/null || printf 'jq_error:must_show_vocabulary_guard'
+    )"
+    if [ -n "$(printf '%s\n' "$unverifiable_must_show" | sed '/^$/d')" ]; then
+      jq -n \
+        --arg summary "Test plan must_show clauses contain digits, comparator phrases, or camelCase identifier tokens. must_show is a single gestalt judgment: judge the look; don't measure — move decidable claims to structured fields (session_config, trigger_event, terminal_lifecycle)." \
+        --argjson invalid "$(printf '%s\n' "$unverifiable_must_show" | sed '/^$/d' | jq -R . | jq -s .)" \
+        '{
+          schema_version: 1,
+          status: "fail",
+          abort_reason: "unverifiable_must_show",
+          summary: $summary,
+          unverifiable_must_show_cases: $invalid
+        }' >"$TEST_PLAN_JSON"
+      printf '1\n' >"$PLAN_EXIT_CODE_FILE"
+      return 0
+    fi
+
+    # Video exists to be judged over time; a video case without a must_show
+    # has no claim for the verifier to judge. Mechanical-only cases use
+    # screenshot/observation evidence instead.
+    local video_without_judgment
+    video_without_judgment="$(
+      jq -r '
+        (.required_evidence // [])[]
+        | select((.kind == "video") and ((.must_show // "") == ""))
+        | (.id // "<missing-id>")
+      ' "$TEST_PLAN_JSON" 2>/dev/null || printf 'jq_error:video_judgment_guard'
+    )"
+    if [ -n "$(printf '%s\n' "$video_without_judgment" | sed '/^$/d')" ]; then
+      jq -n \
+        --arg summary "Test plan declared video cases without a must_show. Video evidence exists to be judged; a case with nothing to judge is mechanical-only and uses screenshot/observation evidence." \
+        --argjson invalid "$(printf '%s\n' "$video_without_judgment" | sed '/^$/d' | jq -R . | jq -s .)" \
+        '{
+          schema_version: 1,
+          status: "fail",
+          abort_reason: "video_requires_judgment",
+          summary: $summary,
+          video_without_judgment_cases: $invalid
+        }' >"$TEST_PLAN_JSON"
+      printf '1\n' >"$PLAN_EXIT_CODE_FILE"
+      return 0
+    fi
+
+    # must_show is optional: a case without one is mechanical-only and is
+    # verified entirely by the wrapper. It must declare at least one
+    # mechanical expectation (trigger_event / terminal_lifecycle /
+    # session_config) or there is nothing to verify at all.
+    local empty_cases
+    empty_cases="$(
+      jq -r '
+        (.required_evidence // [])[]
+        | select(
+            ((.must_show // "") == "")
+            and ((.trigger_event // "") == "")
+            and ((.terminal_lifecycle // "") == "")
+            and (((.session_config // {}) | (if type == "object" then length else 0 end)) == 0)
+          )
+        | (.id // "<missing-id>")
+      ' "$TEST_PLAN_JSON" 2>/dev/null || printf 'jq_error:empty_case_guard'
+    )"
+    if [ -n "$(printf '%s\n' "$empty_cases" | sed '/^$/d')" ]; then
+      jq -n \
+        --arg summary "Test plan declared cases with no must_show and no mechanical expectation. A mechanical-only case must declare at least one of trigger_event, terminal_lifecycle, or session_config so the wrapper has something to enforce." \
+        --argjson invalid "$(printf '%s\n' "$empty_cases" | sed '/^$/d' | jq -R . | jq -s .)" \
+        '{
+          schema_version: 1,
+          status: "fail",
+          abort_reason: "empty_case",
+          summary: $summary,
+          empty_cases: $invalid
+        }' >"$TEST_PLAN_JSON"
+      printf '1\n' >"$PLAN_EXIT_CODE_FILE"
+      return 0
+    fi
+
+    # Gestalt cap: at most MAX_JUDGED_CASES judged cases per plan. Fails
+    # closed when the judged-case count cannot be computed.
+    local judged_count judged_case_ids
+    judged_count="$(
+      jq -r '[(.required_evidence // [])[] | select((.must_show // "") != "")] | length' \
+        "$TEST_PLAN_JSON" 2>/dev/null || printf 'invalid'
+    )"
+    case "$judged_count" in
+      ''|*[!0-9]*) judged_count="invalid" ;;
+    esac
+    if [ "$judged_count" = "invalid" ] || [ "$judged_count" -gt "$MAX_JUDGED_CASES" ]; then
+      judged_case_ids="$(
+        jq -r '(.required_evidence // [])[] | select((.must_show // "") != "") | (.id // "<missing-id>")' \
+          "$TEST_PLAN_JSON" 2>/dev/null || printf 'jq_error:judged_case_guard'
+      )"
+      jq -n \
+        --arg summary "Test plan has ${judged_count} judged cases (non-empty must_show); the limit is MAX_JUDGED_CASES=${MAX_JUDGED_CASES}. Judgment is a gestalt look at a few key moments — keep at most ${MAX_JUDGED_CASES} judged cases and express the rest as mechanical-only cases (trigger_event / terminal_lifecycle / session_config, no must_show)." \
+        --arg judged_count "$judged_count" \
+        --argjson max_judged_cases "$MAX_JUDGED_CASES" \
+        --argjson judged "$(printf '%s\n' "$judged_case_ids" | sed '/^$/d' | jq -R . | jq -s .)" \
+        '{
+          schema_version: 1,
+          status: "fail",
+          abort_reason: "too_many_judged_cases",
+          summary: $summary,
+          max_judged_cases: $max_judged_cases,
+          judged_case_count: $judged_count,
+          judged_cases: $judged
+        }' >"$TEST_PLAN_JSON"
+      printf '1\n' >"$PLAN_EXIT_CODE_FILE"
+      return 0
+    fi
+
+    # A trigger claim judged against the default background cadence is
+    # undecidable — ambience#167 run 9.1: a "single lantern, no cluster"
+    # claim drowned in the session's default emit_every/release_pulse_p
+    # activity, so the judge could not tell the triggered lantern from the
+    # ambient ones. Every case that fires a trigger_event must pin a
+    # quiescent baseline via session_config (suppress the competing cadence
+    # knobs: emission rates near zero, pulse probabilities 0) so the
+    # triggered behavior is isolated from background noise.
+    local trigger_without_baseline
+    trigger_without_baseline="$(
+      jq -r '
+        (.required_evidence // [])[]
+        | select(
+            ((.trigger_event // "") != "")
+            and (((.session_config // {}) | (if type == "object" then length else 0 end)) == 0)
+          )
+        | (.id // "<missing-id>")
+      ' "$TEST_PLAN_JSON" 2>/dev/null || printf 'jq_error:trigger_baseline_guard'
+    )"
+    if [ -n "$(printf '%s\n' "$trigger_without_baseline" | sed '/^$/d')" ]; then
+      jq -n \
+        --arg summary "Test plan declared trigger_event cases without a session_config baseline. A trigger judged against default background cadence is undecidable; pin a quiescent baseline (suppress competing cadence knobs: emission rates near zero, pulse probabilities 0) so the triggered behavior is isolated." \
+        --argjson invalid "$(printf '%s\n' "$trigger_without_baseline" | sed '/^$/d' | jq -R . | jq -s .)" \
+        '{
+          schema_version: 1,
+          status: "fail",
+          abort_reason: "trigger_case_without_baseline",
+          summary: $summary,
+          trigger_cases_without_baseline: $invalid
         }' >"$TEST_PLAN_JSON"
       printf '1\n' >"$PLAN_EXIT_CODE_FILE"
       return 0

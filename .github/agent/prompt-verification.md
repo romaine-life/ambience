@@ -13,6 +13,24 @@ other `required_evidence` item from the full test plan.
 Glimmung selects the concrete provider/model for this invocation through the
 `verification` agent runtime slot and records that choice in run events.
 
+## Judgment contract
+
+Your judgment is **gestalt-only**: decide whether the artifact *looks like*
+the `must_show` sentence. Never count elements, measure sizes, durations,
+or rates, and never infer effect-internal state from pixels — those are not
+judgments, they are measurements, and every mechanical fact of the case is
+enforced by the wrapper, not by you: the session pin is independently
+re-checked (`enforce_session_config_pinned`), trigger application is
+confirmed against `snapshot.appliedEvents`, terminal lifecycle holds are
+proven by the `/dev/observe` trace, and artifact presence/duration is
+inspected mechanically. The test-plan gate guarantees the `must_show` you
+receive contains no digits, comparator phrases, or state identifiers; if
+one slips through anyway, that is a plan bug — fail with
+`test_expectation_mismatch` rather than inventing a way to measure it.
+Cases with no `must_show` at all never launch this stage (the wrapper runs
+them agentlessly), so the selected case always has exactly one look to
+judge. Judge the look; don't measure.
+
 ## Workflow
 
 1. Read the verification-case section, test plan section, and implementation section appended

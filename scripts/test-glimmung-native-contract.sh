@@ -215,3 +215,446 @@ PLAN_VALIDATE_RC=$?
 set -e
 [ "$PLAN_VALIDATE_RC" -eq 1 ]
 jq -e '.status == "fail" and .abort_reason == "unsupported_required_evidence_kind"' "${TMP_DIR}/invalid-plan.json" >/dev/null
+
+# --- closed claim vocabulary: test-plan wrapper guards ---
+
+run_plan_validate() {
+  set +e
+  AMBIENCE_EVIDENCE_DIR="$PLAN_EVIDENCE_DIR" \
+  AMBIENCE_TEST_PLAN_VALIDATE_ONLY=1 \
+  GLIMMUNG_INPUT_VALIDATION_URL="https://preview.test" \
+  GLIMMUNG_INPUT_NAMESPACE="preview-ns" \
+  bash "${SCRIPT_DIR}/glimmung-native/test-plan.sh" >"$1"
+  PLAN_VALIDATE_RC=$?
+  set -e
+}
+
+expect_plan_reject() {
+  local out="$1" reason="$2"
+  run_plan_validate "$out"
+  if [ "$PLAN_VALIDATE_RC" -ne 1 ]; then
+    echo "expected plan validation to exit 1 (${reason}), got ${PLAN_VALIDATE_RC}" >&2
+    exit 1
+  fi
+  jq -e --arg reason "$reason" '.status == "fail" and .abort_reason == $reason' "$out" >/dev/null
+}
+
+# digit in must_show → unverifiable_must_show
+cat >"${PLAN_EVIDENCE_DIR}/issue-agent-test-plan.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "required_evidence": [
+    {
+      "id": "dev-lanterns-cluster",
+      "kind": "video",
+      "url_path": "/dev/lanterns",
+      "must_show": "a cluster of 5 lanterns rises together"
+    }
+  ]
+}
+JSON
+expect_plan_reject "${TMP_DIR}/plan-digit.json" "unverifiable_must_show"
+jq -e '
+  (.unverifiable_must_show_cases | any(test("dev-lanterns-cluster")))
+  and (.unverifiable_must_show_cases | any(test("digit")))
+  and (.summary | test("judge the look"))
+' "${TMP_DIR}/plan-digit.json" >/dev/null
+
+# comparator phrase in must_show → unverifiable_must_show
+cat >"${PLAN_EVIDENCE_DIR}/issue-agent-test-plan.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "required_evidence": [
+    {
+      "id": "dev-lanterns-few",
+      "kind": "video",
+      "url_path": "/dev/lanterns",
+      "must_show": "at least a few lanterns drift upward"
+    }
+  ]
+}
+JSON
+expect_plan_reject "${TMP_DIR}/plan-comparator.json" "unverifiable_must_show"
+jq -e '
+  .unverifiable_must_show_cases
+  | any(test("dev-lanterns-few") and test("comparator") and test("at least"))
+' "${TMP_DIR}/plan-comparator.json" >/dev/null
+
+# camelCase identifier token in must_show → unverifiable_must_show
+cat >"${PLAN_EVIDENCE_DIR}/issue-agent-test-plan.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "required_evidence": [
+    {
+      "id": "dev-lanterns-cadence",
+      "kind": "video",
+      "url_path": "/dev/lanterns",
+      "must_show": "the emitEvery cadence visibly calms"
+    }
+  ]
+}
+JSON
+expect_plan_reject "${TMP_DIR}/plan-camelcase.json" "unverifiable_must_show"
+jq -e '
+  .unverifiable_must_show_cases
+  | any(test("dev-lanterns-cadence") and test("camelCase") and test("emitEvery"))
+' "${TMP_DIR}/plan-camelcase.json" >/dev/null
+
+# valid plan: gestalt judged cases (kebab-case trigger names allowed in
+# prose), trigger cases pinned to a quiescent baseline, and one
+# mechanical-only case — passes whole
+cat >"${PLAN_EVIDENCE_DIR}/issue-agent-test-plan.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "required_evidence": [
+    {
+      "id": "dev-lanterns-default",
+      "kind": "webm",
+      "url_path": "/dev/lanterns",
+      "must_show": "warm lantern glows drifting upward against a dark sky"
+    },
+    {
+      "id": "dev-lanterns-release",
+      "kind": "screenshot",
+      "url_path": "/dev/lanterns",
+      "must_show": "a release-pulse burst reads as one bright clustered moment",
+      "trigger_event": "release-pulse",
+      "session_config": {"emit_every": 9999, "release_pulse_p": 0}
+    },
+    {
+      "id": "dev-lanterns-ending",
+      "kind": "screenshot",
+      "url_path": "/dev/lanterns",
+      "trigger_event": "ending",
+      "terminal_lifecycle": "ended",
+      "hold_ticks": 12,
+      "session_config": {"emit_every": 9999}
+    }
+  ]
+}
+JSON
+run_plan_validate "${TMP_DIR}/plan-vocab-valid.json"
+if [ "$PLAN_VALIDATE_RC" -ne 0 ]; then
+  echo "expected mixed judged/mechanical plan to validate, got ${PLAN_VALIDATE_RC}" >&2
+  cat "${TMP_DIR}/plan-vocab-valid.json" >&2
+  exit 1
+fi
+jq -e '
+  .status == "pass"
+  and (.required_evidence | length == 3)
+  and (.required_evidence[0].kind == "video")
+  and ((.required_evidence[2].must_show // "") == "")
+' "${TMP_DIR}/plan-vocab-valid.json" >/dev/null
+
+# four judged cases → too_many_judged_cases names the limit and the ids
+cat >"${PLAN_EVIDENCE_DIR}/issue-agent-test-plan.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "required_evidence": [
+    {"id": "dev-judged-a", "kind": "video", "url_path": "/dev/lanterns", "must_show": "a calm warm glow"},
+    {"id": "dev-judged-b", "kind": "video", "url_path": "/dev/lanterns", "must_show": "a cool dim sky"},
+    {"id": "dev-judged-c", "kind": "video", "url_path": "/dev/lanterns", "must_show": "a bright moon rising"},
+    {"id": "dev-judged-d", "kind": "video", "url_path": "/dev/lanterns", "must_show": "a soft drifting haze"}
+  ]
+}
+JSON
+expect_plan_reject "${TMP_DIR}/plan-too-many-judged.json" "too_many_judged_cases"
+jq -e '
+  .max_judged_cases == 3
+  and (.judged_cases | length == 4)
+  and (.judged_cases | index("dev-judged-d") != null)
+  and (.summary | test("MAX_JUDGED_CASES=3"))
+' "${TMP_DIR}/plan-too-many-judged.json" >/dev/null
+
+# mechanical-only plan (no must_show anywhere) is accepted
+cat >"${PLAN_EVIDENCE_DIR}/issue-agent-test-plan.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "required_evidence": [
+    {
+      "id": "dev-lanterns-quiet-baseline",
+      "kind": "screenshot",
+      "url_path": "/dev/lanterns",
+      "session_config": {"emit_every": 9999}
+    }
+  ]
+}
+JSON
+run_plan_validate "${TMP_DIR}/plan-mechanical-only.json"
+if [ "$PLAN_VALIDATE_RC" -ne 0 ]; then
+  echo "expected mechanical-only plan to validate, got ${PLAN_VALIDATE_RC}" >&2
+  cat "${TMP_DIR}/plan-mechanical-only.json" >&2
+  exit 1
+fi
+jq -e '.status == "pass" and (.required_evidence | length == 1)' \
+  "${TMP_DIR}/plan-mechanical-only.json" >/dev/null
+
+# video without must_show → video_requires_judgment
+cat >"${PLAN_EVIDENCE_DIR}/issue-agent-test-plan.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "required_evidence": [
+    {
+      "id": "dev-lanterns-motion",
+      "kind": "video",
+      "url_path": "/dev/lanterns",
+      "terminal_lifecycle": "running"
+    }
+  ]
+}
+JSON
+expect_plan_reject "${TMP_DIR}/plan-video-mechanical.json" "video_requires_judgment"
+jq -e '.video_without_judgment_cases | index("dev-lanterns-motion") != null' \
+  "${TMP_DIR}/plan-video-mechanical.json" >/dev/null
+
+# trigger_event without a session_config baseline → trigger_case_without_baseline
+cat >"${PLAN_EVIDENCE_DIR}/issue-agent-test-plan.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "required_evidence": [
+    {
+      "id": "dev-lanterns-pulse",
+      "kind": "screenshot",
+      "url_path": "/dev/lanterns",
+      "must_show": "a single bright pulse against a quiet sky",
+      "trigger_event": "release-pulse"
+    }
+  ]
+}
+JSON
+expect_plan_reject "${TMP_DIR}/plan-trigger-no-baseline.json" "trigger_case_without_baseline"
+jq -e '
+  (.trigger_cases_without_baseline | index("dev-lanterns-pulse") != null)
+  and (.summary | test("quiescent baseline"))
+' "${TMP_DIR}/plan-trigger-no-baseline.json" >/dev/null
+
+# no must_show and no mechanical expectation → empty_case
+cat >"${PLAN_EVIDENCE_DIR}/issue-agent-test-plan.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "required_evidence": [
+    {
+      "id": "dev-lanterns-empty",
+      "kind": "screenshot",
+      "url_path": "/dev/lanterns"
+    }
+  ]
+}
+JSON
+expect_plan_reject "${TMP_DIR}/plan-empty-case.json" "empty_case"
+jq -e '.empty_cases | index("dev-lanterns-empty") != null' \
+  "${TMP_DIR}/plan-empty-case.json" >/dev/null
+
+# --- verify.sh agentless mechanical cases ---
+# Source verify.sh (AMBIENCE_VERIFY_SOURCE_ONLY) and drive the mechanical
+# path through stubbed curl/node, in a subshell so the sourced globals and
+# stub PATH do not leak back into this harness.
+(
+  VERIFY_STUB_DIR="${TMP_DIR}/verify-stubs"
+  VERIFY_EVIDENCE_DIR="${TMP_DIR}/verify-evidence"
+  mkdir -p "$VERIFY_STUB_DIR" "$VERIFY_EVIDENCE_DIR"
+
+  cat >"${VERIFY_STUB_DIR}/curl" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+url=""
+write_out=""
+expect=""
+for arg in "$@"; do
+  if [ -n "$expect" ]; then
+    if [ "$expect" = "w" ]; then
+      write_out="$arg"
+    fi
+    expect=""
+    continue
+  fi
+  case "$arg" in
+    -w) expect="w" ;;
+    -o|-d|-H|-X|--retry|--retry-delay|--max-time) expect="skip" ;;
+    -*) ;;
+    *) url="$arg" ;;
+  esac
+done
+
+case "$url" in
+  */dev/trigger/*)
+    if [ -n "$write_out" ]; then
+      printf '%s' "${NATIVE_CONTRACT_TRIGGER_HTTP:-204}"
+    fi
+    ;;
+  */dev/snapshot*)
+    snapshot_json="${NATIVE_CONTRACT_SNAPSHOT_JSON:-}"
+    if [ -z "$snapshot_json" ]; then
+      snapshot_json='{}'
+    fi
+    printf '%s' "$snapshot_json"
+    ;;
+  */dev/events*)
+    ;;
+  *)
+    if [ -n "${NATIVE_CONTRACT_CURL_CAPTURE:-}" ]; then
+      printf '%s\n' "$url" >"${NATIVE_CONTRACT_CURL_CAPTURE}.url"
+    fi
+    ;;
+esac
+SH
+  chmod +x "${VERIFY_STUB_DIR}/curl"
+
+  cat >"${VERIFY_STUB_DIR}/node" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+script="${1:-}"
+shift || true
+out=""
+shot=""
+prev=""
+for arg in "$@"; do
+  case "$prev" in
+    --output) out="$arg" ;;
+    --screenshot) shot="$arg" ;;
+  esac
+  prev="$arg"
+done
+printf '%s %s\n' "$(basename "$script")" "$*" >>"${NATIVE_CONTRACT_VERIFY_NODE_LOG:-/dev/null}"
+
+case "$(basename "$script")" in
+  pin-session-config.mjs)
+    if [ "${NATIVE_CONTRACT_PIN_FAIL:-}" = "1" ]; then
+      printf '{"error":"schema fetch failed"}\n'
+      exit 1
+    fi
+    printf '{"knob_count":7,"pinned_at_tick":3}\n'
+    ;;
+  capture-observation.mjs)
+    if [ "${NATIVE_CONTRACT_OBSERVE_FAIL:-}" = "1" ]; then
+      printf 'observe failed 408: observe timed out\n'
+      exit 1
+    fi
+    if [ -n "$out" ]; then
+      mkdir -p "$(dirname "$out")"
+      printf '%s' "${NATIVE_CONTRACT_OBSERVATION_JSON:-}" >"$out"
+    fi
+    if [ -n "$shot" ]; then
+      mkdir -p "$(dirname "$shot")"
+      printf 'PNG-STUB' >"$shot"
+    fi
+    printf '{"kind":"observation","observed":true,"applied":true}\n'
+    ;;
+  *)
+    printf 'unexpected node invocation: %s\n' "$script" >&2
+    exit 1
+    ;;
+esac
+SH
+  chmod +x "${VERIFY_STUB_DIR}/node"
+
+  export PATH="${VERIFY_STUB_DIR}:${PATH}"
+  export NATIVE_CONTRACT_VERIFY_NODE_LOG="${TMP_DIR}/verify-node.calls"
+  export AMBIENCE_VERIFY_SOURCE_ONLY=1
+  export AMBIENCE_EVIDENCE_DIR="$VERIFY_EVIDENCE_DIR"
+  export AMBIENCE_REPO_DIR="${TMP_DIR}/repo"
+  export GLIMMUNG_DYNAMIC_CASE_INDEX=1
+  export GLIMMUNG_INPUT_VALIDATION_URL="https://preview.test"
+  export GLIMMUNG_INPUT_NAMESPACE="preview-ns"
+  export GLIMMUNG_INPUT_BRANCH_NAME="glimmung/run-1"
+  unset GLIMMUNG_STEP_SLUG
+
+  # shellcheck source=glimmung-native/verify.sh
+  source "${SCRIPT_DIR}/glimmung-native/verify.sh"
+
+  # a judged case (non-empty must_show) must not route to the mechanical path
+  write_verification_case_file "active" "" \
+    '{"id":"judged-1","kind":"video","url_path":"/dev/lanterns?session=judged-1","must_show":"a warm glow"}'
+  if verification_case_is_mechanical; then
+    echo "judged case (non-empty must_show) must not route to the mechanical path" >&2
+    exit 1
+  fi
+
+  # mechanical pass: pin + documented trigger flow + lifecycle observation +
+  # frozen frame, synthesized verdict accepted by the existing enforcement
+  write_verification_case_file "active" "" \
+    '{"id":"mech-ending","kind":"screenshot","url_path":"/dev/lanterns?session=mech-ending","trigger_event":"ending","terminal_lifecycle":"ended","hold_ticks":12,"session_config":{"emit_every":9999}}'
+  cat >"${VERIFY_EVIDENCE_DIR}/issue-agent-test-plan.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "required_evidence": [
+    {"id": "mech-ending", "kind": "screenshot", "url_path": "/dev/lanterns?session=mech-ending", "trigger_event": "ending", "terminal_lifecycle": "ended", "hold_ticks": 12, "session_config": {"emit_every": 9999}}
+  ]
+}
+JSON
+  export NATIVE_CONTRACT_SNAPSHOT_JSON='{"lifecycle":"running","appliedEvents":[{"tick":4,"event":"ending"}]}'
+  export NATIVE_CONTRACT_OBSERVATION_JSON='{"applied":true,"observed":true,"lifecycle":"ended","holdTicks":12,"observedTick":40,"heldUntilTick":52}'
+  run_llm
+  jq -e '
+    .schema_version == 1
+    and .status == "pass"
+    and (.evidence_results | length == 1)
+    and .evidence_results[0].id == "mech-ending"
+    and .evidence_results[0].status == "pass"
+    and (.evidence_results[0].observed_text
+      | test("pin verified") and test("trigger ending accepted") and test("lifecycle ended held 12 ticks"))
+    and .evidence_results[0].screenshot == "screenshots/mech-ending.png"
+    and .evidence_results[0].observation == "observations/mech-ending.json"
+  ' "${VERIFY_EVIDENCE_DIR}/issue-agent-verification.json" >/dev/null
+  [ -s "${VERIFY_EVIDENCE_DIR}/issue-agent-verification.md" ]
+  [ -s "${VERIFY_EVIDENCE_DIR}/screenshots/mech-ending.png" ]
+  if grep -q "apply-agent-job" "$NATIVE_CONTRACT_PYTHON_CAPTURE" 2>/dev/null; then
+    echo "mechanical case must not launch the inner LLM job" >&2
+    exit 1
+  fi
+  # the existing enforcement gates accept the synthesized verdict unchanged
+  enforce_evidence_contract
+  enforce_session_config_pinned
+  enforce_terminal_observation_artifact
+
+  # mechanical fail-closed: trigger accepted but never applied
+  rm -f "${VERIFY_EVIDENCE_DIR}/issue-agent-verification.json"
+  write_verification_case_file "active" "" \
+    '{"id":"mech-pulse","kind":"screenshot","url_path":"/dev/lanterns?session=mech-pulse","trigger_event":"release-pulse","session_config":{"emit_every":9999}}'
+  export NATIVE_CONTRACT_SNAPSHOT_JSON='{"lifecycle":"running","appliedEvents":[]}'
+  run_mechanical_case
+  jq -e '
+    .status == "fail"
+    and .abort_reason == "trigger_not_observed"
+    and (.failure | type == "object")
+    and .failure.where == "wrapper-mechanical"
+    and .evidence_results[0].status == "fail"
+  ' "${VERIFY_EVIDENCE_DIR}/issue-agent-verification.json" >/dev/null
+
+  # mechanical fail-closed: session pin failure
+  rm -f "${VERIFY_EVIDENCE_DIR}/issue-agent-verification.json"
+  write_verification_case_file "active" "" \
+    '{"id":"mech-pin","kind":"screenshot","url_path":"/dev/lanterns?session=mech-pin","session_config":{"emit_every":9999}}'
+  export NATIVE_CONTRACT_PIN_FAIL=1
+  run_mechanical_case
+  unset NATIVE_CONTRACT_PIN_FAIL
+  jq -e '.status == "fail" and .abort_reason == "session_pin_failed"' \
+    "${VERIFY_EVIDENCE_DIR}/issue-agent-verification.json" >/dev/null
+
+  # mechanical config-only screenshot case: frame frozen via the session
+  # lifecycle echoed back as a self-satisfying /dev/observe predicate
+  rm -f "${VERIFY_EVIDENCE_DIR}/issue-agent-verification.json"
+  write_verification_case_file "active" "" \
+    '{"id":"mech-quiet","kind":"screenshot","url_path":"/dev/lanterns?session=mech-quiet","session_config":{"emit_every":9999}}'
+  export NATIVE_CONTRACT_SNAPSHOT_JSON='{"lifecycle":"running","appliedEvents":[]}'
+  run_mechanical_case
+  jq -e '
+    .status == "pass"
+    and .evidence_results[0].screenshot == "screenshots/mech-quiet.png"
+    and .evidence_results[0].observation == "observations/mech-quiet-frame.json"
+    and (.evidence_results[0].observed_text | test("frame frozen at lifecycle running"))
+  ' "${VERIFY_EVIDENCE_DIR}/issue-agent-verification.json" >/dev/null
+  grep -q -- "--lifecycle running" "$NATIVE_CONTRACT_VERIFY_NODE_LOG"
+)
