@@ -454,6 +454,83 @@ expect_plan_reject "${TMP_DIR}/plan-empty-case.json" "empty_case"
 jq -e '.empty_cases | index("dev-lanterns-empty") != null' \
   "${TMP_DIR}/plan-empty-case.json" >/dev/null
 
+# --- feature types: standing case source (test-plan skip leg) ---
+
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# The REAL repo standing case must pass the exact same lint pipeline a
+# generated plan does — this is the CI guard that keeps the standing case
+# claim-vocabulary clean.
+rm -f "${PLAN_EVIDENCE_DIR}/issue-agent-test-plan.json"
+set +e
+AMBIENCE_EVIDENCE_DIR="$PLAN_EVIDENCE_DIR" \
+AMBIENCE_TEST_PLAN_VALIDATE_ONLY=1 \
+AMBIENCE_FEATURE_TYPE="effect" \
+AMBIENCE_REPO_DIR="$REPO_ROOT" \
+GLIMMUNG_INPUT_VALIDATION_URL="https://preview.test" \
+GLIMMUNG_INPUT_NAMESPACE="preview-ns" \
+bash "${SCRIPT_DIR}/glimmung-native/test-plan.sh" >"${TMP_DIR}/standing-plan.json"
+STANDING_RC=$?
+set -e
+if [ "$STANDING_RC" -ne 0 ]; then
+  echo "expected the repo standing effect case to validate as a plan, got ${STANDING_RC}" >&2
+  cat "${TMP_DIR}/standing-plan.json" >&2
+  exit 1
+fi
+jq -e '
+  .status == "pass"
+  and .case_source == "standing"
+  and .feature_type == "effect"
+  and (.required_evidence | length == 1)
+  and .required_evidence[0].source == "standing"
+  and .required_evidence[0].id == "effect-acceptance"
+  and .required_evidence[0].kind == "video"
+  and ((.required_evidence[0].must_show // "") != "")
+' "${TMP_DIR}/standing-plan.json" >/dev/null
+
+# A standing case that breaks the claim vocabulary fails with the SAME named
+# lint a generated plan would — the standing path adds no gate exemptions.
+cat >"${TMP_DIR}/broken-standing.json" <<'JSON'
+{
+  "id": "effect-acceptance",
+  "kind": "video",
+  "source": "standing",
+  "must_show": "a cluster of 5 lanterns rises"
+}
+JSON
+set +e
+AMBIENCE_EVIDENCE_DIR="$PLAN_EVIDENCE_DIR" \
+AMBIENCE_TEST_PLAN_VALIDATE_ONLY=1 \
+AMBIENCE_FEATURE_TYPE="effect" \
+AMBIENCE_REPO_DIR="$REPO_ROOT" \
+AMBIENCE_STANDING_CASE_FILE="${TMP_DIR}/broken-standing.json" \
+GLIMMUNG_INPUT_VALIDATION_URL="https://preview.test" \
+GLIMMUNG_INPUT_NAMESPACE="preview-ns" \
+bash "${SCRIPT_DIR}/glimmung-native/test-plan.sh" >"${TMP_DIR}/broken-standing-plan.json"
+STANDING_RC=$?
+set -e
+[ "$STANDING_RC" -eq 1 ]
+jq -e '.status == "fail" and .abort_reason == "unverifiable_must_show"' \
+  "${TMP_DIR}/broken-standing-plan.json" >/dev/null
+
+# A declared feature type with no standing case file is a misconfiguration,
+# not a silent fallback to plan generation.
+set +e
+AMBIENCE_EVIDENCE_DIR="$PLAN_EVIDENCE_DIR" \
+AMBIENCE_TEST_PLAN_VALIDATE_ONLY=1 \
+AMBIENCE_FEATURE_TYPE="no-such-type" \
+AMBIENCE_REPO_DIR="$REPO_ROOT" \
+GLIMMUNG_INPUT_VALIDATION_URL="https://preview.test" \
+GLIMMUNG_INPUT_NAMESPACE="preview-ns" \
+bash "${SCRIPT_DIR}/glimmung-native/test-plan.sh" >/dev/null 2>"${TMP_DIR}/missing-standing.err"
+STANDING_RC=$?
+set -e
+if [ "$STANDING_RC" -eq 0 ]; then
+  echo "expected a feature type without a standing case file to fail" >&2
+  exit 1
+fi
+grep -q "standing case" "${TMP_DIR}/missing-standing.err"
+
 # --- verify.sh agentless mechanical cases ---
 # Source verify.sh (AMBIENCE_VERIFY_SOURCE_ONLY) and drive the mechanical
 # path through stubbed curl/node, in a subshell so the sourced globals and
@@ -657,4 +734,128 @@ JSON
     and (.evidence_results[0].observed_text | test("frame frozen at lifecycle running"))
   ' "${VERIFY_EVIDENCE_DIR}/issue-agent-verification.json" >/dev/null
   grep -q -- "--lifecycle running" "$NATIVE_CONTRACT_VERIFY_NODE_LOG"
+
+  # --- standing case binding (resolve_standing_case) ---
+
+  # a standing case binds url_path + session from the implementation ui_hint
+  write_verification_case_file "active" "" \
+    '{"id":"effect-acceptance","kind":"video","source":"standing","duration_seconds":10,"must_show":"the effect reads as the issue describes"}'
+  export GLIMMUNG_INPUT_UI_HINT='{"menu_label":"paper-lanterns","route":"/dev/paper-lanterns"}'
+  resolve_standing_case
+  jq -e '
+    .status == "active"
+    and .required_evidence.url_path == "/dev/paper-lanterns?session=effect-acceptance"
+    and .required_evidence.ui_hint.menu_label == "paper-lanterns"
+    and .required_evidence.ui_hint.route == "/dev/paper-lanterns"
+    and .required_evidence.must_show == "the effect reads as the issue describes"
+  ' "$VERIFICATION_CASE_FILE" >/dev/null
+
+  # a missing/invalid ui_hint fails the standing case closed, with the
+  # detail riding the durable case file (finalize folds it into reasons)
+  write_verification_case_file "active" "" \
+    '{"id":"effect-acceptance","kind":"video","source":"standing","must_show":"the effect reads as the issue describes"}'
+  unset GLIMMUNG_INPUT_UI_HINT
+  resolve_standing_case
+  jq -e '
+    .status == "plan_error"
+    and (.reason | test("ui_hint is missing or invalid"))
+  ' "$VERIFICATION_CASE_FILE" >/dev/null
+
+  # a route outside /dev/<effect> is rejected the same way
+  write_verification_case_file "active" "" \
+    '{"id":"effect-acceptance","kind":"video","source":"standing","must_show":"the effect reads as the issue describes"}'
+  export GLIMMUNG_INPUT_UI_HINT='{"menu_label":"monitor","route":"https://evil.example/page"}'
+  resolve_standing_case
+  jq -e '.status == "plan_error"' "$VERIFICATION_CASE_FILE" >/dev/null
+  unset GLIMMUNG_INPUT_UI_HINT
+
+  # a generated (non-standing) case passes through resolution untouched
+  write_verification_case_file "active" "" \
+    '{"id":"gen-1","kind":"video","url_path":"/dev/lanterns?session=gen-1","must_show":"a warm glow"}'
+  resolve_standing_case
+  jq -e '
+    .status == "active"
+    and .required_evidence.url_path == "/dev/lanterns?session=gen-1"
+    and (.required_evidence | has("ui_hint") | not)
+  ' "$VERIFICATION_CASE_FILE" >/dev/null
+)
+
+# --- implement.sh ui_hint contract (feature types with a standing case) ---
+(
+  IMPL_EVIDENCE_DIR="${TMP_DIR}/impl-evidence"
+  mkdir -p "$IMPL_EVIDENCE_DIR"
+  export AMBIENCE_IMPLEMENT_SOURCE_ONLY=1
+  export AMBIENCE_EVIDENCE_DIR="$IMPL_EVIDENCE_DIR"
+  export GLIMMUNG_INPUT_VALIDATION_URL="https://preview.test"
+  export GLIMMUNG_INPUT_NAMESPACE="preview-ns"
+  export GLIMMUNG_INPUT_IMAGE_TAG="git-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  unset GLIMMUNG_STEP_SLUG
+
+  # shellcheck source=glimmung-native/implement.sh
+  source "${SCRIPT_DIR}/glimmung-native/implement.sh"
+
+  # passing implementation with a valid ui_hint: finalize succeeds and emit
+  # publishes the hint as its own phase output
+  cat >"${IMPL_EVIDENCE_DIR}/issue-agent-implementation.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "summary": "added paper lanterns",
+  "ui_hint": {"menu_label": "paper-lanterns", "route": "/dev/paper-lanterns"}
+}
+JSON
+  export AMBIENCE_FEATURE_TYPE="effect"
+  finalize
+  jq -e '.status == "pass"' "$IMPLEMENTATION_JSON" >/dev/null
+  rm -f "$GLIMMUNG_OUTPUT_FILE" "$GLIMMUNG_COMPLETION_FILE"
+  emit
+  jq -e '
+    (.ui_hint | fromjson | .menu_label == "paper-lanterns")
+    and .branch_name == "glimmung/run-1"
+  ' "$GLIMMUNG_OUTPUT_FILE" >/dev/null
+
+  # passing implementation WITHOUT a ui_hint under a standing feature type:
+  # finalize fails the step, named, before any verify spend
+  cat >"${IMPL_EVIDENCE_DIR}/issue-agent-implementation.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "summary": "added paper lanterns"
+}
+JSON
+  set +e
+  finalize
+  FINALIZE_RC=$?
+  set -e
+  [ "$FINALIZE_RC" -ne 0 ]
+  jq -e '.status == "fail" and .abort_reason == "missing_ui_hint"' "$IMPLEMENTATION_JSON" >/dev/null
+
+  # a non-/dev route is rejected the same way
+  cat >"${IMPL_EVIDENCE_DIR}/issue-agent-implementation.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "summary": "added paper lanterns",
+  "ui_hint": {"menu_label": "paper-lanterns", "route": "https://evil.example/dev/paper-lanterns"}
+}
+JSON
+  set +e
+  finalize
+  FINALIZE_RC=$?
+  set -e
+  [ "$FINALIZE_RC" -ne 0 ]
+  jq -e '.abort_reason == "missing_ui_hint"' "$IMPLEMENTATION_JSON" >/dev/null
+
+  # without a feature type, a missing ui_hint is not an error (generated-path
+  # workflows have no standing case to bind)
+  unset AMBIENCE_FEATURE_TYPE
+  cat >"${IMPL_EVIDENCE_DIR}/issue-agent-implementation.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "summary": "non-effect change"
+}
+JSON
+  finalize
+  jq -e '.status == "pass"' "$IMPLEMENTATION_JSON" >/dev/null
 )

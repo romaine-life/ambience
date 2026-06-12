@@ -113,9 +113,24 @@ Glimmung selects the concrete provider/model for this invocation through the
     "lifecycle_assertions": "pass: TestMagicPortalEndingTerminal — gate stays dark past outro expiry",
     "visual_selfcheck": "localhost /dev/magic-portal ending: final frame gate dark, matches contract resting_state",
     "terminal_observer": "pass: /dev/observe trigger=ending lifecycle=ended hold_ticks=12"
+  },
+  "ui_hint": {
+    "menu_label": "magic-portal",
+    "route": "/dev/magic-portal"
   }
 }
 ```
+
+`ui_hint` names the user-facing surface your change added or touched:
+`menu_label` is the exact name as it appears in the `/dev` effect picker
+(the registry key), `route` is the public dev page route. It is
+**required whenever your change adds a new effect or renames an
+effect's public surface** — the verification stage uses it to *find*
+your work in the UI. It is a discovery aid only: it tells the verifier
+where to look, never what success looks like (the issue text is the
+judgment criteria), so declaring it does not couple your implementation
+to the test. The wrapper fails a passing implementation that omits it
+when the workflow's feature type requires one.
 
 `behavior_evidence` is required whenever you changed rendering, lifecycle,
 or event behavior (step 6). Use `"n/a: no visual/temporal change"` for both

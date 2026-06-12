@@ -6,9 +6,23 @@
 # specification (issue-agent-test-plan.json). Runs in parallel with the
 # implement phase — does NOT receive or produce code changes.
 #
+# Feature types (AMBIENCE_FEATURE_TYPE): the workflow registration declares
+# what kind of feature this workflow delivers, and the type selects the case
+# source. A type with a repo-versioned standing case
+# (.github/agent/standing-cases/<type>.json) does NOT generate a plan: the
+# feature's surface (route, name, schema) does not exist at plan time, so a
+# generated plan could only guess it — ambience#167 run 11 is the motivating
+# failure (plan-invented session_config knobs the parallel implementation
+# never defined). The stage still runs so the workflow shape stays total:
+# every step logs SKIPPED and the standing case becomes the plan, validated
+# by the exact same lint gates a generated plan must pass. Types without a
+# standing case file keep the generated path unchanged.
+#
 # Outputs emitted to glimmung:
 #   test_plan  — issue-agent-test-plan.json serialised as a JSON string.
 #                Consumed by the verify phase to know what evidence to capture.
+#                In standing mode this is the repo's standing case wrapped in
+#                a plan envelope (case_source: "standing").
 
 set -Eeuo pipefail
 
@@ -44,6 +58,32 @@ CONFIG_MAP_NAME="agent-config-test-plan"
 # only by the existing 10-case total.
 MAX_JUDGED_CASES=3
 
+# Standing case source. The feature type comes from the workflow registration
+# (job env), and the standing case file is read from the WORKFLOW checkout —
+# never the implementation branch — so the case the run is judged by cannot be
+# edited by the run's own implementation agent.
+FEATURE_TYPE="${AMBIENCE_FEATURE_TYPE:-}"
+STANDING_CASE_FILE="${AMBIENCE_STANDING_CASE_FILE:-${REPO_DIR}/.github/agent/standing-cases/${FEATURE_TYPE}.json}"
+
+standing_case_source() {
+  [ -n "$FEATURE_TYPE" ] && [ -s "$STANDING_CASE_FILE" ]
+}
+
+# A declared feature type whose standing case file is absent is a
+# misconfiguration, not a license to silently fall back to plan generation.
+assert_feature_type_resolvable() {
+  if [ -n "$FEATURE_TYPE" ] && [ ! -s "$STANDING_CASE_FILE" ]; then
+    echo "feature_type=${FEATURE_TYPE} declares a standing case source but ${STANDING_CASE_FILE} is missing or empty" >&2
+    return 1
+  fi
+  return 0
+}
+
+standing_skip() {
+  local step="$1"
+  echo "SKIPPED ${step} (feature_type=${FEATURE_TYPE}): test-plan generation does not run; the standing case ${STANDING_CASE_FILE#"${REPO_DIR}"/} is the case source"
+}
+
 ISSUE_TITLE="${GLIMMUNG_ISSUE_TITLE:-Glimmung issue ${GLIMMUNG_ISSUE_ID:-${GLIMMUNG_RUN_ID}}}"
 ISSUE_NUMBER="${GLIMMUNG_ISSUE_NUMBER:-}"
 ISSUE_PROJECT="${GLIMMUNG_PROJECT:-ambience}"
@@ -70,6 +110,11 @@ printf '0\n' >"$PLAN_EXIT_CODE_FILE"
 mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/videos"
 
 clone_repo() {
+  assert_feature_type_resolvable
+  if standing_case_source; then
+    standing_skip "clone (managed checkout already provides the workflow ref)"
+    return 0
+  fi
   native_clone_repo "$REPO_SLUG" "$REPO_DIR" "$WORKFLOW_REF"
 }
 
@@ -90,6 +135,11 @@ copy_claude_ca() {
 }
 
 prepare_context() {
+  assert_feature_type_resolvable
+  if standing_case_source; then
+    standing_skip "prepare (no agent infrastructure is provisioned)"
+    return 0
+  fi
   native_azure_login
   native_install_preview_package "${REPO_DIR}/mcp"
   copy_claude_ca
@@ -146,6 +196,11 @@ ensure_proxy_ip() {
 }
 
 run_llm() {
+  assert_feature_type_resolvable
+  if standing_case_source; then
+    standing_skip "run-test-plan (no test-plan agent is launched)"
+    return 0
+  fi
   ensure_proxy_ip
   (
     cd "$REPO_DIR"
@@ -183,6 +238,10 @@ plan_exit_code() {
 }
 
 collect_evidence() {
+  if standing_case_source; then
+    standing_skip "collect (no verifier pod exists)"
+    return 0
+  fi
   local pod=""
   pod="$(kubectl -n "$NAMESPACE" get pods -l "job-name=${JOB_NAME}" \
     -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
@@ -210,6 +269,43 @@ collect_evidence() {
 }
 
 finalize() {
+  assert_feature_type_resolvable
+  if standing_case_source; then
+    # Synthesize the plan envelope from the repo's standing case and stage it
+    # exactly where the test-plan agent would have written its output. The
+    # whole lint pipeline below then applies verbatim — the standing case is
+    # held to the same claim-vocabulary gates as a generated plan, so a
+    # repo edit that breaks the case fails this step with the named lint.
+    # (stderr: validate-only mode reserves stdout for the plan JSON.)
+    standing_skip "finalize input (standing case becomes the plan)" >&2
+    if ! jq -e . "$STANDING_CASE_FILE" >/dev/null 2>&1; then
+      jq -n --arg path "${STANDING_CASE_FILE#"${REPO_DIR}"/}" \
+        '{schema_version:1,status:"fail",abort_reason:"malformed_standing_case",
+          summary:("standing case file is not valid JSON: " + $path)}' >"$TEST_PLAN_JSON"
+      printf '1\n' >"$PLAN_EXIT_CODE_FILE"
+      return 0
+    fi
+    jq -n \
+      --arg feature_type "$FEATURE_TYPE" \
+      --arg path "${STANDING_CASE_FILE#"${REPO_DIR}"/}" \
+      --slurpfile standing "$STANDING_CASE_FILE" \
+      '{
+        schema_version: 1,
+        status: "pass",
+        case_source: "standing",
+        feature_type: $feature_type,
+        summary: ("Standing acceptance case for feature_type=" + $feature_type
+          + " from " + $path
+          + ". Test-plan generation was skipped: the feature surface does not exist at plan time, so the verifier binds this case to the implementation ui_hint and judges the capture against the issue text."),
+        required_evidence: [$standing[0]]
+      }' >"${EVIDENCE_DIR}/issue-agent-test-plan.json"
+    {
+      printf '## Standing case source\n\n'
+      printf -- '- feature_type: `%s`\n' "$FEATURE_TYPE"
+      printf -- '- case: `%s`\n' "${STANDING_CASE_FILE#"${REPO_DIR}"/}"
+      printf -- '- Test-plan generation skipped by the workflow feature type; the verifier judges the capture against the issue text, using the implementation ui_hint for discovery only.\n'
+    } >"${EVIDENCE_DIR}/issue-agent-test-plan.md"
+  fi
   if [ -f "${EVIDENCE_DIR}/issue-agent-test-plan.json" ]; then
     cp "${EVIDENCE_DIR}/issue-agent-test-plan.json" "$TEST_PLAN_JSON"
   fi
