@@ -57,6 +57,19 @@ type MagicPortalConfig struct {
 	QuietDur     int     `json:"quiet_dur"`
 	QuietMult    float64 `json:"quiet_mult"`
 	EmberLife    int     `json:"ember_life"`
+	// TRIGGER BUTTONS — schema fire-button knobs (Trigger: <event>) with no
+	// simulation meaning of their own. They still need backing config
+	// fields: every schema knob must survive the ApplyConfig ->
+	// EffectiveConfig round-trip so the verification pin contract (live
+	// /dev/snapshot config == schema defaults, knob-for-knob) stays
+	// satisfiable; cmd/ambience/effects_schema_config_test.go enforces it.
+	IntroEvent  int `json:"intro_event"`
+	EndingEvent int `json:"ending_event"`
+	PulseEvent  int `json:"pulse_event"`
+	SurgeEvent  int `json:"surge_event"`
+	BurstEvent  int `json:"burst_event"`
+	ShiftEvent  int `json:"shift_event"`
+	QuietEvent  int `json:"quiet_event"`
 }
 
 func (c MagicPortalConfig) withDefaults() MagicPortalConfig {
