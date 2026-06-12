@@ -31,6 +31,41 @@ Cases with no `must_show` at all never launch this stage (the wrapper runs
 them agentlessly), so the selected case always has exactly one look to
 judge. Judge the look; don't measure.
 
+## Standing case (feature-type acceptance)
+
+When the `Verification case` JSON has `"source": "standing"`, no test plan
+was generated for this run: the workflow's feature type delivers a surface
+that did not exist at plan time (a new effect), so the case is the repo's
+standing acceptance case, bound by the wrapper to the implementation's
+`ui_hint` (`{menu_label, route}` — already substituted into `url_path` and
+echoed on the case). Differences from a generated case:
+
+1. **Judgment criteria are the issue text.** An `Issue body` section is
+   appended below. The case's `must_show` is the umbrella ("reads as the
+   experience the issue describes"); the issue body is what that means
+   concretely. Judge the captured look against the issue's own words —
+   gestalt only, exactly as the judgment contract above demands. Do not
+   judge against the implementation's claims or the hint.
+2. **Discovery comes first.** Before capturing the case video, open
+   `$VALIDATION_URL/dev` and confirm the new effect appears as an option in
+   the effect picker (the `menu_label` from the case's `ui_hint`). Capture a
+   screenshot of the picker showing the option as discovery evidence and
+   include it in `evidence`. The hint is a **navigation aid only** — it
+   tells you where to look, never what success looks like. If the option is
+   absent from the picker, abort with `ui_option_missing`; do not pass on
+   the route alone.
+3. **Pin to schema defaults.** The standing case carries no
+   `session_config`; pin the case's session with no overrides. The defaults
+   are the product — if the effect only reads as the issue's experience
+   under hand-tuned knobs, it is not delivered.
+4. Then capture and judge per the normal `kind: video` flow below, using the
+   case's bound `url_path`.
+
+Additional `abort_reason` for standing cases:
+
+- `ui_option_missing` — the effect named by `ui_hint.menu_label` does not
+  appear in the `/dev` effect picker.
+
 ## Workflow
 
 1. Read the verification-case section, test plan section, and implementation section appended

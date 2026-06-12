@@ -8,6 +8,14 @@
 # Outputs emitted to glimmung:
 #   implementation — issue-agent-implementation.json as a JSON string.
 #   branch_name    — the pushed branch name (for verify to clone).
+#   ui_hint        — {menu_label, route} as a JSON string, when the
+#                    implementation declared one. For feature types with a
+#                    standing verification case (AMBIENCE_FEATURE_TYPE, e.g.
+#                    "effect") a passing implementation MUST declare it: the
+#                    verifier needs it to find the new surface. The hint is a
+#                    discovery aid only — judgment criteria stay the issue
+#                    text, so this is navigation knowledge flowing forward,
+#                    not evaluation knowledge.
 
 set -Eeuo pipefail
 
@@ -64,7 +72,7 @@ IMPL_EXIT_CODE=0
 IMPLEMENTATION_JSON="/tmp/implementation.json"
 SUMMARY_MD="/tmp/summary.md"
 EVENTS_LOG="/tmp/agent-events.jsonl"
-EVIDENCE_DIR="/tmp/evidence"
+EVIDENCE_DIR="${AMBIENCE_EVIDENCE_DIR:-/tmp/evidence}"
 POD_LOG="/tmp/agent-pod.log"
 IMPL_EXIT_CODE_FILE="/tmp/implementation-exit-code"
 PROXY_IP_FILE="/tmp/implementation-proxy-ip"
@@ -513,26 +521,63 @@ finalize() {
     jq -n '{schema_version:1,status:"fail",abort_reason:"implement pod produced no output"}' \
       >"$IMPLEMENTATION_JSON"
   fi
+  enforce_ui_hint_contract
+}
+
+# Feature types with a standing verification case bind that case to the
+# implementation's ui_hint at verify time. A passing implementation without a
+# usable hint would fail one expensive phase later with a much vaguer error —
+# fail it HERE, named, before any verify spend. Returning nonzero fails the
+# finalize step itself, which is the only failure channel that survives
+# managed per-step invocation (the /tmp exit-code file is re-initialized by
+# every step's script start). Route shape mirrors the verify-side binding
+# check (resolve_standing_case in verify.sh).
+enforce_ui_hint_contract() {
+  [ "${AMBIENCE_FEATURE_TYPE:-}" = "" ] && return 0
+  [ "$(jq -r '.status // ""' "$IMPLEMENTATION_JSON" 2>/dev/null || printf '')" = "pass" ] || return 0
+  local label route
+  label="$(jq -r '.ui_hint.menu_label // ""' "$IMPLEMENTATION_JSON" 2>/dev/null || printf '')"
+  route="$(jq -r '.ui_hint.route // ""' "$IMPLEMENTATION_JSON" 2>/dev/null || printf '')"
+  case "$route" in
+    /dev/[a-z0-9_-]*) ;;
+    *) route="" ;;
+  esac
+  if [ -z "$label" ] || [ -z "$route" ]; then
+    local got
+    got="$(jq -c '.ui_hint // null' "$IMPLEMENTATION_JSON" 2>/dev/null || printf 'null')"
+    jq --arg got "$got" \
+      '.status = "fail"
+       | .abort_reason = "missing_ui_hint"
+       | .summary = ((.summary // "") + " [wrapper: feature_type requires ui_hint {menu_label, route:/dev/<effect>} on a passing implementation; got " + $got + "]")' \
+      "$IMPLEMENTATION_JSON" >"${IMPLEMENTATION_JSON}.tmp" \
+      && mv "${IMPLEMENTATION_JSON}.tmp" "$IMPLEMENTATION_JSON"
+    echo "missing_ui_hint: feature_type=${AMBIENCE_FEATURE_TYPE} requires a passing implementation to declare ui_hint {menu_label, route:/dev/<effect>}; got ${got}" >&2
+    return 1
+  fi
+  echo "ui_hint contract satisfied: menu_label=${label} route=${route}"
 }
 
 emit() {
   local impl_str
   impl_str="$(cat "$IMPLEMENTATION_JSON")"
   local outputs
-  local pr_number="" pr_url=""
+  local pr_number="" pr_url="" ui_hint=""
   [ -s "$PR_NUMBER_FILE" ] && pr_number="$(cat "$PR_NUMBER_FILE")"
   [ -s "$PR_URL_FILE" ] && pr_url="$(cat "$PR_URL_FILE")"
+  ui_hint="$(printf '%s' "$impl_str" | jq -c '.ui_hint // empty' 2>/dev/null || printf '')"
   outputs="$(jq -nc \
     --argjson v "$impl_str" \
     --arg branch "$BRANCH_NAME" \
     --arg pr_number "$pr_number" \
     --arg pr_url "$pr_url" \
+    --arg ui_hint "$ui_hint" \
     '{
       implementation: ($v | tostring),
       branch_name: $branch
     }
     + (if $pr_number != "" then {pr_number: ($pr_number | tonumber)} else {} end)
-    + (if $pr_url != "" then {pr_url: $pr_url} else {} end)')"
+    + (if $pr_url != "" then {pr_url: $pr_url} else {} end)
+    + (if $ui_hint != "" then {ui_hint: $ui_hint} else {} end)')"
   local summary
   summary="$(cat "$SUMMARY_MD" 2>/dev/null || true)"
   native_completed "$outputs" "null" "" "$summary"
@@ -543,6 +588,14 @@ emit() {
     return "$exit_code"
   fi
 }
+
+# Test seam: the contract harness sources this file to exercise the
+# finalize/emit functions directly against staged files (see
+# scripts/test-glimmung-native-contract.sh). Sourcing must define the
+# functions and globals without running any step.
+if [ "${AMBIENCE_IMPLEMENT_SOURCE_ONLY:-}" = "1" ]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 if native_selected_step; then
   native_run_selected_step \

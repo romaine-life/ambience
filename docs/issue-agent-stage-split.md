@@ -36,6 +36,52 @@ evidence-gate
 independent but share canonical target names, public routes, and trigger events.
 Implementation still solves the issue, not the test plan.
 
+## Feature types and case sources
+
+The workflow registration declares a **feature type**
+(`AMBIENCE_FEATURE_TYPE` in the job env), and the type selects where
+verification cases come from:
+
+- **Standing** — the type has a repo-versioned case at
+  `.github/agent/standing-cases/<type>.json`. Used when the feature's
+  public surface does not exist at plan time: a new effect has no route,
+  name, or schema until the implementation lands, so a generated plan
+  could only *guess* implementation specifics — ambience#167 run 11 is
+  the motivating failure (the plan invented `session_config` knob names
+  the parallel implementation never defined, and the pin contract
+  correctly refused to verify against them). `ambience.default` declares
+  `feature_type=effect` and uses the standing `effect-acceptance` case:
+  find the new effect in the `/dev` picker, pin its session to schema
+  defaults, record it, and judge the capture against the issue text.
+- **Generated** — no feature type (or no standing case file): the
+  test-plan agent authors the plan, unchanged. Correct for projects whose
+  world exists before the feature (e.g. a stats display measuring an
+  existing game), so plan-time references to real surface are honest.
+
+The workflow shape is **total and invariant** across types: every phase
+and step stays declared. In standing mode the test-plan job's steps run
+and log `SKIPPED` (visible in the run graph — the skip *is* the
+documentation of the toggle), and its `emit` still publishes a
+well-formed `test_plan` output (the standing case wrapped in a plan
+envelope, `case_source: "standing"`) so downstream phase-input
+substitution never dangles. The standing case passes the **same lint
+gates** as a generated plan — `test-plan.sh finalize` runs the full
+claim-vocabulary pipeline on it, and the contract harness validates the
+repo's standing case file in CI.
+
+**The ui_hint bright line.** Standing cases are bound to the
+implementation at verify time through the `ui_hint` phase output
+(`{menu_label, route}`, emitted by `implement.sh`, required on a passing
+implementation when the feature type declares a standing case —
+`missing_ui_hint` fails the implement job before any verify spend). The
+hint is a **discovery aid only**: navigation knowledge flows forward
+(where to look), evaluation knowledge does not (what success looks like
+stays the issue text). `resolve_standing_case` in `verify.sh` binds
+`url_path = route + ?session=<case-id>`, the session is pinned to schema
+defaults (name-free — no plan-authored knob overrides exist on a
+standing case), and the verifier judges the capture against the issue
+body, which the wrapper stages into the prompt for standing cases only.
+
 ## Stage contracts
 
 ### Stage 0 — `run-issue-contract`

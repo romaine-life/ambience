@@ -159,8 +159,18 @@ prepare_context() {
   fi
 
   select_verification_case
+  resolve_standing_case
   if [ "$(verification_case_status)" != "active" ]; then
     return 0
+  fi
+
+  # Standing cases are judged against the issue text itself (the standing
+  # must_show is the gestalt umbrella; the issue body is the criteria). Stage
+  # the body so the verifier prompt can carry it. Generated cases keep their
+  # plan-authored claims and do not receive this block.
+  if selected_case_is_standing && [ -n "${GLIMMUNG_ISSUE_BODY:-}" ]; then
+    printf '%s\n' "$GLIMMUNG_ISSUE_BODY" >"${EVIDENCE_DIR}/issue-body.md"
+    echo "staged issue body for standing-case judgment ($(wc -c <"${EVIDENCE_DIR}/issue-body.md") bytes)"
   fi
 
   start_session_keepalive_and_pin
@@ -208,7 +218,7 @@ prepare_context() {
   local args=(
     --from-file=prompt-verification.md="${REPO_DIR}/.github/agent/prompt-verification.md"
   )
-  for f in "$ISSUE_CONTRACT_FILE" "$TEST_PLAN_FILE" "$TEST_PLAN_MD_FILE" "$IMPL_FILE" "$IMPL_MD_FILE" "$VERIFICATION_CASE_FILE"; do
+  for f in "$ISSUE_CONTRACT_FILE" "$TEST_PLAN_FILE" "$TEST_PLAN_MD_FILE" "$IMPL_FILE" "$IMPL_MD_FILE" "$VERIFICATION_CASE_FILE" "${EVIDENCE_DIR}/issue-body.md"; do
     [ -s "$f" ] || continue
     base="$(basename "$f")"
     args+=(--from-file="${base}=${f}")
@@ -295,6 +305,61 @@ select_verification_case() {
   case_json="$(jq -c --argjson idx "$VERIFY_CASE_INDEX" '.required_evidence[$idx]' "$TEST_PLAN_FILE")"
   write_verification_case_file "active" "" "$case_json"
   echo "${VERIFY_CASE_JOB_ID} selected required_evidence[$VERIFY_CASE_INDEX]: $(printf '%s' "$case_json" | jq -r '.id // "unnamed"')"
+}
+
+selected_case_is_standing() {
+  [ "$(jq -r '.required_evidence.source // ""' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '')" = "standing" ]
+}
+
+# Standing cases are repo-versioned acceptance cases for feature types whose
+# public surface does not exist at plan time (a new effect has no route, name,
+# or schema until the implementation lands). The implementation stage emits a
+# ui_hint phase output naming the new surface ({menu_label, route}); this
+# binds the standing case to it: url_path = hint route + a deterministic
+# session, and the hint is embedded for the verifier. Bright line: the hint is
+# a DISCOVERY aid only — it tells the verifier where to look, never what
+# success looks like. Judgment criteria stay the issue text.
+resolve_standing_case() {
+  if [ "$(verification_case_status)" != "active" ] || ! selected_case_is_standing; then
+    return 0
+  fi
+  local hint_file hint_route hint_label case_id session resolved
+  hint_file="${EVIDENCE_DIR}/ui-hint.json"
+  if [ -n "${GLIMMUNG_INPUT_UI_HINT:-}" ]; then
+    printf '%s' "$GLIMMUNG_INPUT_UI_HINT" | jq -r 'if type == "string" then . else tojson end' >"$hint_file" 2>/dev/null \
+      || printf '%s' "$GLIMMUNG_INPUT_UI_HINT" >"$hint_file"
+  else
+    : >"$hint_file"
+  fi
+  hint_route="$(jq -r '.route // ""' "$hint_file" 2>/dev/null || printf '')"
+  hint_label="$(jq -r '.menu_label // ""' "$hint_file" 2>/dev/null || printf '')"
+  case "$hint_route" in
+    /dev/[a-z0-9_-]*) ;;
+    *) hint_route="" ;;
+  esac
+  if [ -z "$hint_route" ] || [ -z "$hint_label" ]; then
+    local detail
+    detail="standing case: implementation ui_hint is missing or invalid (need {menu_label, route:/dev/<effect>}); got: $(head -c 200 "$hint_file" 2>/dev/null || printf '<unset>')"
+    echo "$detail"
+    # The reason rides the durable case file: /tmp reasons are truncated by
+    # every managed step re-invocation, and finalize folds this back in.
+    write_verification_case_file "plan_error" "$detail"
+    return 0
+  fi
+  case_id="$(jq -r '.required_evidence.id // "standing-case"' "$VERIFICATION_CASE_FILE")"
+  session="$(printf '%s' "$case_id" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-' | sed 's/-*$//')"
+  resolved="$(
+    jq -c \
+      --arg url_path "${hint_route}?session=${session}" \
+      --arg route "$hint_route" \
+      --arg label "$hint_label" \
+      '.required_evidence
+       | .url_path = $url_path
+       | .ui_hint = {menu_label: $label, route: $route}' \
+      "$VERIFICATION_CASE_FILE"
+  )"
+  write_verification_case_file "active" "" "$resolved"
+  echo "${VERIFY_CASE_JOB_ID} standing case ${case_id} bound to ui_hint: route=${hint_route} menu_label=${hint_label} session=${session}"
 }
 
 ensure_proxy_ip() {
@@ -1320,6 +1385,10 @@ finalize() {
       return 0
       ;;
     plan_error)
+      # The selection/resolution failure detail rides the case file (durable
+      # across managed step invocations); fold it into the reasons channel so
+      # the verdict says WHY, not just that selection failed.
+      add_reason "case selection: $(jq -r '.reason // "plan_error"' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf 'plan_error')"
       write_verification "fail"
       return 0
       ;;

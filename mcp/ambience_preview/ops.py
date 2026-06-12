@@ -887,10 +887,12 @@ echo "=== prewarm: go mod download ==="
 go mod download 2>&1 | tail -20 || true
 
 # Make prior-phase handoff artifacts visible under /workspace/evidence/.
+# issue-body.md is staged by the verify wrapper for standing cases only:
+# it is the judgment criteria when no generated test plan exists.
 for f in issue-agent-contract.json issue-agent-contract.md \
          issue-agent-test-plan.json issue-agent-test-plan.md \
          issue-agent-implementation.json issue-agent-implementation.md \
-         verification-case.json; do
+         verification-case.json issue-body.md; do
   if [ -f "/agent-config/${f}" ]; then
     cp "/agent-config/${f}" "/workspace/evidence/${f}"
   fi
@@ -915,6 +917,12 @@ echo "=== STAGE: verification ==="
   cat /workspace/evidence/verification-case.json 2>/dev/null || echo '{}'
   echo '```'
   echo ""
+  if [ -s /workspace/evidence/issue-body.md ]; then
+    echo "## Issue body (standing-case judgment criteria)"
+    echo ""
+    cat /workspace/evidence/issue-body.md
+    echo ""
+  fi
   echo "## Test plan"
   echo ""
   echo '```json'
