@@ -96,6 +96,15 @@ Write, or Bash-state-mutating tools.
       "duration_seconds": 6,
       "session_config": {"flash_brightness": 0.9},
       "expected_text": null
+    },
+    {
+      "id": "dev-distant-storm-ending",
+      "kind": "screenshot",
+      "url_path": "/dev/distant-storm?session=ending1",
+      "trigger_event": "ending",
+      "terminal_lifecycle": "ended",
+      "hold_ticks": 12,
+      "session_config": {"flash_p": 0}
     }
   ],
   "validation_path": "/dev/distant-storm",
@@ -113,6 +122,40 @@ zero media cases or any deterministic/non-media evidence kind such as
 `go-test`, `unit-test`, `lint`, `build`, `ci`, `note`, or `artifact`.
 Deterministic checks are PR CI, not LLM verification cases.
 
+**Closed claim vocabulary.** Cases split into **judged** (non-empty
+`must_show`: one gestalt sentence an LLM verifier judges against the
+artifact) and **mechanical-only** (no `must_show`: the verify wrapper itself
+produces and checks the evidence; no verification LLM runs). The test-plan
+wrapper enforces the vocabulary on every passing plan:
+
+- `unverifiable_must_show` — a `must_show` containing a digit, a comparator
+  phrase ("at least", "at most", "exactly", "within", "more than",
+  "less than", "no more than", "between", `>=`, `<=`), or a camelCase
+  identifier token (`[a-z]+[A-Z][A-Za-z]*` — internal state reaching;
+  kebab-case trigger names are fine) fails the plan with the case id and
+  offending fragment named. Judged claims describe a look; decidable
+  expectations live in `session_config` / `trigger_event` /
+  `terminal_lifecycle`, which the wrapper enforces mechanically.
+  Motivated by ambience#167 runs 9.1/10.1, where measured prose claims
+  were adjudicated as undecidable by judgment.
+- `too_many_judged_cases` — at most `MAX_JUDGED_CASES=3` judged cases per
+  plan. Mechanical-only cases are uncapped up to the 10-case total.
+- `video_requires_judgment` — `kind: video` requires a non-empty
+  `must_show`; video exists to be judged over time. Mechanical cases use
+  screenshot/observation evidence.
+- `empty_case` — a case without `must_show` must declare at least one of
+  `trigger_event`, `terminal_lifecycle`, or `session_config`.
+- `trigger_case_without_baseline` — every case declaring `trigger_event`
+  must declare a non-empty `session_config`. A trigger judged against the
+  default background cadence is undecidable (ambience#167 run 9.1: a
+  triggered single-lantern claim drowned in default
+  `emit_every`/`release_pulse_p` activity); trigger cases pin a quiescent
+  baseline that suppresses the competing cadence knobs (emission rates near
+  zero, pulse probabilities 0) so the triggered behavior is isolated.
+
+All vocabulary guards fail closed: a jq evaluation error rejects the plan
+with a `jq_error:*` sentinel rather than letting an uncheckable plan pass.
+
 **Pinned session contract.** Dev sessions are created with randomized knob
 values (a `/dev` product feature), so a `must_show` written against knob
 defaults is undecidable on an unpinned session — ambience#167 run 5 failed
@@ -127,9 +170,11 @@ whose randomized `cluster_min`/`cluster_max` was 2/23. The settled contract:
   (`enforce_session_config_pinned`) — an unpinned or drifted session fails
   the case.
 - `must_show` claims are therefore written against the pinned config:
-  schema defaults unless `session_config` overrides them. Numeric claims
-  must be anchored to pinned knob values; non-`/dev` surfaces cannot be
-  pinned and take config-agnostic claims only.
+  schema defaults unless `session_config` overrides them. The numbers
+  themselves never appear in prose — the closed claim vocabulary rejects
+  digits/comparators in `must_show`; the knobs carry the numbers and the
+  pin enforcement carries the proof. Non-`/dev` surfaces cannot be pinned
+  and take config-agnostic claims only.
 - The test-plan wrapper fails a passing plan whose `session_config` is not a
   flat numeric object (`invalid_session_config`); unknown or out-of-range
   knob keys fail at verify time with the knob named.
@@ -207,8 +252,32 @@ branches from earlier runs after the issue's touchpoint path has merged.
 **Goal:** Validate one ordered evidence case against the rebuilt validation
 env. Pin the case's dev session to its declared config
 (`scripts/agent/pin-session-config.mjs`: schema defaults + the case's
-`session_config`), capture the selected item from the test plan, and confirm
-`must_show` language matches what the captured artifact actually shows.
+`session_config`), capture the selected item from the test plan, and — for
+judged cases — confirm the `must_show` gestalt matches what the captured
+artifact actually shows. The verifier's judgment is gestalt-only: it never
+counts, measures, or infers internal state; every mechanical fact is
+wrapper-enforced.
+
+**Agentless mechanical cases.** A selected case without a `must_show` never
+launches the verification LLM. The wrapper (`run_mechanical_case` in
+`verify.sh`) performs the case itself: re-asserts the session pin, fires a
+declared `trigger_event` through the documented flow
+(`POST /dev/trigger/<session>/<event>?effect=<effect>`, then requires the
+event to register in `snapshot.appliedEvents` — accepted is not applied),
+proves a declared `terminal_lifecycle` with
+`scripts/agent/capture-observation.mjs`, freezes a frame for `screenshot`
+cases (via `/dev/observe`, echoing the session's current lifecycle as the
+predicate when none is declared), and synthesizes
+`issue-agent-verification.{json,md}` in the exact verifier-output schema
+(`schema_version: 1`, `status`, `evidence`, `evidence_results` with an
+`observed_text` such as "mechanical: pin verified; trigger accepted;
+lifecycle ended held N ticks"). finalize / upload-screenshots / emit run
+unchanged on that synthesized output, and every enforcement gate below —
+pin re-check, evidence/artifact checks, failure-block synthesis — applies
+to mechanical cases identically. Every mechanical step fails closed: a
+step that cannot be completed writes a `fail` verdict carrying the literal
+failure as `observed_text` and a structured `failure` block
+(`where: wrapper-mechanical`).
 
 **Agent runtime slot:** `verification`.
 
