@@ -51,23 +51,32 @@ verify-case-01..10 or one dynamic verification job (evidence_verification_gate) 
   complete as skipped. Glimmung aggregates the case results into the phase
   `verification` output consumed by the evidence gate.
 
-The registration also declares a **feature type** (`AMBIENCE_FEATURE_TYPE`
-job env) that selects the verification **case source**. Types with a
-repo-versioned standing case (`.github/agent/standing-cases/<type>.json`)
-skip test-plan *generation* — for a new effect, the surface a plan would
-reference does not exist at plan time — while the workflow shape stays
-total: the test-plan job's steps log `SKIPPED` and its emit publishes the
-standing case as the `test_plan` output, lint-gated identically to a
-generated plan. `ambience.default` is `feature_type=effect`: one standing
-acceptance case (find the new effect in the `/dev` picker, pin schema
-defaults, record video, judge against the issue text). The implementation
-emits a `ui_hint` phase output (`{menu_label, route}`, mandatory on a
-passing implementation for standing types) that the verify wrapper binds
-into the case — a **discovery aid only**: it says where to look, never
-what success looks like. Types without a standing case keep generated
-plans (correct when the world exists before the feature, e.g. a
-stats-display project). Full rationale:
-[docs/issue-agent-stage-split.md](docs/issue-agent-stage-split.md).
+The registration also declares a **feature type** (workflow `vars` +
+`AMBIENCE_FEATURE_TYPE` job env) that selects the verification **case
+source**. Types with a repo-versioned standing case
+(`.github/agent/standing-cases/<type>.json`) skip test-plan *generation*
+entirely at the PLATFORM level: the registration puts
+`when: "${{ vars.feature_type }} != 'effect'"` on the `llm-test-plan` job,
+so Glimmung never creates its pod (zero compute) while the run graph still
+renders the declared-but-skipped leg. The `issue-contract` job is skipped
+the same way (`vars.issue_contract`): for new effects, public names settle
+by **declaration** (the implementation's `ui_hint` + the issue's own event
+list) instead of pre-implementation prediction, and the verify wrapper
+mechanically checks the declared route + schema route serve. With the plan
+leg skipped its `test_plan` output resolves empty, and the verify wrapper
+sources the standing case from its own workflow checkout (never the
+implementation branch) — CI-linted by the contract harness with the same
+claim-vocabulary gates a generated plan must pass.
+
+`ambience.default` is `feature_type=effect`: one standing acceptance case
+(find the new effect in the `/dev` picker, pin schema defaults, record
+video, judge against the issue text). The implementation emits a `ui_hint`
+phase output (`{menu_label, route}`, mandatory on a passing implementation
+for standing types) that the verify wrapper binds into the case — a
+**discovery aid only**: it says where to look, never what success looks
+like. Types without a standing case keep generated plans (correct when the
+world exists before the feature, e.g. a stats-display project). Full
+rationale: [docs/issue-agent-stage-split.md](docs/issue-agent-stage-split.md).
 
 Each phase has wrapper scripts in `scripts/glimmung-native/`. Planning and
 implementation use Glimmung-managed `type: agent` workflow steps.

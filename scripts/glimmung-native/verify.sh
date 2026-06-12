@@ -141,13 +141,20 @@ prepare_context() {
     echo "GLIMMUNG_INPUT_ISSUE_CONTRACT not set; verify will proceed without issue-contract context"
   fi
 
-  # GLIMMUNG_INPUT_TEST_PLAN is the test-plan JSON string; unwrap it.
+  # GLIMMUNG_INPUT_TEST_PLAN is the test-plan JSON string; unwrap it. An
+  # EMPTY input means the llm-test-plan job was when-skipped at the platform
+  # (skipped legs publish nothing; their outputs resolve empty): the case
+  # source is then the repo's standing case for the workflow's feature type,
+  # read from the WORKFLOW checkout — never the implementation branch — so
+  # the case a run is judged by cannot be edited by the run's own
+  # implementation agent. The standing file is CI-linted by the contract
+  # harness with the same claim-vocabulary gates a generated plan must pass.
   if [ -n "${GLIMMUNG_INPUT_TEST_PLAN:-}" ]; then
     printf '%s' "$GLIMMUNG_INPUT_TEST_PLAN" | jq -r . >"$TEST_PLAN_FILE" 2>/dev/null \
       || printf '%s' "$GLIMMUNG_INPUT_TEST_PLAN" >"$TEST_PLAN_FILE"
     echo "staged test-plan JSON ($(wc -c <"$TEST_PLAN_FILE") bytes)"
-  else
-    echo "GLIMMUNG_INPUT_TEST_PLAN not set; verify will proceed without test-plan context"
+  elif ! stage_standing_test_plan; then
+    return 1
   fi
 
   if [ -n "${GLIMMUNG_INPUT_IMPLEMENTATION:-}" ]; then
@@ -305,6 +312,39 @@ select_verification_case() {
   case_json="$(jq -c --argjson idx "$VERIFY_CASE_INDEX" '.required_evidence[$idx]' "$TEST_PLAN_FILE")"
   write_verification_case_file "active" "" "$case_json"
   echo "${VERIFY_CASE_JOB_ID} selected required_evidence[$VERIFY_CASE_INDEX]: $(printf '%s' "$case_json" | jq -r '.id // "unnamed"')"
+}
+
+# stage_standing_test_plan synthesizes the test-plan envelope from the repo's
+# standing case when the test-plan leg was when-skipped. A declared feature
+# type whose standing case file is absent or malformed is a misconfiguration,
+# not a license to run with no cases — fail loudly with the path named.
+stage_standing_test_plan() {
+  local feature_type standing_file
+  feature_type="${AMBIENCE_FEATURE_TYPE:-}"
+  if [ -z "$feature_type" ]; then
+    echo "GLIMMUNG_INPUT_TEST_PLAN is empty and no AMBIENCE_FEATURE_TYPE declares a standing case source" >&2
+    return 1
+  fi
+  standing_file="${AMBIENCE_STANDING_CASE_FILE:-${REPO_DIR}/.github/agent/standing-cases/${feature_type}.json}"
+  if [ ! -s "$standing_file" ] || ! jq -e . "$standing_file" >/dev/null 2>&1; then
+    echo "feature_type=${feature_type} declares a standing case source but ${standing_file} is missing or malformed" >&2
+    return 1
+  fi
+  jq -n \
+    --arg feature_type "$feature_type" \
+    --arg path "${standing_file#"${REPO_DIR}"/}" \
+    --slurpfile standing "$standing_file" \
+    '{
+      schema_version: 1,
+      status: "pass",
+      case_source: "standing",
+      feature_type: $feature_type,
+      summary: ("Standing acceptance case for feature_type=" + $feature_type
+        + " from " + $path
+        + ". The test-plan leg was when-skipped: the feature surface does not exist at plan time, so the verifier binds this case to the implementation ui_hint and judges the capture against the issue text."),
+      required_evidence: [$standing[0]]
+    }' >"$TEST_PLAN_FILE"
+  echo "staged standing test plan from ${standing_file#"${REPO_DIR}"/} (feature_type=${feature_type})"
 }
 
 selected_case_is_standing() {
@@ -716,6 +756,17 @@ verification_cost() {
 enforce_issue_contract() {
   local contract="${ISSUE_CONTRACT_FILE}"
   if [ ! -s "$contract" ]; then
+    # No contract was authored: the issue-contract leg is when-skipped on
+    # workflows that settle public names by DECLARATION instead of
+    # prediction. For a standing case, the implementation's ui_hint is that
+    # declaration — mechanically verify the declared surface serves: the dev
+    # route and the derived schema route must respond. (Trigger/lifecycle
+    # behavior is covered by the implementer's sim tests in PR CI and by the
+    # judged acceptance capture, not by a pre-declared trigger sweep.)
+    if selected_case_is_standing; then
+      enforce_declared_surface
+      return $?
+    fi
     add_reason "missing issue-contract JSON; cannot enforce public target contract"
     return 1
   fi
@@ -1078,6 +1129,34 @@ enforce_session_config_pinned() {
   fi
   echo "session config pinned for ${evidence_id:-unknown}: effect=${effect} session=${session} ($(printf '%s' "$check_out" | jq -r '.knob_count // "?"') knobs)"
   return 0
+}
+
+# enforce_declared_surface mechanically verifies the implementation-declared
+# surface (the standing case's bound ui_hint): the dev route serves and the
+# derived /effects/<slug>/schema route serves. Declaration replaces the
+# pre-implementation contract's prediction; what was declared must exist.
+enforce_declared_surface() {
+  local route slug status failed=0
+  route="$(jq -r '.required_evidence.ui_hint.route // ""' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '')"
+  if [ -z "$route" ]; then
+    add_reason "declared surface: standing case has no bound ui_hint route to enforce"
+    return 1
+  fi
+  slug="${route#/dev/}"
+  for probe in "$route" "/effects/${slug}/schema"; do
+    status="$(curl -sS -o /dev/null -w "%{http_code}" "${VALIDATION_URL}${probe}" || printf '000')"
+    case "$status" in
+      2*|3*) ;;
+      *)
+        add_reason "declared surface: ${probe} returned HTTP ${status}"
+        failed=1
+        ;;
+    esac
+  done
+  if [ "$failed" -eq 0 ]; then
+    echo "declared surface verified: ${route} and /effects/${slug}/schema serve"
+  fi
+  [ "$failed" -eq 0 ]
 }
 
 evidence_ref_path() {

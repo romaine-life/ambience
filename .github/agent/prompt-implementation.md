@@ -25,6 +25,13 @@ Glimmung selects the concrete provider/model for this invocation through the
    (resting state held — e.g. `ending` leaves the effect in its terminal
    look) versus **transient events** (return to baseline). Implement and
    self-check (step 6) against that classification.
+   **When no Issue contract block is present** (the contract leg is skipped
+   on this workflow), YOU settle the public names by declaration: derive the
+   effect slug from the issue title (kebab-case, per cookbook convention),
+   take trigger-event names from the issue body's own event list, and
+   classify terminal-vs-transient from the issue's intro/outro sections.
+   Your `ui_hint` output is that declaration's anchor — the verifier
+   mechanically checks that what you declared actually serves.
 2. Identify a single bounded slice that addresses the issue. Bias
    toward the smallest change that resolves the stated request — the
    same scope discipline the test-plan stage applies, picked

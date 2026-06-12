@@ -59,15 +59,28 @@ verification cases come from:
   existing game), so plan-time references to real surface are honest.
 
 The workflow shape is **total and invariant** across types: every phase
-and step stays declared. In standing mode the test-plan job's steps run
-and log `SKIPPED` (visible in the run graph — the skip *is* the
-documentation of the toggle), and its `emit` still publishes a
-well-formed `test_plan` output (the standing case wrapped in a plan
-envelope, `case_source: "standing"`) so downstream phase-input
-substitution never dangles. The standing case passes the **same lint
-gates** as a generated plan — `test-plan.sh finalize` runs the full
-claim-vocabulary pipeline on it, and the contract harness validates the
-repo's standing case file in CI.
+and job stays declared. In standing mode the `llm-test-plan` and
+`issue-contract` jobs are skipped at the PLATFORM level via registration
+`when` conditions (`${{ vars.feature_type }} != 'effect'` /
+`${{ vars.issue_contract }} == 'on'`) — Glimmung never creates their
+pods (zero compute, GitHub-Actions `if:` parity) and the run graph
+renders the declared-but-skipped legs with the resolved condition as the
+reason. A skipped leg publishes nothing: its outputs resolve to empty
+strings downstream, and the verify wrapper sources the standing case
+from its own workflow checkout (`stage_standing_test_plan`) when the
+`test_plan` input is empty. The standing case passes the **same lint
+gates** as a generated plan — the contract harness wraps the repo file
+in the runtime envelope and runs the full claim-vocabulary pipeline on
+it in CI.
+
+With the issue-contract leg skipped, public names settle by
+**declaration instead of prediction**: the implementation derives the
+slug/trigger names from the issue + cookbook conventions, declares its
+surface through `ui_hint`, and the verify wrapper mechanically checks
+the declared dev route and derived schema route actually serve
+(`enforce_declared_surface`). Trigger/lifecycle behavior is covered by
+the implementer's sim tests in PR CI and the judged acceptance capture,
+not by a pre-declared trigger sweep.
 
 **The ui_hint bright line.** Standing cases are bound to the
 implementation at verify time through the `ui_hint` phase output
