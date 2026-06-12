@@ -454,82 +454,32 @@ expect_plan_reject "${TMP_DIR}/plan-empty-case.json" "empty_case"
 jq -e '.empty_cases | index("dev-lanterns-empty") != null' \
   "${TMP_DIR}/plan-empty-case.json" >/dev/null
 
-# --- feature types: standing case source (test-plan skip leg) ---
+# --- feature types: standing case source (verify-side, when-skipped plan leg) ---
 
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # The REAL repo standing case must pass the exact same lint pipeline a
 # generated plan does — this is the CI guard that keeps the standing case
-# claim-vocabulary clean.
-rm -f "${PLAN_EVIDENCE_DIR}/issue-agent-test-plan.json"
-set +e
-AMBIENCE_EVIDENCE_DIR="$PLAN_EVIDENCE_DIR" \
-AMBIENCE_TEST_PLAN_VALIDATE_ONLY=1 \
-AMBIENCE_FEATURE_TYPE="effect" \
-AMBIENCE_REPO_DIR="$REPO_ROOT" \
-GLIMMUNG_INPUT_VALIDATION_URL="https://preview.test" \
-GLIMMUNG_INPUT_NAMESPACE="preview-ns" \
-bash "${SCRIPT_DIR}/glimmung-native/test-plan.sh" >"${TMP_DIR}/standing-plan.json"
-STANDING_RC=$?
-set -e
-if [ "$STANDING_RC" -ne 0 ]; then
-  echo "expected the repo standing effect case to validate as a plan, got ${STANDING_RC}" >&2
+# claim-vocabulary clean. The harness wraps the file in the same envelope
+# verify.sh synthesizes at runtime and runs it through the plan gates.
+jq -n --slurpfile standing "${REPO_ROOT}/.github/agent/standing-cases/effect.json" \
+  '{schema_version: 1, status: "pass", case_source: "standing", feature_type: "effect", required_evidence: [$standing[0]]}' \
+  >"${PLAN_EVIDENCE_DIR}/issue-agent-test-plan.json"
+run_plan_validate "${TMP_DIR}/standing-plan.json"
+if [ "$PLAN_VALIDATE_RC" -ne 0 ]; then
+  echo "expected the repo standing effect case to pass the plan lint gates, got ${PLAN_VALIDATE_RC}" >&2
   cat "${TMP_DIR}/standing-plan.json" >&2
   exit 1
 fi
 jq -e '
   .status == "pass"
   and .case_source == "standing"
-  and .feature_type == "effect"
   and (.required_evidence | length == 1)
   and .required_evidence[0].source == "standing"
   and .required_evidence[0].id == "effect-acceptance"
   and .required_evidence[0].kind == "video"
   and ((.required_evidence[0].must_show // "") != "")
 ' "${TMP_DIR}/standing-plan.json" >/dev/null
-
-# A standing case that breaks the claim vocabulary fails with the SAME named
-# lint a generated plan would — the standing path adds no gate exemptions.
-cat >"${TMP_DIR}/broken-standing.json" <<'JSON'
-{
-  "id": "effect-acceptance",
-  "kind": "video",
-  "source": "standing",
-  "must_show": "a cluster of 5 lanterns rises"
-}
-JSON
-set +e
-AMBIENCE_EVIDENCE_DIR="$PLAN_EVIDENCE_DIR" \
-AMBIENCE_TEST_PLAN_VALIDATE_ONLY=1 \
-AMBIENCE_FEATURE_TYPE="effect" \
-AMBIENCE_REPO_DIR="$REPO_ROOT" \
-AMBIENCE_STANDING_CASE_FILE="${TMP_DIR}/broken-standing.json" \
-GLIMMUNG_INPUT_VALIDATION_URL="https://preview.test" \
-GLIMMUNG_INPUT_NAMESPACE="preview-ns" \
-bash "${SCRIPT_DIR}/glimmung-native/test-plan.sh" >"${TMP_DIR}/broken-standing-plan.json"
-STANDING_RC=$?
-set -e
-[ "$STANDING_RC" -eq 1 ]
-jq -e '.status == "fail" and .abort_reason == "unverifiable_must_show"' \
-  "${TMP_DIR}/broken-standing-plan.json" >/dev/null
-
-# A declared feature type with no standing case file is a misconfiguration,
-# not a silent fallback to plan generation.
-set +e
-AMBIENCE_EVIDENCE_DIR="$PLAN_EVIDENCE_DIR" \
-AMBIENCE_TEST_PLAN_VALIDATE_ONLY=1 \
-AMBIENCE_FEATURE_TYPE="no-such-type" \
-AMBIENCE_REPO_DIR="$REPO_ROOT" \
-GLIMMUNG_INPUT_VALIDATION_URL="https://preview.test" \
-GLIMMUNG_INPUT_NAMESPACE="preview-ns" \
-bash "${SCRIPT_DIR}/glimmung-native/test-plan.sh" >/dev/null 2>"${TMP_DIR}/missing-standing.err"
-STANDING_RC=$?
-set -e
-if [ "$STANDING_RC" -eq 0 ]; then
-  echo "expected a feature type without a standing case file to fail" >&2
-  exit 1
-fi
-grep -q "standing case" "${TMP_DIR}/missing-standing.err"
 
 # --- verify.sh agentless mechanical cases ---
 # Source verify.sh (AMBIENCE_VERIFY_SOURCE_ONLY) and drive the mechanical
@@ -579,7 +529,11 @@ case "$url" in
   */dev/events*)
     ;;
   *)
-    if [ -n "${NATIVE_CONTRACT_CURL_CAPTURE:-}" ]; then
+    # Surface probes (-o /dev/null -w %{http_code}) get the configured
+    # status; other calls just record the URL.
+    if [ -n "$write_out" ]; then
+      printf '%s' "${NATIVE_CONTRACT_SURFACE_HTTP:-200}"
+    elif [ -n "${NATIVE_CONTRACT_CURL_CAPTURE:-}" ]; then
       printf '%s\n' "$url" >"${NATIVE_CONTRACT_CURL_CAPTURE}.url"
     fi
     ;;
@@ -778,6 +732,63 @@ JSON
     and .required_evidence.url_path == "/dev/lanterns?session=gen-1"
     and (.required_evidence | has("ui_hint") | not)
   ' "$VERIFICATION_CASE_FILE" >/dev/null
+
+  # --- verify-side standing sourcing (when-skipped plan leg) ---
+
+  # empty test_plan input + feature type: the standing envelope is staged
+  # from the repo checkout
+  rm -f "$TEST_PLAN_FILE"
+  export AMBIENCE_FEATURE_TYPE="effect"
+  export AMBIENCE_STANDING_CASE_FILE="${REPO_ROOT}/.github/agent/standing-cases/effect.json"
+  stage_standing_test_plan
+  jq -e '
+    .case_source == "standing"
+    and .required_evidence[0].id == "effect-acceptance"
+    and .required_evidence[0].source == "standing"
+  ' "$TEST_PLAN_FILE" >/dev/null
+
+  # no feature type: an empty plan input is a hard error, not a silent
+  # zero-case run
+  unset AMBIENCE_FEATURE_TYPE
+  if stage_standing_test_plan 2>/dev/null; then
+    echo "empty test_plan without a feature type must fail" >&2
+    exit 1
+  fi
+
+  # declared type with a missing standing file fails loudly
+  export AMBIENCE_FEATURE_TYPE="no-such-type"
+  export AMBIENCE_STANDING_CASE_FILE="${TMP_DIR}/does-not-exist.json"
+  if stage_standing_test_plan 2>/dev/null; then
+    echo "missing standing case file must fail" >&2
+    exit 1
+  fi
+  unset AMBIENCE_FEATURE_TYPE AMBIENCE_STANDING_CASE_FILE
+
+  # --- declared-surface enforcement (contract-less standing flow) ---
+
+  # the bound ui_hint route + derived schema route must serve
+  write_verification_case_file "active" "" \
+    '{"id":"effect-acceptance","kind":"video","source":"standing","url_path":"/dev/paper-lanterns?session=effect-acceptance","ui_hint":{"menu_label":"paper-lanterns","route":"/dev/paper-lanterns"},"must_show":"the effect reads as the issue describes"}'
+  : >"$VERIFICATION_REASONS"
+  export NATIVE_CONTRACT_SURFACE_HTTP=200
+  enforce_declared_surface
+  : >"$VERIFICATION_REASONS"
+  export NATIVE_CONTRACT_SURFACE_HTTP=404
+  if enforce_declared_surface; then
+    echo "a dead declared route must fail enforcement" >&2
+    exit 1
+  fi
+  grep -q "declared surface" "$VERIFICATION_REASONS"
+  unset NATIVE_CONTRACT_SURFACE_HTTP
+
+  # a standing case that lost its hint binding cannot pass surface checks
+  write_verification_case_file "active" "" \
+    '{"id":"effect-acceptance","kind":"video","source":"standing","must_show":"the effect reads as the issue describes"}'
+  : >"$VERIFICATION_REASONS"
+  if enforce_declared_surface; then
+    echo "a standing case without a bound ui_hint must fail surface enforcement" >&2
+    exit 1
+  fi
 )
 
 # --- implement.sh ui_hint contract (feature types with a standing case) ---
