@@ -326,6 +326,7 @@ var effectSceneSubjects = map[string][]string{
 	"fireflies":      {"fireflies", "glowflies", "lantern-bugs"},
 	"lighthouse":     {"lighthouse", "beacon", "harbor-light"},
 	"mysterious-man": {"mysterious-man", "stranger", "silhouette"},
+	"paper-lanterns": {"paper-lanterns", "sky-lanterns", "lantern-release"},
 	"rowboat":        {"rowboat", "skiff", "small-boat"},
 	"sand":           {"sand", "dunes", "drift-sand"},
 	"snow":           {"snow", "snowfall", "flurries"},
