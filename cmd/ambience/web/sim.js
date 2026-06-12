@@ -27,6 +27,25 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 		},
 	];
 
+	api.presets['paper-lanterns'] = [
+		{
+			key: 'spirits-eve', label: 'spirit\'s eve', note: 'soft amber night',
+			config: { hue: 38, hue_sp: 10, sat: 0.62, lmin: 0.38, lmax: 0.9, rise: 0.12, wind: 0.08, sway: 0.52, spawn: 38, release_p: 0.0018, cluster_min: 5, cluster_max: 9, glow: 0.78, lbal: 0.36 },
+		},
+		{
+			key: 'temple-festival', label: 'temple festival', note: 'brighter clustered release',
+			config: { hue: 30, hue_sp: 18, sat: 0.78, lmin: 0.42, lmax: 0.95, rise: 0.15, wind: 0.16, sway: 0.46, spawn: 28, release_p: 0.0034, cluster_min: 6, cluster_max: 11, glow: 0.96, lbal: 0.32 },
+		},
+		{
+			key: 'slow-drift', label: 'slow drift', note: 'sparse pale lanterns',
+			config: { hue: 44, hue_sp: 8, sat: 0.52, lmin: 0.34, lmax: 0.82, rise: 0.085, wind: 0.04, sway: 0.68, spawn: 62, release_p: 0.0011, cluster_min: 4, cluster_max: 7, glow: 0.62, quiet_p: 0.0002, lbal: 0.46 },
+		},
+		{
+			key: 'lantern-flock', label: 'lantern flock', note: 'fuller warm sky',
+			config: { hue: 34, hue_sp: 14, sat: 0.7, lmin: 0.4, lmax: 0.94, rise: 0.13, wind: -0.12, sway: 0.42, spawn: 22, release_p: 0.0042, cluster_min: 8, cluster_max: 14, glow: 0.86, max: 96, lbal: 0.28 },
+		},
+	];
+
 	function makeRNG(seed) {
 		let state = seed >>> 0;
 		const rng = () => {
