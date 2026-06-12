@@ -8,6 +8,25 @@
 window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 
 (function (api) {
+	api.presets['paper-lanterns'] = [
+		{
+			key: 'spirits-eve', label: "spirit's eve", note: 'hushed amber drift',
+			config: { hue: 34, hue_sp: 12, sat: 0.74, lmin: 0.34, lmax: 0.82, wind: 0.025, sway: 0.36, rise: 0.105, emit_p: 0.01, release_interval: 510, cluster_min: 4, cluster_max: 8, quiet_gap_dur: 240 },
+		},
+		{
+			key: 'temple-festival', label: 'temple festival', note: 'warm clustered releases',
+			config: { hue: 42, hue_sp: 18, sat: 0.8, lmin: 0.38, lmax: 0.9, wind: 0.045, sway: 0.3, rise: 0.13, emit_p: 0.014, release_interval: 360, cluster_min: 6, cluster_max: 10, quiet_gap_dur: 150 },
+		},
+		{
+			key: 'slow-drift', label: 'slow drift', note: 'wide quiet spacing',
+			config: { hue: 37, hue_sp: 10, sat: 0.66, lmin: 0.32, lmax: 0.78, wind: -0.02, sway: 0.48, rise: 0.075, emit_p: 0.007, release_interval: 720, cluster_min: 3, cluster_max: 6, quiet_gap_dur: 360, glow: 0.56 },
+		},
+		{
+			key: 'lantern-flock', label: 'lantern flock', note: 'denser shared ascent',
+			config: { hue: 46, hue_sp: 22, sat: 0.86, lmin: 0.4, lmax: 0.92, wind: 0.07, sway: 0.42, rise: 0.15, emit_p: 0.022, release_interval: 300, cluster_min: 8, cluster_max: 14, max: 112, quiet_gap_dur: 120 },
+		},
+	];
+
 	api.presets['magic-portal'] = [
 		{
 			key: 'arcane-blue', label: 'arcane blue', note: 'cool bright gate',
