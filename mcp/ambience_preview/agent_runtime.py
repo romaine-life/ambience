@@ -6,7 +6,6 @@ from typing import Any
 
 
 STAGE_AGENT_SLOTS = {
-    "issue-contract": "issue_contract",
     "test-plan": "test_plan",
     "implement": "implementation",
     "verify": "verification",

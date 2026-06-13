@@ -25,25 +25,25 @@ across staged phases with one shared target contract:
 
 ```
 prepare
-  ├─ env-prep
-  └─ issue-contract
+  └─ env-prep
        ↓
 llm-work
-  ├─ test-plan
+  ├─ test-plan   (when-skipped for effect-type runs)
   └─ implement
        ↓
 verify-case-01..10 or one dynamic verification job (evidence_verification_gate) → env-destroy
 ```
 
-- **prepare** runs `env-prep` and `issue-contract` as parallel jobs.
-  `env-prep` prepares the validation environment. `issue-contract`
-  canonicalizes target names, public routes, trigger events, and aliases.
-- **test-plan** and **implement** both consume the issue contract and run in
-  parallel. They do not read each other's artifacts. `test-plan` produces an
-  evidence specification; `implement` produces code changes and pushes the
-  branch + rebuilds the validation env.
-- **verify** receives the issue contract, test plan, and implementation JSON
-  as phase inputs. Legacy rows use ten bounded jobs named `verify-case-01`
+- **prepare** runs `env-prep`, which prepares the validation environment.
+- **test-plan** and **implement** run in parallel and do not read each
+  other's artifacts. `test-plan` produces an evidence specification;
+  `implement` produces code changes, declares its public surface
+  (`ui_hint`), and pushes the branch + rebuilds the validation env. The
+  retired issue-contract stage is gone: public names settle by the
+  implementation's declaration (slug from the issue title per cookbook
+  convention, trigger names from the issue body's own event list).
+- **verify** receives the test plan and implementation JSON as phase
+  inputs. Legacy rows use ten bounded jobs named `verify-case-01`
   through `verify-case-10`; newer Glimmung rows can use one dynamic
   verification job whose runner expands those same cases sequentially. Each
   active case selects one `required_evidence` item, runs one verification LLM
@@ -58,15 +58,16 @@ source**. Types with a repo-versioned standing case
 entirely at the PLATFORM level: the registration puts
 `when: "${{ vars.feature_type }} != 'effect'"` on the `llm-test-plan` job,
 so Glimmung never creates its pod (zero compute) while the run graph still
-renders the declared-but-skipped leg. The `issue-contract` job is skipped
-the same way (`vars.issue_contract`): for new effects, public names settle
-by **declaration** (the implementation's `ui_hint` + the issue's own event
-list) instead of pre-implementation prediction, and the verify wrapper
-mechanically checks the declared route + schema route serve. With the plan
-leg skipped its `test_plan` output resolves empty, and the verify wrapper
-sources the standing case from its own workflow checkout (never the
-implementation branch) — CI-linted by the contract harness with the same
-claim-vocabulary gates a generated plan must pass.
+renders the declared-but-skipped leg — the skip is honest because the
+toggle has a live second state (generated plans for projects whose world
+exists before the feature). Public names settle by **declaration** (the
+implementation's `ui_hint` + the issue's own event list) instead of
+pre-implementation prediction, and the verify wrapper mechanically checks
+the declared route + schema route serve (`enforce_declared_surface`). With
+the plan leg skipped its `test_plan` output resolves empty, and the verify
+wrapper sources the standing case from its own workflow checkout (never
+the implementation branch) — CI-linted by the contract harness with the
+same claim-vocabulary gates a generated plan must pass.
 
 `ambience.default` is `feature_type=effect`: one standing acceptance case
 (find the new effect in the `/dev` picker, pin schema defaults, record
@@ -84,13 +85,12 @@ Verification cases use the script-launched inner Job path so the wrapper can
 skip empty slots before invoking an LLM. Both paths take provider/model
 selection from the resolved Glimmung agent runtime snapshot on the Run.
 The Ambience LLM stages use stable runtime slots:
-`issue_contract`, `test_plan`, `implementation`, and `verification`. The
+`test_plan`, `implementation`, and `verification`. The
 script-launched inner Job renderer in `mcp/ambience_preview/ops.py` also
 requires `GLIMMUNG_AGENT_RUNTIME_JSON` and selects the same stage slot before
 rendering Claude or Codex commands, so registered rows cannot silently fall
 back to a hard-coded model. Prompts are in
-`.github/agent/prompt-{issue-contract,test-plan,implementation,
-verification}.md`. Design and stage contracts live at
+`.github/agent/prompt-{test-plan,implementation,verification}.md`. Design and stage contracts live at
 [docs/issue-agent-stage-split.md](docs/issue-agent-stage-split.md).
 
 Verification inner Jobs do not mount raw provider credential Secrets. The

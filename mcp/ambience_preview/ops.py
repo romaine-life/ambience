@@ -523,11 +523,9 @@ def destroy_pr_preview(*, pr_number: int, release: str = DEFAULT_PR_RELEASE_NAME
 # burden (see docs/issue-agent-stage-split.md and tank-operator's
 # docs/agent-llm-task-splitting.md):
 #
-#   issue-contract — canonicalizes the issue target before test-plan and
-#   implement run. It does not plan evidence or edit code.
-#
-#   test-plan / implement — independent sibling jobs. Both read the issue
-#   contract, but neither reads the other's artifact.
+#   test-plan / implement — independent sibling jobs; neither reads the
+#   other's artifact. Public names settle by the implementation's own
+#   declaration (ui_hint); the retired issue-contract stage is gone.
 #
 #   verify — one `claude --print` invocation that reads the
 #   prior stages' JSON+MD handoff artifacts (mounted via configmap) and
@@ -714,37 +712,6 @@ if [ -d /workspace/evidence ]; then
 fi
 """
 
-# Pod: issue-contract. Read-only target canonicalization — no code edits,
-# no evidence planning, no git mutations.
-_ISSUE_CONTRACT_BASH = _AGENT_BOOTSTRAP_BASH + r"""
-git clone "https://github.com/${REPO_SLUG}.git" /workspace/repo
-cd /workspace/repo
-
-echo "=== prewarm: go mod download ==="
-go mod download 2>&1 | tail -20 || true
-
-echo "=== STAGE: issue-contract ==="
-cat /agent-config/prompt-issue-contract.md /tmp/issue-context.md > /tmp/contract-input.md
-run_agent_prompt /tmp/contract-input.md /tmp/issue-contract-stream.log
-
-if [ ! -f /workspace/evidence/issue-agent-contract.json ]; then
-  echo "issue-contract stage exited without writing issue-agent-contract.json" >&2
-  exit 1
-fi
-contract_status="$(jq -r '.status // "missing"' /workspace/evidence/issue-agent-contract.json)"
-if [ "$contract_status" != "pass" ]; then
-  echo "issue-contract aborted: status=${contract_status} reason=$(jq -r '.abort_reason // ""' /workspace/evidence/issue-agent-contract.json)" >&2
-  exit 1
-fi
-
-# Issue-contract stage may not modify the working tree.
-if [ -n "$(git status --porcelain)" ]; then
-  echo "issue-contract stage modified files (forbidden):" >&2
-  git status --short >&2
-  exit 1
-fi
-""" + _AGENT_EVIDENCE_TAIL_BASH
-
 # Pod: test-plan. Read-only analysis — no code edits, no git mutations.
 # Clones main, runs the test-plan LLM, emits issue-agent-test-plan.json.
 _TEST_PLAN_BASH = _AGENT_BOOTSTRAP_BASH + r"""
@@ -758,18 +725,6 @@ echo "=== STAGE: test-plan ==="
 {
   cat /agent-config/prompt-test-plan.md
   cat /tmp/issue-context.md
-  if [ -f /agent-config/issue-agent-contract.json ]; then
-    echo ""
-    echo "## Issue contract"
-    echo ""
-    echo '```json'
-    cat /agent-config/issue-agent-contract.json
-    echo '```'
-  fi
-  if [ -f /agent-config/issue-agent-contract.md ]; then
-    echo ""
-    cat /agent-config/issue-agent-contract.md
-  fi
 } > /tmp/plan-input.md
 run_agent_prompt /tmp/plan-input.md /tmp/test-plan-stream.log
 
@@ -810,18 +765,6 @@ echo "=== STAGE: implementation ==="
 {
   cat /agent-config/prompt-implementation.md
   cat /tmp/issue-context.md
-  if [ -f /agent-config/issue-agent-contract.json ]; then
-    echo ""
-    echo "## Issue contract"
-    echo ""
-    echo '```json'
-    cat /agent-config/issue-agent-contract.json
-    echo '```'
-  fi
-  if [ -f /agent-config/issue-agent-contract.md ]; then
-    echo ""
-    cat /agent-config/issue-agent-contract.md
-  fi
 } > /tmp/impl-input.md
 run_agent_prompt /tmp/impl-input.md /tmp/impl-stream.log
 
@@ -889,8 +832,7 @@ go mod download 2>&1 | tail -20 || true
 # Make prior-phase handoff artifacts visible under /workspace/evidence/.
 # issue-body.md is staged by the verify wrapper for standing cases only:
 # it is the judgment criteria when no generated test plan exists.
-for f in issue-agent-contract.json issue-agent-contract.md \
-         issue-agent-test-plan.json issue-agent-test-plan.md \
+for f in issue-agent-test-plan.json issue-agent-test-plan.md \
          issue-agent-implementation.json issue-agent-implementation.md \
          verification-case.json issue-body.md; do
   if [ -f "/agent-config/${f}" ]; then
@@ -902,14 +844,6 @@ echo "=== STAGE: verification ==="
 {
   cat /agent-config/prompt-verification.md
   cat /tmp/issue-context.md
-  echo ""
-  echo "## Issue contract"
-  echo ""
-  echo '```json'
-  cat /workspace/evidence/issue-agent-contract.json 2>/dev/null || echo '{}'
-  echo '```'
-  echo ""
-  cat /workspace/evidence/issue-agent-contract.md 2>/dev/null || true
   echo ""
   echo "## Verification case"
   echo ""
@@ -956,7 +890,6 @@ fi
 """ + _AGENT_EVIDENCE_TAIL_BASH
 
 _STAGE_BASH_SCRIPTS = {
-    "issue-contract": _ISSUE_CONTRACT_BASH,
     "test-plan": _TEST_PLAN_BASH,
     "implement": _IMPLEMENT_BASH,
     "verify": _VERIFY_BASH,

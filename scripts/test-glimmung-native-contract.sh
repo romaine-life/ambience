@@ -454,6 +454,19 @@ expect_plan_reject "${TMP_DIR}/plan-empty-case.json" "empty_case"
 jq -e '.empty_cases | index("dev-lanterns-empty") != null' \
   "${TMP_DIR}/plan-empty-case.json" >/dev/null
 
+# --- retired surface: issue-contract stage must not return ---
+# Migration policy: the pre-implementation contract stage is deleted end to
+# end (public names settle by the implementation's declaration). This guard
+# fails if the retired stage's files or wrapper reads are reintroduced.
+if [ -e "${SCRIPT_DIR}/glimmung-native/issue-contract.sh" ] || [ -e "${SCRIPT_DIR}/../.github/agent/prompt-issue-contract.md" ]; then
+  echo "retired issue-contract stage files have been reintroduced" >&2
+  exit 1
+fi
+if grep -l "GLIMMUNG_INPUT_ISSUE_CONTRACT" "${SCRIPT_DIR}"/glimmung-native/*.sh >/dev/null 2>&1; then
+  echo "retired issue-contract input reads have been reintroduced in native scripts" >&2
+  exit 1
+fi
+
 # --- feature types: standing case source (verify-side, when-skipped plan leg) ---
 
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"

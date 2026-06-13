@@ -15,26 +15,26 @@ the source of issue-run execution for the native Ambience flow.
 2. Glimmung creates a Run, acquires native runner capacity, creates the
    per-attempt callback token, and launches a Kubernetes Job in
    `glimmung-runs`.
-3. The `prepare` native phase runs two parallel jobs:
-   `scripts/glimmung-native/env-prep.sh` and
-   `scripts/glimmung-native/issue-contract.sh`.
+3. The `prepare` native phase runs
+   `scripts/glimmung-native/env-prep.sh`.
 4. `env-prep` clones this repo, builds and verifies an Ambience validation
    image, deploys a public validation environment, checks it, and emits
    `validation_url`, `namespace`, `image_tag`, `claude_namespace`, and
    `claude_ca_namespace`.
-5. `issue-contract` reads the issue and emits `issue_contract`, the canonical
-   target/public-surface contract consumed by later LLM jobs.
-6. Glimmung substitutes those phase outputs into `llm-work`.
-7. `llm-work` runs `test-plan` and `implement` in parallel. Both consume
-   `issue_contract`; neither consumes the other's output. The implementation
+5. Glimmung substitutes those phase outputs into `llm-work`.
+6. `llm-work` runs `test-plan` and `implement` in parallel; neither
+   consumes the other's output. For effect-type runs the test-plan job is
+   when-skipped at the platform and the standing case is the evidence
+   specification. The implementation declares its public surface
+   (`ui_hint`); the retired issue-contract stage is deleted. The implementation
    wrapper creates the issue-scoped run branch
    `glimmung/issue-<issue-number>/<run-id>` and draft PR before the
    implementation agent starts, gives the agent a branch-publish/check helper
    for CI feedback, waits for the PR's GitHub checks after the agent exits, and
    only then rebuilds the validation environment. Red or timed-out CI aborts
    the run before LLM verification.
-8. The verification phase receives `issue_contract`, `test_plan`,
-   `implementation`, and the rebuilt validation URL. It runs ten fixed jobs
+7. The verification phase receives `test_plan`, `implementation`, and the
+   rebuilt validation URL. It runs ten fixed jobs
    named `verify-case-01` through `verify-case-10`; each active job captures
    one ordered browser-media `required_evidence` item from the test plan and
    posts a typed per-case verification result. Empty slots complete as skipped.
@@ -45,8 +45,8 @@ Glimmung-native issue bodies are passed into the native Kubernetes job as the
 prompt, so the agent works from the Glimmung-owned issue text rather than
 re-fetching it from GitHub Issues.
 Glimmung also passes the run-scoped `GLIMMUNG_AGENT_RUNTIME_JSON` snapshot.
-Ambience LLM stages use the `issue_contract`, `test_plan`, `implementation`,
-and `verification` slots from that snapshot; model/provider selection is not
+Ambience LLM stages use the `test_plan`, `implementation`, and
+`verification` slots from that snapshot; model/provider selection is not
 owned by shell script defaults.
 
 ## Ownership

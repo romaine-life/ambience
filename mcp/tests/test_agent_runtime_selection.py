@@ -41,7 +41,6 @@ def snapshot(**slot_profiles: dict[str, str]) -> str:
 @pytest.mark.parametrize(
     ("stage", "slot"),
     [
-        ("issue-contract", "issue_contract"),
         ("test-plan", "test_plan"),
         ("implement", "implementation"),
         ("verify", "verification"),

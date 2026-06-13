@@ -20,11 +20,10 @@ implementation:
 
 ```
 prepare
-  ├─ env-prep          (validation image/env)
-  └─ issue-contract   (LLM, no code edits, no evidence plan)
+  └─ env-prep           (validation image/env)
        ↓
 llm-work
-  ├─ run-test-plan      (LLM, no code edits, no kubectl)
+  ├─ run-test-plan      (LLM, no code edits, no kubectl; when-skipped for effect runs)
   └─ run-implementation (LLM, no GitHub, no kubectl, no Playwright)
        ↓
 verify-case-01..10     (bounded LLM evidence cases, no code edits, no GitHub-write)
@@ -32,9 +31,14 @@ verify-case-01..10     (bounded LLM evidence cases, no code edits, no GitHub-wri
 evidence-gate
 ```
 
-`issue-contract` exists so the test-plan and implementation jobs stay
-independent but share canonical target names, public routes, and trigger events.
-Implementation still solves the issue, not the test plan.
+The retired issue-contract stage is deleted end to end: it existed to let
+the parallel jobs share predicted public names, and for greenfield effects
+prediction is structurally impossible (the surface does not exist yet).
+Public names settle by the implementation's own declaration — slug from the
+issue title per cookbook convention, trigger names from the issue body's
+event list, anchored by the `ui_hint` output — and the verify wrapper
+mechanically checks the declared surface serves. Implementation still
+solves the issue, not the test plan.
 
 ## Feature types and case sources
 
@@ -58,14 +62,16 @@ verification cases come from:
   world exists before the feature (e.g. a stats display measuring an
   existing game), so plan-time references to real surface are honest.
 
-The workflow shape is **total and invariant** across types: every phase
-and job stays declared. In standing mode the `llm-test-plan` and
-`issue-contract` jobs are skipped at the PLATFORM level via registration
-`when` conditions (`${{ vars.feature_type }} != 'effect'` /
-`${{ vars.issue_contract }} == 'on'`) — Glimmung never creates their
-pods (zero compute, GitHub-Actions `if:` parity) and the run graph
-renders the declared-but-skipped legs with the resolved condition as the
-reason. A skipped leg publishes nothing: its outputs resolve to empty
+The workflow shape is **total** across the type's live states: the
+`llm-test-plan` job stays declared and is skipped at the PLATFORM level
+via the registration `when` condition
+(`${{ vars.feature_type }} != 'effect'`) — Glimmung never creates its pod
+(zero compute, GitHub-Actions `if:` parity) and the run graph renders the
+declared-but-skipped leg with the resolved condition as the reason. The
+skip is honest because the toggle has a live second state: generated
+plans for feature types whose world exists before the feature. A leg with
+no live second state does not get a toggle — it gets deleted (the
+issue-contract stage). A skipped leg publishes nothing: its outputs resolve to empty
 strings downstream, and the verify wrapper sources the standing case
 from its own workflow checkout (`stage_standing_test_plan`) when the
 `test_plan` input is empty. The standing case passes the **same lint
@@ -97,21 +103,15 @@ body, which the wrapper stages into the prompt for standing cases only.
 
 ## Stage contracts
 
-### Stage 0 — `run-issue-contract`
+### Stage 0 — retired (`run-issue-contract`)
 
-**Goal:** Read the issue and repo conventions, then settle canonical target
-names and public surface before the parallel LLM jobs run.
-
-**Agent runtime slot:** `issue_contract`.
-
-**Input context:** issue body, `.github/agent/prompt-issue-contract.md`,
-`AGENTS.md`, `CLAUDE.md`, `docs/effects-cookbook.md`,
-`docs/dev-endpoints.md`.
-
-**Tools:** Read, Grep, ToolSearch, optional WebFetch. **No** Edit,
-Write, or Bash-state-mutating tools.
-
-**Output:** `/workspace/evidence/issue-agent-contract.json` and `.md`.
+Deleted end to end. The stage predicted public names before implementation;
+for greenfield effects the prediction is structurally impossible, and for
+existing-world features both sibling stages can read the world directly.
+Public-name settlement moved to the implementation's declaration (see
+Stage 2's `ui_hint` and the verify wrapper's `enforce_declared_surface`).
+Do not reintroduce a pre-implementation contract stage; the contract
+harness guards against the retired surface returning.
 
 ### Stage 1 — `run-test-plan`
 
