@@ -65,6 +65,25 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 		},
 	];
 
+	api.presets['lava-lamp'] = [
+		{
+			key: 'classic-red', label: 'classic red', note: 'warm slow rise',
+			config: { hue: 7, hue_sp: 9, sat: 0.9, liquid_light: 0.1, blob_light: 0.64, heat_glow: 0.9, rise: 0.056, fall: 0.04, detach_every: 230, min_blobs: 3, max_blobs: 5 },
+		},
+		{
+			key: 'cool-blue', label: 'cool blue', note: 'dim blue wax',
+			config: { hue: 154, hue_sp: 12, sat: 0.74, liquid_light: 0.085, blob_light: 0.58, heat_glow: 0.68, rise: 0.05, fall: 0.036, detach_every: 270, quiet_flow_p: 0.00012 },
+		},
+		{
+			key: 'green-goo', label: 'green goo', note: 'brighter alien blobs',
+			config: { hue: 104, hue_sp: 14, sat: 0.86, liquid_light: 0.11, blob_light: 0.68, heat_glow: 0.78, rise: 0.062, fall: 0.046, merge_p: 0.0007, split_p: 0.00055 },
+		},
+		{
+			key: 'slow-drift', label: 'slow drift', note: 'settled hypnotic flow',
+			config: { hue: 18, hue_sp: 6, sat: 0.72, liquid_light: 0.075, blob_light: 0.52, heat_glow: 0.62, rise: 0.032, fall: 0.026, drift: 0.055, detach_every: 430, quiet_flow_p: 0.00016, quiet_mult: 0.18 },
+		},
+	];
+
 	function makeRNG(seed) {
 		let state = seed >>> 0;
 		const rng = () => {
