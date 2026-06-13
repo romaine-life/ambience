@@ -494,6 +494,119 @@ jq -e '
   and ((.required_evidence[0].must_show // "") != "")
 ' "${TMP_DIR}/standing-plan.json" >/dev/null
 
+# --- feature-type implementation contracts ---
+
+CONTRACT_EVIDENCE_DIR="${TMP_DIR}/contract-evidence"
+mkdir -p "$CONTRACT_EVIDENCE_DIR"
+AMBIENCE_FEATURE_TYPE="effect" \
+AMBIENCE_IMPLEMENTATION_CONTRACT="${CONTRACT_EVIDENCE_DIR}/implementation-contract.json" \
+bash "${SCRIPT_DIR}/agent/contracts/generate.sh" effect "${CONTRACT_EVIDENCE_DIR}/implementation-contract.json" >/dev/null
+jq -e '
+  .schema_version == 1
+  and .kind == "implementation_contract"
+  and .feature_type == "effect"
+  and (.required_file_templates | index("sim/{effect_snake}.go") != null)
+  and (.required_touchpoints | any(.path == "cmd/ambience-wasm/main.go"))
+  and (.forbidden_paths | any(.pattern == "cmd/ambience/web/effects/*"))
+' "${CONTRACT_EVIDENCE_DIR}/implementation-contract.json" >/dev/null
+
+CONTRACT_REPO="${TMP_DIR}/contract-repo"
+mkdir -p "$CONTRACT_REPO"
+git -C "$CONTRACT_REPO" init -q
+git -C "$CONTRACT_REPO" config user.name "contract-test"
+git -C "$CONTRACT_REPO" config user.email "contract-test@example.invalid"
+mkdir -p "${CONTRACT_REPO}/cmd/ambience-wasm"
+printf 'package main\n' >"${CONTRACT_REPO}/cmd/ambience-wasm/main.go"
+git -C "$CONTRACT_REPO" add .
+git -C "$CONTRACT_REPO" commit -q -m "base"
+git -C "$CONTRACT_REPO" update-ref refs/remotes/origin/main HEAD
+
+write_effect_impl_json() {
+  cat >"${CONTRACT_EVIDENCE_DIR}/issue-agent-implementation.json" <<'JSON'
+{
+  "schema_version": 1,
+  "status": "pass",
+  "summary": "added paper lanterns",
+  "ui_hint": {"menu_label": "paper-lanterns", "route": "/dev/paper-lanterns"}
+}
+JSON
+}
+
+reset_contract_repo() {
+  git -C "$CONTRACT_REPO" reset -q --hard origin/main
+  git -C "$CONTRACT_REPO" clean -qfdx
+}
+
+reset_contract_repo
+mkdir -p "${CONTRACT_REPO}/sim" "${CONTRACT_REPO}/cmd/ambience"
+printf 'package sim\n' >"${CONTRACT_REPO}/sim/paper_lanterns.go"
+printf 'package sim\n' >"${CONTRACT_REPO}/sim/paper_lanterns_test.go"
+printf 'package main\n' >"${CONTRACT_REPO}/cmd/ambience/effect_paper_lanterns.go"
+printf 'package main\n// paper-lanterns\n' >"${CONTRACT_REPO}/cmd/ambience-wasm/main.go"
+git -C "$CONTRACT_REPO" add .
+git -C "$CONTRACT_REPO" commit -q -m "valid effect"
+write_effect_impl_json
+bash "${SCRIPT_DIR}/agent/contracts/validate.sh" \
+  "${CONTRACT_EVIDENCE_DIR}/implementation-contract.json" \
+  "${CONTRACT_EVIDENCE_DIR}/issue-agent-implementation.json" \
+  "$CONTRACT_REPO" \
+  origin/main \
+  HEAD >"${TMP_DIR}/contract-valid.json"
+jq -e '
+  .status == "pass"
+  and .feature_type == "effect"
+  and .effect_slug == "paper-lanterns"
+  and (.changed_files | index("cmd/ambience-wasm/main.go") != null)
+' "${TMP_DIR}/contract-valid.json" >/dev/null
+
+reset_contract_repo
+mkdir -p "${CONTRACT_REPO}/sim" "${CONTRACT_REPO}/cmd/ambience"
+printf 'package sim\n' >"${CONTRACT_REPO}/sim/paper_lanterns.go"
+printf 'package sim\n' >"${CONTRACT_REPO}/sim/paper_lanterns_test.go"
+printf 'package main\n' >"${CONTRACT_REPO}/cmd/ambience/effect_paper_lanterns.go"
+git -C "$CONTRACT_REPO" add .
+git -C "$CONTRACT_REPO" commit -q -m "missing wasm touchpoint"
+set +e
+bash "${SCRIPT_DIR}/agent/contracts/validate.sh" \
+  "${CONTRACT_EVIDENCE_DIR}/implementation-contract.json" \
+  "${CONTRACT_EVIDENCE_DIR}/issue-agent-implementation.json" \
+  "$CONTRACT_REPO" \
+  origin/main \
+  HEAD >"${TMP_DIR}/contract-missing.json" 2>"${TMP_DIR}/contract-missing.err"
+CONTRACT_VALIDATE_RC=$?
+set -e
+[ "$CONTRACT_VALIDATE_RC" -eq 1 ]
+jq -e '
+  .status == "fail"
+  and .abort_reason == "missing_required_touchpoints"
+  and (.detail | fromjson | index("cmd/ambience-wasm/main.go") != null)
+' "${TMP_DIR}/contract-missing.json" >/dev/null
+
+reset_contract_repo
+mkdir -p "${CONTRACT_REPO}/sim" "${CONTRACT_REPO}/cmd/ambience" "${CONTRACT_REPO}/cmd/ambience/web/effects"
+printf 'package sim\n' >"${CONTRACT_REPO}/sim/paper_lanterns.go"
+printf 'package sim\n' >"${CONTRACT_REPO}/sim/paper_lanterns_test.go"
+printf 'package main\n' >"${CONTRACT_REPO}/cmd/ambience/effect_paper_lanterns.go"
+printf 'package main\n// paper-lanterns\n' >"${CONTRACT_REPO}/cmd/ambience-wasm/main.go"
+printf 'export class PaperLanterns {}\n' >"${CONTRACT_REPO}/cmd/ambience/web/effects/paper-lanterns.js"
+git -C "$CONTRACT_REPO" add .
+git -C "$CONTRACT_REPO" commit -q -m "legacy browser effect"
+set +e
+bash "${SCRIPT_DIR}/agent/contracts/validate.sh" \
+  "${CONTRACT_EVIDENCE_DIR}/implementation-contract.json" \
+  "${CONTRACT_EVIDENCE_DIR}/issue-agent-implementation.json" \
+  "$CONTRACT_REPO" \
+  origin/main \
+  HEAD >"${TMP_DIR}/contract-forbidden.json" 2>"${TMP_DIR}/contract-forbidden.err"
+CONTRACT_VALIDATE_RC=$?
+set -e
+[ "$CONTRACT_VALIDATE_RC" -eq 1 ]
+jq -e '
+  .status == "fail"
+  and .abort_reason == "forbidden_touchpoint"
+  and (.detail | fromjson | any(test("cmd/ambience/web/effects/paper-lanterns.js")))
+' "${TMP_DIR}/contract-forbidden.json" >/dev/null
+
 # --- verify.sh agentless mechanical cases ---
 # Source verify.sh (AMBIENCE_VERIFY_SOURCE_ONLY) and drive the mechanical
 # path through stubbed curl/node, in a subshell so the sourced globals and

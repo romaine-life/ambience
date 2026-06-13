@@ -14,31 +14,40 @@ Glimmung selects the concrete provider/model for this invocation through the
 
 ## Workflow
 
-1. Read the issue context (provided below) and re-read the project's
-   `AGENTS.md`, `CLAUDE.md`, and the cookbook docs
-   (`docs/effects-cookbook.md`, `docs/dev-endpoints.md`) for
-   conventions. YOU settle the public names by declaration: derive the
-   effect slug from the issue title (kebab-case, per cookbook convention),
-   take trigger-event names from the issue body's own event list, and
-   classify which triggers are **terminal lifecycle states** (resting state
-   held — e.g. `ending` leaves the effect in its terminal look) versus
-   **transient events** (return to baseline) from the issue's intro/outro
-   sections. Implement and self-check (step 6) against that classification.
-   Your `ui_hint` output is the declaration's anchor — the verifier
-   mechanically checks that what you declared actually serves.
-2. Identify a single bounded slice that addresses the issue. Bias
+1. Read the repo-generated **Implementation contract** below before
+   planning edits. It is the current repo contract for this feature type:
+   file patterns, allowed touchpoints, forbidden legacy paths, required
+   outputs, and validation commands. Follow it over any issue-body
+   guess about implementation files. If issue prose conflicts with the
+   contract, follow the contract and mention the stale issue prose in
+   your implementation summary.
+2. Read the issue context (provided below) for product intent and re-read
+   only the files named by the implementation contract unless a named
+   check fails and requires deeper investigation. For `feature_type=effect`,
+   the issue owns the aesthetic concept, event names, presets, and
+   lifecycle intent; the contract owns repo touchpoints. YOU settle the
+   public names by declaration: `ui_hint.route` is `/dev/<effect>` and
+   `ui_hint.menu_label` is the effect picker name. Take trigger-event
+   names from the issue body's own event list, and classify which triggers
+   are **terminal lifecycle states** (resting state held — e.g. `ending`
+   leaves the effect in its terminal look) versus **transient events**
+   (return to baseline) from the issue's intro/outro sections. Implement
+   and self-check (step 7) against that classification. Your `ui_hint`
+   output is the declaration's anchor — the verifier mechanically checks
+   that what you declared actually serves.
+3. Identify a single bounded slice that addresses the issue. Bias
    toward the smallest change that resolves the stated request — the
    same scope discipline the test-plan stage applies, picked
    independently here.
-3. Make the code edits under `/workspace/repo/`. Stay within the
-   files you scoped in step 2 unless a small adjacent edit is
+4. Make the code edits under `/workspace/repo/`. Stay within the
+   files named or allowed by the implementation contract unless a small adjacent edit is
    genuinely required (record any such edit in your output JSON).
-4. Build and unit-test what you changed:
+5. Build and unit-test what you changed:
    - `cd /workspace/repo && go build ./...`
    - `go test ./...` (or the narrower test path the plan named)
-5. If `go build` or `go test` fail, **fix the issue** before exiting.
+6. If `go build` or `go test` fail, **fix the issue** before exiting.
    Do not write a passing implementation JSON over a broken build.
-6. **Observe any visual or temporal behavior you changed before you
+7. **Observe any visual or temporal behavior you changed before you
    claim it works. `go build`/`go test` cannot see pixels** — a visual
    claim ("the gate goes dark", "the surge brightens then fades") is not
    proven by a green build. This is required whenever you add or change
@@ -79,7 +88,7 @@ Glimmung selects the concrete provider/model for this invocation through the
       with the terminal state predicate and include the predicate in
       `behavior_evidence`. This is the verifier's source of truth for
       "done"; the video is reviewer context.
-7. Commit and publish your current branch with normal Git commands:
+8. Commit and publish your current branch with normal Git commands:
    ```
    git add -A
    git commit -m "agent: address $ISSUE_REFERENCE"
@@ -91,10 +100,10 @@ Glimmung selects the concrete provider/model for this invocation through the
    pushed commits. If `git push` rejects the branch, read the remote error and
    stay on the implementation branch named by `$BRANCH_NAME`. Do not push any
    other branch.
-8. Write `/workspace/evidence/issue-agent-implementation.json` and
+9. Write `/workspace/evidence/issue-agent-implementation.json` and
    `/workspace/evidence/issue-agent-implementation.md` per the schemas
    below. **The JSON file is required.**
-9. Exit cleanly. The wrapper performs a final deterministic PR-check gate after
+10. Exit cleanly. The wrapper performs a final deterministic PR-check gate after
    this stage completes.
 
 ## Output JSON schema
@@ -134,7 +143,7 @@ to the test. The wrapper fails a passing implementation that omits it
 when the workflow's feature type requires one.
 
 `behavior_evidence` is required whenever you changed rendering, lifecycle,
-or event behavior (step 6). Use `"n/a: no visual/temporal change"` for both
+or event behavior (step 7). Use `"n/a: no visual/temporal change"` for both
 fields when the change is purely non-visual (logic, schema, server wiring).
 Use `"n/a: no terminal lifecycle change"` for `terminal_observer` when no
 terminal state was added or changed. Never report a `visual_selfcheck` or
@@ -174,11 +183,11 @@ Write a short companion `issue-agent-implementation.md` with:
 - **Do not** curl or otherwise touch the **shared validation
   environment** (`$VALIDATION_URL` / the deployed slot). It is rebuilt by
   the wrapper *after* this stage and still serves pre-change code; the
-  next LLM stage validates against it. Your visual self-check (step 6b)
+  next LLM stage validates against it. Your visual self-check (step 7b)
   runs a **local** `go run` server on `127.0.0.1`, never that shared env.
 - **Do** use the bundled Playwright/Chromium and the
   `scripts/agent/capture-*.mjs` / `inspect-video.mjs` helpers for the
-  localhost self-check in step 6 — the agent image already ships them
+  localhost self-check in step 7 — the agent image already ships them
   (`PLAYWRIGHT_PACKAGE_PATH` is set). Browser capture against the shared
   validation env remains the verification stage's job; here it is for
   observing your own in-progress build only, and its artifacts stay under

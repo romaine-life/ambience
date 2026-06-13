@@ -762,9 +762,22 @@ echo "=== prewarm: go mod download ==="
 go mod download 2>&1 | tail -20 || true
 
 echo "=== STAGE: implementation ==="
+if [ -f /agent-config/implementation-contract.json ]; then
+  cp /agent-config/implementation-contract.json /workspace/evidence/implementation-contract.json
+fi
 {
   cat /agent-config/prompt-implementation.md
   cat /tmp/issue-context.md
+  if [ -s /workspace/evidence/implementation-contract.json ]; then
+    echo ""
+    echo "## Implementation contract"
+    echo ""
+    echo "This repo-generated contract is current for this run. Follow it over any issue-body file touchpoint guesses."
+    echo ""
+    echo '```json'
+    cat /workspace/evidence/implementation-contract.json
+    echo '```'
+  fi
 } > /tmp/impl-input.md
 run_agent_prompt /tmp/impl-input.md /tmp/impl-stream.log
 
@@ -808,6 +821,14 @@ git rebase origin/main
 if git diff --quiet origin/main...HEAD; then
   echo "implementation stage produced no branch changes; failing job so the workflow doesn't open an empty PR" >&2
   exit 1
+fi
+if [ -s /workspace/evidence/implementation-contract.json ]; then
+  scripts/agent/contracts/validate.sh \
+    /workspace/evidence/implementation-contract.json \
+    /workspace/evidence/issue-agent-implementation.json \
+    /workspace/repo \
+    origin/main \
+    HEAD
 fi
 
 git push origin "HEAD:${BRANCH_NAME}"
