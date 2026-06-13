@@ -17,7 +17,7 @@
 # Output (under /tmp, not committed):
 #   /tmp/selfcheck-<effect>.webm        recorded clip
 #   /tmp/selfcheck-<effect>-final.png   final frame to eyeball vs the contract
-# Inspect the final frame against the issue contract's lifecycle resting_state.
+# Inspect the final frame against the issue's described lifecycle resting state.
 
 set -Eeuo pipefail
 

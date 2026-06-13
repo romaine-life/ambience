@@ -112,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     apply_agent.add_argument(
         "--stage",
         default="test-plan",
-        choices=["issue-contract", "test-plan", "implement", "verify"],
+        choices=["test-plan", "implement", "verify"],
         help="Which stage's bash script the agent container runs.",
     )
     apply_agent.add_argument(

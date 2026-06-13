@@ -17,20 +17,14 @@ Glimmung selects the concrete provider/model for this invocation through the
 1. Read the issue context (provided below) and re-read the project's
    `AGENTS.md`, `CLAUDE.md`, and the cookbook docs
    (`docs/effects-cookbook.md`, `docs/dev-endpoints.md`) for
-   conventions. If the context includes an `Issue contract` JSON block,
-   treat its canonical target, public routes, trigger names, aliases,
-   `lifecycle` classification, and recommended touchpoints as binding. The
-   contract does not tell you how to implement the feature, but it does
-   settle public names and which triggers are **terminal lifecycle states**
-   (resting state held — e.g. `ending` leaves the effect in its terminal
-   look) versus **transient events** (return to baseline). Implement and
-   self-check (step 6) against that classification.
-   **When no Issue contract block is present** (the contract leg is skipped
-   on this workflow), YOU settle the public names by declaration: derive the
+   conventions. YOU settle the public names by declaration: derive the
    effect slug from the issue title (kebab-case, per cookbook convention),
    take trigger-event names from the issue body's own event list, and
-   classify terminal-vs-transient from the issue's intro/outro sections.
-   Your `ui_hint` output is that declaration's anchor — the verifier
+   classify which triggers are **terminal lifecycle states** (resting state
+   held — e.g. `ending` leaves the effect in its terminal look) versus
+   **transient events** (return to baseline) from the issue's intro/outro
+   sections. Implement and self-check (step 6) against that classification.
+   Your `ui_hint` output is the declaration's anchor — the verifier
    mechanically checks that what you declared actually serves.
 2. Identify a single bounded slice that addresses the issue. Bias
    toward the smallest change that resolves the stated request — the
@@ -173,8 +167,6 @@ Write a short companion `issue-agent-implementation.md` with:
 - **Do not** read or depend on the test-plan artifact. This stage runs
   in parallel with test planning; the two are reconciled by the
   verification stage.
-- **Do** follow the issue-contract artifact when present. It is shared
-  upstream target context, not a test plan.
 - **Do not** open PRs or comment on issues. The workflow opens the draft PR
   before this stage. Use normal `git` commands to commit and push only the
   implementation branch named by `$BRANCH_NAME`; do not use raw GitHub tokens

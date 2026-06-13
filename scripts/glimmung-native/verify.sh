@@ -99,7 +99,6 @@ printf '[]\n' >"$EVIDENCE_ARTIFACTS"
 mkdir -p "$EVIDENCE_DIR/screenshots" "$EVIDENCE_DIR/videos" "$EVIDENCE_DIR/observations"
 
 # Stage handoff files — written by prepare_context from glimmung inputs.
-ISSUE_CONTRACT_FILE="${EVIDENCE_DIR}/issue-agent-contract.json"
 TEST_PLAN_FILE="${EVIDENCE_DIR}/issue-agent-test-plan.json"
 TEST_PLAN_MD_FILE="${EVIDENCE_DIR}/issue-agent-test-plan.md"
 IMPL_FILE="${EVIDENCE_DIR}/issue-agent-implementation.json"
@@ -133,14 +132,6 @@ copy_claude_ca() {
 
 prepare_context() {
   # Stage handoff artifacts from glimmung phase outputs into evidence dir.
-  if [ -n "${GLIMMUNG_INPUT_ISSUE_CONTRACT:-}" ]; then
-    printf '%s' "$GLIMMUNG_INPUT_ISSUE_CONTRACT" | jq -r . >"$ISSUE_CONTRACT_FILE" 2>/dev/null \
-      || printf '%s' "$GLIMMUNG_INPUT_ISSUE_CONTRACT" >"$ISSUE_CONTRACT_FILE"
-    echo "staged issue-contract JSON ($(wc -c <"$ISSUE_CONTRACT_FILE") bytes)"
-  else
-    echo "GLIMMUNG_INPUT_ISSUE_CONTRACT not set; verify will proceed without issue-contract context"
-  fi
-
   # GLIMMUNG_INPUT_TEST_PLAN is the test-plan JSON string; unwrap it. An
   # EMPTY input means the llm-test-plan job was when-skipped at the platform
   # (skipped legs publish nothing; their outputs resolve empty): the case
@@ -225,7 +216,7 @@ prepare_context() {
   local args=(
     --from-file=prompt-verification.md="${REPO_DIR}/.github/agent/prompt-verification.md"
   )
-  for f in "$ISSUE_CONTRACT_FILE" "$TEST_PLAN_FILE" "$TEST_PLAN_MD_FILE" "$IMPL_FILE" "$IMPL_MD_FILE" "$VERIFICATION_CASE_FILE" "${EVIDENCE_DIR}/issue-body.md"; do
+  for f in "$TEST_PLAN_FILE" "$TEST_PLAN_MD_FILE" "$IMPL_FILE" "$IMPL_MD_FILE" "$VERIFICATION_CASE_FILE" "${EVIDENCE_DIR}/issue-body.md"; do
     [ -s "$f" ] || continue
     base="$(basename "$f")"
     args+=(--from-file="${base}=${f}")
@@ -751,106 +742,6 @@ verification_cost() {
   else
     printf '0'
   fi
-}
-
-enforce_issue_contract() {
-  local contract="${ISSUE_CONTRACT_FILE}"
-  if [ ! -s "$contract" ]; then
-    # No contract was authored: the issue-contract leg is when-skipped on
-    # workflows that settle public names by DECLARATION instead of
-    # prediction. For a standing case, the implementation's ui_hint is that
-    # declaration — mechanically verify the declared surface serves: the dev
-    # route and the derived schema route must respond. (Trigger/lifecycle
-    # behavior is covered by the implementer's sim tests in PR CI and by the
-    # judged acceptance capture, not by a pre-declared trigger sweep.)
-    if selected_case_is_standing; then
-      enforce_declared_surface
-      return $?
-    fi
-    add_reason "missing issue-contract JSON; cannot enforce public target contract"
-    return 1
-  fi
-
-  local failed=0
-  local slug dev_route schema_route
-  slug="$(jq -r '.canonical_target.slug // ""' "$contract" 2>/dev/null || true)"
-  dev_route="$(jq -r '.public_surface.dev_route // ""' "$contract" 2>/dev/null || true)"
-  schema_route="$(jq -r '.public_surface.schema_route // ""' "$contract" 2>/dev/null || true)"
-
-  check_get_route() {
-    local label="$1"
-    local route="$2"
-    [ -n "$route" ] || return 0
-    local status
-    status="$(curl -sS -o /dev/null -w "%{http_code}" "${VALIDATION_URL}${route}" || printf '000')"
-    case "$status" in
-      2*|3*) ;;
-      *)
-        add_reason "issue contract: ${label} ${route} returned HTTP ${status}"
-        failed=1
-        ;;
-    esac
-  }
-
-  check_get_route "dev route" "$dev_route"
-  check_get_route "schema route" "$schema_route"
-
-  if jq -e '(.public_surface.trigger_events // []) | length > 0' "$contract" >/dev/null 2>&1; then
-    if [ -z "$slug" ]; then
-      add_reason "issue contract: trigger_events declared but canonical_target.slug is empty"
-      failed=1
-    else
-      while IFS= read -r event; do
-        [ -n "$event" ] || continue
-        local session status
-        session="contract-$(printf '%s' "$event" | tr -c 'A-Za-z0-9_-' '-')"
-        status="$(curl -sS -o /dev/null -w "%{http_code}" \
-          -X POST "${VALIDATION_URL}/dev/trigger/${session}/${event}?effect=${slug}" || printf '000')"
-        case "$status" in
-          2*|3*) ;;
-          *)
-            add_reason "issue contract: trigger ${event} for effect ${slug} returned HTTP ${status}"
-            failed=1
-            continue
-            ;;
-        esac
-        # A 2xx only means the trigger endpoint *accepted* the event. Confirm it
-        # actually *registered* on the same dev session a page would render, via
-        # the snapshot's appliedEvents. This distinguishes "trigger applied" from
-        # "trigger lost/dropped" — without it, a verifier screenshot of a
-        # pristine, never-triggered sim can read as a pass (e.g. an "intro"
-        # resting look matches an untouched sim). Events apply on the next dev
-        # tick, so poll briefly.
-        local applied=0 attempt
-        for attempt in 1 2 3 4 5 6 7 8 9 10; do
-          if curl -sS "${VALIDATION_URL}/dev/snapshot?session=${session}&effect=${slug}" 2>/dev/null \
-              | jq -e --arg ev "$event" '(.appliedEvents // []) | any(.event == $ev)' >/dev/null 2>&1; then
-            applied=1
-            break
-          fi
-          sleep 0.3
-        done
-        if [ "$applied" -ne 1 ]; then
-          add_reason "issue contract: trigger ${event} for effect ${slug} was accepted (HTTP ${status}) but never registered as applied on its dev session (snapshot.appliedEvents) — a fired trigger must reach the session being observed"
-          failed=1
-        fi
-      done < <(jq -r '.public_surface.trigger_events[]? // empty' "$contract" 2>/dev/null)
-    fi
-  fi
-
-  while IFS= read -r forbidden; do
-    [ -n "$forbidden" ] || continue
-    local status
-    status="$(curl -sS -o /dev/null -w "%{http_code}" "${VALIDATION_URL}/dev/${forbidden}" || printf '000')"
-    case "$status" in
-      2*|3*)
-        add_reason "issue contract: forbidden public name /dev/${forbidden} unexpectedly exists"
-        failed=1
-        ;;
-    esac
-  done < <(jq -r '.forbidden_public_names[]? // empty' "$contract" 2>/dev/null)
-
-  [ "$failed" -eq 0 ]
 }
 
 enforce_evidence_contract() {
@@ -1490,7 +1381,10 @@ finalize() {
     return 0
   fi
 
-  if [ "$VERIFY_CASE_INDEX" -eq 0 ] && ! enforce_issue_contract; then
+  # The issue-contract stage is retired: public names settle by the
+  # implementation's declaration. The declared surface (bound ui_hint route
+  # + derived schema route) is the only mechanical surface gate.
+  if selected_case_is_standing && ! enforce_declared_surface; then
     write_verification "fail"
     return 0
   fi

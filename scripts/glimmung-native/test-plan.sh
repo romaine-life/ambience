@@ -70,7 +70,6 @@ EVIDENCE_DIR="${AMBIENCE_EVIDENCE_DIR:-/tmp/evidence}"
 POD_LOG="/tmp/agent-pod.log"
 PLAN_EXIT_CODE_FILE="/tmp/test-plan-exit-code"
 PROXY_IP_FILE="/tmp/test-plan-proxy-ip"
-ISSUE_CONTRACT_FILE="${EVIDENCE_DIR}/issue-agent-contract.json"
 : >"$SUMMARY_MD"
 : >"$EVENTS_LOG"
 printf '0\n' >"$PLAN_EXIT_CODE_FILE"
@@ -119,18 +118,9 @@ prepare_context() {
   }
   prepare_agent_github_token
 
-  if [ -n "${GLIMMUNG_INPUT_ISSUE_CONTRACT:-}" ]; then
-    printf '%s' "$GLIMMUNG_INPUT_ISSUE_CONTRACT" | jq -r . >"$ISSUE_CONTRACT_FILE" 2>/dev/null \
-      || printf '%s' "$GLIMMUNG_INPUT_ISSUE_CONTRACT" >"$ISSUE_CONTRACT_FILE"
-    echo "staged issue-contract JSON ($(wc -c <"$ISSUE_CONTRACT_FILE") bytes)"
-  else
-    echo "GLIMMUNG_INPUT_ISSUE_CONTRACT not set; test-plan will proceed from issue context only"
-  fi
-
   local args=(
     --from-file=prompt-test-plan.md="${REPO_DIR}/.github/agent/prompt-test-plan.md"
   )
-  [ -s "$ISSUE_CONTRACT_FILE" ] && args+=(--from-file="issue-agent-contract.json=${ISSUE_CONTRACT_FILE}")
   kubectl -n "$NAMESPACE" create configmap "$CONFIG_MAP_NAME" \
     "${args[@]}" \
     --dry-run=client -o yaml | kubectl apply -f -

@@ -83,7 +83,7 @@ not only from a soon-to-expire timer.
 Wire lifecycle triggers as named events your sim's `TriggerEvent` knows
 about. The authority server fires them at scene boundaries; the dev page
 exposes manual triggers via `/dev/trigger/<session>/<event>` (see
-`docs/dev-endpoints.md`). The issue contract classifies each trigger as
+`docs/dev-endpoints.md`). The implementation declares and classifies each trigger as
 transient or terminal and names the terminal resting state — treat that
 classification as binding, and verify your terminal states actually hold
 (see "Self-checking visual behavior" below).

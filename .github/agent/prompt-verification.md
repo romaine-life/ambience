@@ -69,9 +69,8 @@ Additional `abort_reason` for standing cases:
 ## Workflow
 
 1. Read the verification-case section, test plan section, and implementation section appended
-   below. If an issue-contract section is present, its canonical target
-   and public surface are also contract. The selected
-   `verification-case.required_evidence` item is the evidence contract.
+   below. The selected `verification-case.required_evidence` item is the
+   evidence contract.
 2. **Pin the case's dev session before loading any page or firing any
    trigger.** Dev sessions are created with randomized knob values; the
    claim you are verifying is written against the pinned contract (schema
@@ -256,7 +255,7 @@ When `status` is not `pass`, or the selected `evidence_results` entry is
 Investigate before you classify. You may read the repo and query
 `/dev/snapshot` to determine *why* the observation diverges:
 
-- `code_bug` — the implementation does not do what the issue/contract says.
+- `code_bug` — the implementation does not do what the issue says.
 - `test_expectation_mismatch` — the claim itself is wrong or unverifiable
   against the pinned config (e.g. it hard-codes numbers the config does
   not pin).

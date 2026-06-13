@@ -77,7 +77,6 @@ POD_LOG="/tmp/agent-pod.log"
 IMPL_EXIT_CODE_FILE="/tmp/implementation-exit-code"
 PROXY_IP_FILE="/tmp/implementation-proxy-ip"
 GITHUB_PROXY_IP_FILE="/tmp/implementation-github-proxy-ip"
-ISSUE_CONTRACT_FILE="${EVIDENCE_DIR}/issue-agent-contract.json"
 PR_NUMBER_FILE="/tmp/implementation-pr-number"
 PR_URL_FILE="/tmp/implementation-pr-url"
 : >"$SUMMARY_MD"
@@ -148,7 +147,7 @@ prepare_context() {
 
   # Stage the GitHub token the implementation agent Job mounts as
   # GITHUB_TOKEN_FILE — used to push its branch and read its draft PR's CI.
-  # Mirrors the other agent stages (issue-contract/test-plan/verify). Branch
+  # Mirrors the other agent stages (test-plan/verify). Branch
   # scoping is enforced by the github-git-policy-proxy via the agent pod's
   # github-policy-{repo,ref} annotations, not by the token; the signed
   # push-policy-token model was retired in glimmung #739.
@@ -158,18 +157,9 @@ prepare_context() {
     --from-literal=token="$token" \
     --dry-run=client -o yaml | kubectl apply -f -
 
-  if [ -n "${GLIMMUNG_INPUT_ISSUE_CONTRACT:-}" ]; then
-    printf '%s' "$GLIMMUNG_INPUT_ISSUE_CONTRACT" | jq -r . >"$ISSUE_CONTRACT_FILE" 2>/dev/null \
-      || printf '%s' "$GLIMMUNG_INPUT_ISSUE_CONTRACT" >"$ISSUE_CONTRACT_FILE"
-    echo "staged issue-contract JSON ($(wc -c <"$ISSUE_CONTRACT_FILE") bytes)"
-  else
-    echo "GLIMMUNG_INPUT_ISSUE_CONTRACT not set; implementation will proceed from issue context only"
-  fi
-
   local args=(
     --from-file=prompt-implementation.md="${REPO_DIR}/.github/agent/prompt-implementation.md"
   )
-  [ -s "$ISSUE_CONTRACT_FILE" ] && args+=(--from-file="issue-agent-contract.json=${ISSUE_CONTRACT_FILE}")
   kubectl -n "$NAMESPACE" create configmap "$CONFIG_MAP_NAME" \
     "${args[@]}" \
     --dry-run=client -o yaml | kubectl apply -f -
