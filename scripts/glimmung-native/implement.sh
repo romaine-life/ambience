@@ -73,6 +73,7 @@ IMPLEMENTATION_JSON="/tmp/implementation.json"
 SUMMARY_MD="/tmp/summary.md"
 EVENTS_LOG="/tmp/agent-events.jsonl"
 EVIDENCE_DIR="${AMBIENCE_EVIDENCE_DIR:-/tmp/evidence}"
+IMPLEMENTATION_CONTRACT_JSON="${EVIDENCE_DIR}/implementation-contract.json"
 POD_LOG="/tmp/agent-pod.log"
 IMPL_EXIT_CODE_FILE="/tmp/implementation-exit-code"
 PROXY_IP_FILE="/tmp/implementation-proxy-ip"
@@ -125,6 +126,7 @@ copy_github_policy_ca() {
 prepare_context() {
   native_azure_login
   native_install_preview_package "${REPO_DIR}/mcp"
+  generate_implementation_contract
   copy_claude_ca
   copy_github_policy_ca
   native_prepare_codex_credentials_secret "$NAMESPACE"
@@ -160,9 +162,21 @@ prepare_context() {
   local args=(
     --from-file=prompt-implementation.md="${REPO_DIR}/.github/agent/prompt-implementation.md"
   )
+  if [ -s "$IMPLEMENTATION_CONTRACT_JSON" ]; then
+    args+=(--from-file=implementation-contract.json="$IMPLEMENTATION_CONTRACT_JSON")
+  fi
   kubectl -n "$NAMESPACE" create configmap "$CONFIG_MAP_NAME" \
     "${args[@]}" \
     --dry-run=client -o yaml | kubectl apply -f -
+}
+
+generate_implementation_contract() {
+  (
+    cd "$REPO_DIR"
+    AMBIENCE_IMPLEMENTATION_CONTRACT="$IMPLEMENTATION_CONTRACT_JSON" \
+      scripts/agent/contracts/generate.sh "${AMBIENCE_FEATURE_TYPE:-generic}" "$IMPLEMENTATION_CONTRACT_JSON" >/dev/null
+  )
+  echo "generated implementation contract ${IMPLEMENTATION_CONTRACT_JSON}"
 }
 
 ensure_proxy_ip() {
@@ -275,10 +289,48 @@ push_branch() {
   if git -c "http.extraHeader=${auth_header}" \
       ls-remote --exit-code "https://github.com/${REPO_SLUG}.git" "refs/heads/${BRANCH_NAME}" >/dev/null; then
     echo "branch ${BRANCH_NAME} is present on the remote"
+    validate_implementation_contract
     return 0
   fi
   echo "branch ${BRANCH_NAME} is absent — implement pod did not complete the push step" >&2
   return 1
+}
+
+validate_implementation_contract() {
+  if implementation_failed; then
+    echo "implementation pod failed; skipping implementation contract validation"
+    return 0
+  fi
+  if [ ! -s "$IMPLEMENTATION_CONTRACT_JSON" ]; then
+    echo "no implementation contract present; skipping validation"
+    return 0
+  fi
+  if [ ! -s "$IMPLEMENTATION_JSON" ]; then
+    if [ -f "${EVIDENCE_DIR}/issue-agent-implementation.json" ]; then
+      cp "${EVIDENCE_DIR}/issue-agent-implementation.json" "$IMPLEMENTATION_JSON"
+    fi
+  fi
+  if [ ! -s "$IMPLEMENTATION_JSON" ]; then
+    echo "implementation contract validation cannot run without implementation JSON" >&2
+    return 1
+  fi
+
+  local token auth_header branch_revision
+  token="$(native_github_token)"
+  auth_header="$(native_git_auth_header "$token")"
+  git -C "$REPO_DIR" \
+    -c "http.extraHeader=${auth_header}" \
+    fetch --force origin \
+      "+refs/heads/main:refs/remotes/origin/main" \
+      "+refs/heads/${BRANCH_NAME}:refs/remotes/origin/${BRANCH_NAME}"
+  branch_revision="$(git -C "$REPO_DIR" rev-parse "origin/${BRANCH_NAME}")"
+  "${SCRIPT_DIR}/../agent/contracts/validate.sh" \
+    "$IMPLEMENTATION_CONTRACT_JSON" \
+    "$IMPLEMENTATION_JSON" \
+    "$REPO_DIR" \
+    "origin/main" \
+    "$branch_revision" >/tmp/implementation-contract-validation.json
+  echo "implementation contract satisfied: $(jq -c '{feature_type, effect_slug, changed_files}' /tmp/implementation-contract-validation.json)"
 }
 
 prepare_draft_pr_branch() {
