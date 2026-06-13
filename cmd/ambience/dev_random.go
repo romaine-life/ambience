@@ -28,6 +28,36 @@ func randomizedDevConfig(schema sim.EffectSchema, seed int64) (json.RawMessage, 
 }
 
 func stabilizeRandomizedDevConfig(effect string, cfg map[string]any) {
+	if effect == "paper-lanterns" {
+		clampIntMin(cfg, "lone_every", 55)
+		clampIntMax(cfg, "lone_every", 130)
+		clampIntMin(cfg, "release_gap", 240)
+		clampIntMax(cfg, "release_gap", 520)
+		clampIntMin(cfg, "max", 55)
+		clampIntMin(cfg, "release_min", 5)
+		clampIntMax(cfg, "release_min", 9)
+		clampIntMin(cfg, "release_max", 7)
+		clampIntMax(cfg, "release_max", 12)
+		clampIntMin(cfg, "release_window", 12)
+		clampIntMax(cfg, "release_window", 34)
+		clampIntMax(cfg, "ending_stop", 20)
+		clampIntMin(cfg, "ending_tail", 220)
+		clampIntMax(cfg, "ending_tail", 360)
+		clampFloatRange(cfg, "rise", 0.05, 0.11)
+		clampFloatRange(cfg, "wind", -0.55, 0.65)
+		clampFloatMax(cfg, "wind_jit", 0.35)
+		clampFloatRange(cfg, "size", 1.1, 2.1)
+		clampFloatRange(cfg, "hue", 24, 52)
+		clampFloatMax(cfg, "hue_sp", 20)
+		clampFloatMin(cfg, "lbal", 0.25)
+		clampFloatMax(cfg, "lbal", 0.65)
+		clampFloatMax(cfg, "emit_p", 0)
+		clampFloatMax(cfg, "release_p", 0)
+		clampFloatMax(cfg, "fade_p", 0)
+		clampFloatMax(cfg, "quiet_gap_p", 0)
+		clampFloatMax(cfg, "wind_drift_p", 0.0002)
+		return
+	}
 	if effect != "rain" {
 		return
 	}
