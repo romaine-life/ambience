@@ -3,11 +3,12 @@
 Pattern for adding a new ambient effect to ambience. The current
 canonical example is `burning-trees`.
 
-## Three-files-only pattern
+## Canonical file pattern
 
-Every effect lands as **three new files** plus a small set of edits
-to a fixed list of registry files. The edits are short and identical
-in shape across all effects.
+Every effect lands as a small, self-contained Go simulation plus the
+registry edits needed to expose that simulation to server and browser
+clients. Browser rendering is Go/WASM-backed; do not add legacy
+`cmd/ambience/web/effects/*.js` files for new effects.
 
 ### New files
 
@@ -25,14 +26,22 @@ in shape across all effects.
 
 Every new effect must edit each of these:
 
-- `cmd/ambience/effect_frames.go` — add a one-line `Frame()` method.
-- `sim/gridcopy.go` — add a one-line `GridCopy()` method.
-- `cmd/ambience-wasm/main.go` — add the effect to the slice + switch.
+- `cmd/ambience-wasm/main.go` — add the effect to the supported-effects
+  slice and constructor switch so `AmbienceSim.effects` registers it in
+  browser clients.
+- `cmd/ambience/web/sim.js` — add browser presets only when the effect
+  has named presets.
 
-That is the full list. There are no other shared files to touch for
-a fresh effect — if you find yourself editing
-`procedural_renderers.go` or any of the older shared renderer code,
-you are doing the *legacy* shape; prefer self-contained.
+Prefer keeping effect-specific methods such as `Frame()` and `GridCopy()`
+next to the effect type or runtime adapter when possible. If an older
+effect requires a shared registry file, keep that edit mechanical and
+one-line.
+
+That is the full browser path. If you find yourself adding a standalone
+JavaScript effect under `cmd/ambience/web/effects/`, editing
+`procedural_renderers.go`, or wiring effect-specific scripts into HTML,
+you are doing the *legacy* shape. `cmd/ambience/web_contract_test.go`
+enforces that browser effects come from the Go/WASM runtime.
 
 ## Helpers available
 
