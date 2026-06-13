@@ -13,6 +13,7 @@ REPO_SLUG="${AMBIENCE_REPO_SLUG:-romaine-life/ambience}"
 REPO_DIR="${AMBIENCE_REPO_DIR:-/workspace/repo}"
 BRANCH_NAME="${BRANCH_NAME:-$(native_implementation_branch_name)}"
 BASE_REF="${AMBIENCE_PR_BASE:-main}"
+REMOTE_URL="${AMBIENCE_GIT_REMOTE_URL:-https://github.com/${REPO_SLUG}.git}"
 
 github_api() {
   local method="$1"
@@ -74,10 +75,23 @@ commit_if_needed() {
 }
 
 push_branch() {
-  git -C "$REPO_DIR" remote set-url origin "https://github.com/${REPO_SLUG}.git"
+  local remote_ref remote_sha
+  remote_ref="refs/heads/${BRANCH_NAME}"
+  git -C "$REPO_DIR" remote set-url origin "$REMOTE_URL"
   git -C "$REPO_DIR" fetch origin "$BASE_REF"
+  if git -C "$REPO_DIR" fetch origin "+${remote_ref}:refs/remotes/origin/${BRANCH_NAME}" >/dev/null 2>&1; then
+    remote_sha="$(git -C "$REPO_DIR" rev-parse "origin/${BRANCH_NAME}")"
+  else
+    remote_sha=""
+  fi
   git -C "$REPO_DIR" rebase "origin/${BASE_REF}"
-  git -C "$REPO_DIR" push origin "HEAD:${BRANCH_NAME}"
+  if [ -n "$remote_sha" ]; then
+    git -C "$REPO_DIR" push \
+      --force-with-lease="${remote_ref}:${remote_sha}" \
+      origin "HEAD:${BRANCH_NAME}"
+  else
+    git -C "$REPO_DIR" push origin "HEAD:${BRANCH_NAME}"
+  fi
 }
 
 print_checks() {
@@ -125,6 +139,10 @@ wait_checks() {
     sleep "${AMBIENCE_AGENT_CI_POLL_SECONDS:-20}"
   done
 }
+
+if [ "${AMBIENCE_AGENT_CI_FEEDBACK_SOURCE_ONLY:-}" = "1" ]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 case "${1:-status}" in
   publish)

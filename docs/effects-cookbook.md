@@ -33,6 +33,17 @@ clients. Browser rendering is Go/WASM-backed; do not add legacy
 
 ### New files
 
+For a new effect, start with:
+
+```bash
+scripts/agent/scaffold-effect.sh <effect-slug>
+```
+
+The scaffold writes the three canonical starter files below and refuses
+to overwrite existing files. Treat the generated rendering, knobs,
+triggers, and tests as a compiling starting point, not as implementation
+evidence; replace them with the issue-owned behavior before publishing.
+
 - `sim/<effect>.go` — pure-Go simulation type. Owns the pixel grid,
   the per-tick step, snapshot/restore, and `TriggerEvent`. No I/O.
   Compare to `sim/burning_trees.go`.
@@ -49,7 +60,8 @@ Every new effect must edit each of these:
 
 - `cmd/ambience-wasm/main.go` — add the effect to the supported-effects
   slice and constructor switch so `AmbienceSim.effects` registers it in
-  browser clients.
+  browser clients. The scaffold prints the exact constructor case to add,
+  but does not edit this shared registry for you.
 - `cmd/ambience/web/sim.js` — add browser presets only when the effect
   has named presets.
 
@@ -65,6 +77,11 @@ you are doing the *legacy* shape. `cmd/ambience/web_contract_test.go`
 enforces that browser effects come from the Go/WASM runtime.
 
 ## Helpers available
+
+`scripts/agent/scaffold-effect.sh <effect-slug>` creates a compiling
+starter simulation, schema test, lifecycle test, and runtime adapter for
+the current Go/WASM path. Use it only for new effects whose canonical
+files do not exist yet.
 
 The shared helpers live in `sim/rain.go` and `sim/proc_helpers.go`
 (despite the names — these are not rain-specific):

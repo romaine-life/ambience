@@ -264,8 +264,56 @@ run_llm() {
   )
 }
 
+first_edit_status() {
+  git -C "$REPO_DIR" status --porcelain --untracked-files=normal 2>/dev/null || true
+}
+
+first_edit_files_json() {
+  awk '
+    NF > 0 {
+      path = substr($0, 4)
+      if (path != "") print path
+    }
+  ' | head -10 | jq -Rsc 'split("\n")[:-1]'
+}
+
+monitor_first_edit_latency() {
+  local started_at poll_seconds status_json changed elapsed metadata
+  started_at="$(date +%s)"
+  poll_seconds="${AMBIENCE_FIRST_EDIT_POLL_SECONDS:-5}"
+  case "$poll_seconds" in
+    ''|*[!0-9]*) poll_seconds="5" ;;
+    0) poll_seconds="1" ;;
+  esac
+  while true; do
+    status_json="$(first_edit_status)"
+    if [ -n "$status_json" ]; then
+      elapsed="$(($(date +%s) - started_at))"
+      changed="$(printf '%s\n' "$status_json" | first_edit_files_json)"
+      metadata="$(
+        jq -nc \
+          --argjson seconds "$elapsed" \
+          --argjson files "$changed" \
+          '{metric:"first_edit_latency_seconds", value:$seconds, first_changed_files:$files}'
+      )"
+      native_event "metric" "run-implementation" "first repo edit after ${elapsed}s" "" "$metadata" || true
+      echo "first_edit_latency_seconds=${elapsed} first_changed_files=$(jq -cr . <<<"$changed")"
+      return 0
+    fi
+    sleep "$poll_seconds"
+  done
+}
+
 run_llm_record() {
+  local monitor_pid
+  monitor_first_edit_latency &
+  monitor_pid=$!
   native_record_exit_code "$IMPL_EXIT_CODE_FILE" run_llm
+  if kill "$monitor_pid" >/dev/null 2>&1; then
+    wait "$monitor_pid" 2>/dev/null || true
+  else
+    wait "$monitor_pid" 2>/dev/null || true
+  fi
   IMPL_EXIT_CODE="$(native_read_exit_code "$IMPL_EXIT_CODE_FILE")"
 }
 

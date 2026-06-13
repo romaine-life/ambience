@@ -32,7 +32,12 @@ Glimmung selects the concrete provider/model for this invocation through the
    are **terminal lifecycle states** (resting state held — e.g. `ending`
    leaves the effect in its terminal look) versus **transient events**
    (return to baseline) from the issue's intro/outro sections. Implement
-   and self-check (step 7) against that classification. Your `ui_hint`
+   and self-check (step 7) against that classification. For a new effect,
+   if the contract's canonical `sim/`, `sim/*_test.go`, and
+   `cmd/ambience/effect_*.go` files do not already exist, run the
+   contract's scaffold command once, then replace the generated starter
+   rendering, knobs, triggers, and tests with the issue-owned behavior.
+   Do not run the scaffold over existing effect files. Your `ui_hint`
    output is the declaration's anchor — the verifier mechanically checks
    that what you declared actually serves.
 3. Identify a single bounded slice that addresses the issue. Bias
@@ -88,18 +93,17 @@ Glimmung selects the concrete provider/model for this invocation through the
       with the terminal state predicate and include the predicate in
       `behavior_evidence`. This is the verifier's source of truth for
       "done"; the video is reviewer context.
-8. Commit and publish your current branch with normal Git commands:
+8. Commit and publish your current branch through the managed helper:
    ```
    git add -A
    git commit -m "agent: address $ISSUE_REFERENCE"
-   git fetch origin main
-   git rebase origin/main
-   git push origin HEAD:$BRANCH_NAME
+   scripts/glimmung-native/agent-ci-feedback.sh publish-and-wait
    ```
    The branch is pre-created and has a draft PR, so repository CI will run on
-   pushed commits. If `git push` rejects the branch, read the remote error and
-   stay on the implementation branch named by `$BRANCH_NAME`. Do not push any
-   other branch.
+   pushed commits. The helper rebases onto the PR base, publishes only the
+   managed branch named by `$BRANCH_NAME`, and uses a lease when updating that
+   branch. If publishing fails, read the helper output and stay on the
+   implementation branch named by `$BRANCH_NAME`. Do not push any other branch.
 9. Write `/workspace/evidence/issue-agent-implementation.json` and
    `/workspace/evidence/issue-agent-implementation.md` per the schemas
    below. **The JSON file is required.**

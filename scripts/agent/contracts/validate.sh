@@ -58,9 +58,16 @@ if ! git -C "$repo_dir" rev-parse --verify "$head_ref" >/dev/null 2>&1; then
   fail "missing_head_ref" "head ref $head_ref is not available in $repo_dir"
 fi
 
-changed="$(git -C "$repo_dir" diff --name-only "${base_ref}...${head_ref}" | sort -u)"
+changed="$(
+  {
+    git -C "$repo_dir" diff --name-only "${base_ref}...${head_ref}"
+    git -C "$repo_dir" diff --name-only
+    git -C "$repo_dir" diff --name-only --cached
+    git -C "$repo_dir" ls-files --others --exclude-standard
+  } | sort -u
+)"
 if [ -z "$changed" ]; then
-  fail "empty_change" "no files changed relative to $base_ref"
+  fail "empty_change" "no committed or worktree files changed relative to $base_ref"
 fi
 
 missing=()
