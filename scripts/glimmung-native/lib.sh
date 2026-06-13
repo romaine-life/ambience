@@ -149,8 +149,11 @@ native_event() {
   local step_slug="${2:-}"
   local message="${3:-}"
   local exit_code="${4:-}"
-  local metadata_json="${5:-{}}"
+  local metadata_json="${5:-}"
   local seq exit_json payload
+  if [ -z "$metadata_json" ]; then
+    metadata_json="{}"
+  fi
   seq="$(native_next_seq)"
   if ! jq -e . >/dev/null 2>&1 <<<"$metadata_json"; then
     metadata_json="{}"

@@ -37,6 +37,16 @@ jq -n '
     }
   ],
   slug_source: "Declare the public slug through ui_hint.route. The route must be /dev/<slug>; derive file names from that slug by replacing dashes with underscores.",
+  scaffold: {
+    command: "scripts/agent/scaffold-effect.sh <slug>",
+    when: "use once for a new effect when the canonical sim/test/runtime files do not already exist",
+    creates: [
+      "sim/{effect_snake}.go",
+      "sim/{effect_snake}_test.go",
+      "cmd/ambience/effect_{effect_snake}.go"
+    ],
+    after_running: "replace the starter rendering/knobs/tests with the issue-owned behavior, then edit cmd/ambience-wasm/main.go"
+  },
   required_file_templates: [
     "sim/{effect_snake}.go",
     "sim/{effect_snake}_test.go",

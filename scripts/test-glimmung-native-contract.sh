@@ -169,6 +169,153 @@ failing_step() {
 native_record_exit_code "$EXIT_CODE_FILE" failing_step
 [ "$(native_read_exit_code "$EXIT_CODE_FILE")" = "7" ]
 
+(
+  FIRST_EDIT_REPO="${TMP_DIR}/first-edit-repo"
+  git init -q "$FIRST_EDIT_REPO"
+  git -C "$FIRST_EDIT_REPO" config user.name "contract-test"
+  git -C "$FIRST_EDIT_REPO" config user.email "contract-test@example.invalid"
+  printf 'base\n' >"${FIRST_EDIT_REPO}/base.txt"
+  git -C "$FIRST_EDIT_REPO" add base.txt
+  git -C "$FIRST_EDIT_REPO" commit -q -m "base"
+
+  unset GLIMMUNG_MANAGED_RUNNER GLIMMUNG_STEP_SLUG
+  export GLIMMUNG_JOB_ID="llm-work"
+  export GLIMMUNG_RUN_ID="run-1"
+  export GLIMMUNG_INPUT_VALIDATION_URL="https://preview.example"
+  export GLIMMUNG_INPUT_NAMESPACE="preview-ns"
+  export GLIMMUNG_INPUT_IMAGE_TAG="app-test"
+  export GLIMMUNG_EVENTS_URL="http://glimmung.test/v1/run-callbacks/cb/native/events"
+  export GLIMMUNG_COMPLETED_URL="http://glimmung.test/v1/run-callbacks/cb/native/completed"
+  export GLIMMUNG_GITHUB_TOKEN_URL="http://glimmung.test/v1/run-callbacks/cb/native/github-token"
+  export AMBIENCE_REPO_DIR="$FIRST_EDIT_REPO"
+  export AMBIENCE_IMPLEMENT_SOURCE_ONLY=1
+  export AMBIENCE_FIRST_EDIT_POLL_SECONDS=1
+  export NATIVE_CONTRACT_CURL_CAPTURE="${TMP_DIR}/first-edit-event"
+  rm -f "${NATIVE_CONTRACT_CURL_CAPTURE}.url" "${NATIVE_CONTRACT_CURL_CAPTURE}.body"
+  source "${SCRIPT_DIR}/glimmung-native/implement.sh"
+
+  monitor_first_edit_latency >"${TMP_DIR}/first-edit-monitor.out" &
+  FIRST_EDIT_MONITOR_PID=$!
+  sleep 2
+  printf 'changed\n' >"${FIRST_EDIT_REPO}/simulated-effect.go"
+  wait "$FIRST_EDIT_MONITOR_PID"
+
+  grep -q 'first_edit_latency_seconds=' "${TMP_DIR}/first-edit-monitor.out"
+  [ "$(cat "${NATIVE_CONTRACT_CURL_CAPTURE}.url")" = "$GLIMMUNG_EVENTS_URL" ]
+  jq -e '
+    .event == "metric"
+    and .job_id == "llm-work"
+    and .step_slug == "run-implementation"
+    and .metadata.metric == "first_edit_latency_seconds"
+    and (.metadata.value >= 1)
+    and (.metadata.first_changed_files | index("simulated-effect.go") != null)
+  ' "${NATIVE_CONTRACT_CURL_CAPTURE}.body" >/dev/null
+)
+
+(
+  AGENT_CI_ORIGIN="${TMP_DIR}/agent-ci-origin.git"
+  AGENT_CI_SEED="${TMP_DIR}/agent-ci-seed"
+  AGENT_CI_BOOTSTRAP="${TMP_DIR}/agent-ci-bootstrap"
+  AGENT_CI_WORK="${TMP_DIR}/agent-ci-work"
+  AGENT_CI_BRANCH="glimmung/issue-168/run-1"
+
+  git init -q "$AGENT_CI_SEED"
+  git -C "$AGENT_CI_SEED" config user.name "contract-test"
+  git -C "$AGENT_CI_SEED" config user.email "contract-test@example.invalid"
+  printf 'base\n' >"${AGENT_CI_SEED}/effect.txt"
+  git -C "$AGENT_CI_SEED" add effect.txt
+  git -C "$AGENT_CI_SEED" commit -q -m "base"
+  git -C "$AGENT_CI_SEED" branch -M main
+  git clone -q --bare "$AGENT_CI_SEED" "$AGENT_CI_ORIGIN"
+
+  git clone -q "$AGENT_CI_ORIGIN" "$AGENT_CI_BOOTSTRAP"
+  git -C "$AGENT_CI_BOOTSTRAP" checkout -q -b "$AGENT_CI_BRANCH" origin/main
+  git -C "$AGENT_CI_BOOTSTRAP" config user.name "contract-test"
+  git -C "$AGENT_CI_BOOTSTRAP" config user.email "contract-test@example.invalid"
+  git -C "$AGENT_CI_BOOTSTRAP" commit -q --allow-empty \
+    -m "agent: start ambience#168"
+  git -C "$AGENT_CI_BOOTSTRAP" push -q origin "HEAD:${AGENT_CI_BRANCH}"
+  AGENT_CI_BOOTSTRAP_SHA="$(git -C "$AGENT_CI_BOOTSTRAP" rev-parse HEAD)"
+
+  git clone -q "$AGENT_CI_ORIGIN" "$AGENT_CI_WORK"
+  git -C "$AGENT_CI_WORK" checkout -q -b "$AGENT_CI_BRANCH" origin/main
+  git -C "$AGENT_CI_WORK" config user.name "contract-test"
+  git -C "$AGENT_CI_WORK" config user.email "contract-test@example.invalid"
+  printf 'agent work\n' >"${AGENT_CI_WORK}/effect.txt"
+  git -C "$AGENT_CI_WORK" add effect.txt
+  git -C "$AGENT_CI_WORK" commit -q -m "agent: address 168"
+  AGENT_CI_WORK_SHA="$(git -C "$AGENT_CI_WORK" rev-parse HEAD)"
+
+  export AMBIENCE_AGENT_CI_FEEDBACK_SOURCE_ONLY=1
+  export AMBIENCE_GIT_REMOTE_URL="$AGENT_CI_ORIGIN"
+  export AMBIENCE_REPO_DIR="$AGENT_CI_WORK"
+  export AMBIENCE_REPO_SLUG="romaine-life/ambience"
+  export BRANCH_NAME="$AGENT_CI_BRANCH"
+  source "${SCRIPT_DIR}/glimmung-native/agent-ci-feedback.sh"
+  push_branch
+
+  AGENT_CI_REMOTE_SHA="$(
+    git --git-dir="$AGENT_CI_ORIGIN" rev-parse "refs/heads/${AGENT_CI_BRANCH}"
+  )"
+  [ "$AGENT_CI_REMOTE_SHA" = "$AGENT_CI_WORK_SHA" ]
+  [ "$AGENT_CI_REMOTE_SHA" != "$AGENT_CI_BOOTSTRAP_SHA" ]
+)
+
+(
+  SCAFFOLD_REPO="${TMP_DIR}/scaffold-worktree"
+  SCAFFOLD_LOG="${TMP_DIR}/scaffold-effect.log"
+  git -C "${SCRIPT_DIR}/.." worktree add -q --detach "$SCAFFOLD_REPO" HEAD
+
+  set +e
+  (
+    set -Eeuo pipefail
+    AMBIENCE_REPO_DIR="$SCAFFOLD_REPO" \
+      bash "${SCRIPT_DIR}/agent/scaffold-effect.sh" test-orbit \
+      >"${TMP_DIR}/scaffold-effect.out"
+
+    grep -F 'sim/test_orbit.go' "${TMP_DIR}/scaffold-effect.out" >/dev/null
+    grep -F 'cmd/ambience/effect_test_orbit.go' "${TMP_DIR}/scaffold-effect.out" >/dev/null
+    grep -F 'sim.NewTestOrbit' "${TMP_DIR}/scaffold-effect.out" >/dev/null
+    grep -F 'func NewTestOrbit' "${SCAFFOLD_REPO}/sim/test_orbit.go" >/dev/null
+    grep -F 'func TestTestOrbitEndingHoldsTerminalState' \
+      "${SCAFFOLD_REPO}/sim/test_orbit_test.go" >/dev/null
+    grep -F 'newTestOrbitRuntime' \
+      "${SCAFFOLD_REPO}/cmd/ambience/effect_test_orbit.go" >/dev/null
+
+    git -C "$SCAFFOLD_REPO" diff --check
+    go -C "$SCAFFOLD_REPO" test ./sim -run TestTestOrbit
+    go -C "$SCAFFOLD_REPO" test ./cmd/ambience -run '^$'
+
+    set +e
+    AMBIENCE_REPO_DIR="$SCAFFOLD_REPO" \
+      bash "${SCRIPT_DIR}/agent/scaffold-effect.sh" test-orbit \
+      >"${TMP_DIR}/scaffold-effect-repeat.out" 2>&1
+    REPEAT_RC=$?
+    set -e
+    [ "$REPEAT_RC" -ne 0 ]
+    grep -F 'refusing to overwrite existing file' \
+      "${TMP_DIR}/scaffold-effect-repeat.out" >/dev/null
+
+    set +e
+    AMBIENCE_REPO_DIR="$SCAFFOLD_REPO" \
+      bash "${SCRIPT_DIR}/agent/scaffold-effect.sh" BadSlug \
+      >"${TMP_DIR}/scaffold-effect-bad-slug.out" 2>&1
+    BAD_SLUG_RC=$?
+    set -e
+    [ "$BAD_SLUG_RC" -eq 2 ]
+    grep -F 'lowercase kebab-case' \
+      "${TMP_DIR}/scaffold-effect-bad-slug.out" >/dev/null
+  ) >"$SCAFFOLD_LOG" 2>&1
+  SCAFFOLD_RC=$?
+  set -e
+
+  git -C "${SCRIPT_DIR}/.." worktree remove -f "$SCAFFOLD_REPO" >/dev/null 2>&1 || true
+  if [ "$SCAFFOLD_RC" -ne 0 ]; then
+    cat "$SCAFFOLD_LOG" >&2
+    exit "$SCAFFOLD_RC"
+  fi
+)
+
 PLAN_EVIDENCE_DIR="${TMP_DIR}/plan-evidence"
 mkdir -p "$PLAN_EVIDENCE_DIR"
 cat >"${PLAN_EVIDENCE_DIR}/issue-agent-test-plan.json" <<'JSON'
@@ -558,6 +705,27 @@ jq -e '
   and .effect_slug == "paper-lanterns"
   and (.changed_files | index("cmd/ambience-wasm/main.go") != null)
 ' "${TMP_DIR}/contract-valid.json" >/dev/null
+
+reset_contract_repo
+mkdir -p "${CONTRACT_REPO}/sim" "${CONTRACT_REPO}/cmd/ambience"
+printf 'package sim\n' >"${CONTRACT_REPO}/sim/paper_lanterns.go"
+printf 'package sim\n' >"${CONTRACT_REPO}/sim/paper_lanterns_test.go"
+printf 'package main\n' >"${CONTRACT_REPO}/cmd/ambience/effect_paper_lanterns.go"
+printf 'package main\n// paper-lanterns\n' >"${CONTRACT_REPO}/cmd/ambience-wasm/main.go"
+write_effect_impl_json
+bash "${SCRIPT_DIR}/agent/contracts/validate.sh" \
+  "${CONTRACT_EVIDENCE_DIR}/implementation-contract.json" \
+  "${CONTRACT_EVIDENCE_DIR}/issue-agent-implementation.json" \
+  "$CONTRACT_REPO" \
+  origin/main \
+  HEAD >"${TMP_DIR}/contract-valid-worktree.json"
+jq -e '
+  .status == "pass"
+  and .feature_type == "effect"
+  and .effect_slug == "paper-lanterns"
+  and (.changed_files | index("cmd/ambience-wasm/main.go") != null)
+  and (.changed_files | index("sim/paper_lanterns.go") != null)
+' "${TMP_DIR}/contract-valid-worktree.json" >/dev/null
 
 reset_contract_repo
 mkdir -p "${CONTRACT_REPO}/sim" "${CONTRACT_REPO}/cmd/ambience"
