@@ -46,6 +46,25 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 		},
 	];
 
+	api.presets['cottage-chimney'] = [
+		{
+			key: 'still-night', label: 'still night', note: 'slow vertical smoke',
+			config: { wind: 0.018, wander: 0.22, puff_every: 36, puff_life: 205, plume_width: 12, window_hue: 42, window_sat: 0.78, window_light: 0.66, window_glow: 0.72 },
+		},
+		{
+			key: 'windy-peak', label: 'windy peak', note: 'sideways plume bend',
+			config: { wind: 0.13, wander: 0.48, puff_every: 26, puff_life: 170, plume_width: 22, gust_p: 0.001, gust_strength: 0.32, window_hue: 38, window_glow: 0.68 },
+		},
+		{
+			key: 'lamplit-cabin', label: 'lamplit cabin', note: 'warm bright window',
+			config: { window_hue: 36, window_sat: 0.92, window_light: 0.78, window_glow: 0.94, puff_every: 28, smoke_light: 0.48, flicker_p: 0.0005 },
+		},
+		{
+			key: 'quiet-hearth', label: 'quiet hearth', note: 'thin sleepy emission',
+			config: { puff_every: 50, puff_life: 220, puff_size: 1.8, plume_width: 10, quiet_p: 0.001, quiet_mult: 0.24, window_hue: 48, window_light: 0.56, window_glow: 0.54 },
+		},
+	];
+
 	function makeRNG(seed) {
 		let state = seed >>> 0;
 		const rng = () => {
