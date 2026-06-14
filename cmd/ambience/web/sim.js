@@ -65,6 +65,25 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 		},
 	];
 
+	api.presets['rain-on-window'] = [
+		{
+			key: 'quiet-city', label: 'quiet city', note: 'cool sparse pane',
+			config: { bg_hue: 214, bg_hue_sp: 18, sat: 0.32, glow: 0.54, nucleation: 0.09, growth: 0.009, fall_threshold: 2.65, fall_speed: 0.46, track_strength: 0.44, drop_contrast: 0.68, wind: 0.02, quiet_p: 0.001 },
+		},
+		{
+			key: 'evening-downpour', label: 'evening downpour', note: 'warm dense tracks',
+			config: { bg_hue: 38, bg_hue_sp: 24, sat: 0.48, glow: 0.78, nucleation: 0.34, growth: 0.017, fall_threshold: 2.05, fall_speed: 0.82, track_strength: 0.72, drop_contrast: 0.84, drop_fall_p: 0.002, drop_merge_p: 0.002 },
+		},
+		{
+			key: 'neon-street', label: 'neon street', note: 'colored city glow',
+			config: { bg_hue: 286, bg_hue_sp: 62, sat: 0.68, glow: 0.82, nucleation: 0.2, growth: 0.012, fall_threshold: 2.3, fall_speed: 0.62, track_strength: 0.66, drop_contrast: 0.86, wind_gust_p: 0.001, wind_gust_strength: 1.55 },
+		},
+		{
+			key: 'gentle-drizzle', label: 'gentle drizzle', note: 'soft steady beads',
+			config: { bg_hue: 198, bg_hue_sp: 12, sat: 0.26, glow: 0.6, nucleation: 0.14, growth: 0.007, fall_threshold: 3.0, fall_speed: 0.36, track_strength: 0.38, drop_contrast: 0.58, intro_density: 1.6, quiet_mult: 0.12 },
+		},
+	];
+
 	function makeRNG(seed) {
 		let state = seed >>> 0;
 		const rng = () => {
