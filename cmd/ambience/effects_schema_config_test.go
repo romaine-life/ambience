@@ -13,17 +13,18 @@ import (
 )
 
 // schemaConfigPinEpsilon mirrors the float tolerance the verification pin
-// helper (scripts/agent/pin-session-config.mjs) uses when it compares the
-// live /dev/snapshot config against the pinned schema defaults. Int knobs
-// compare after rounding, exactly like the helper.
+// helper (the pin_check curl/jq path in scripts/glimmung-native/verify.sh)
+// uses when it compares the live /dev/snapshot config against the pinned
+// schema defaults. Int knobs compare after rounding, exactly like the helper.
 const schemaConfigPinEpsilon = 1e-6
 
 // schemaConfigGuardTicks is the capture-window stand-in: after the pin lands,
-// the verify wrapper screenshots/records for a while and then re-checks the
-// pin (`pin-session-config.mjs --check-only`). A config that only matches at
-// the instant it is applied — because Step() drifts or rewrites config
-// fields — fails that post-capture re-check just as surely as a missing
-// knob does, so the guard holds the session for a window of ticks too.
+// the verify wrapper records evidence for a while and then re-checks the pin
+// (enforce_session_config_pinned -> pin_check in verify.sh). A config that
+// only matches at the instant it is applied — because Step() drifts or
+// rewrites config fields — fails that post-capture re-check just as surely as
+// a missing knob does, so the guard holds the session for a window of ticks
+// too.
 const schemaConfigGuardTicks = 200
 
 // reservedDevConfigParams are query parameters POST /dev/config (and the
@@ -44,9 +45,10 @@ var reservedDevConfigParams = map[string]bool{
 //
 // That contract is what verification runs against. Dev sessions are created
 // with RANDOMIZED knob values, so before capturing any evidence the verifier
-// pins the session (scripts/agent/pin-session-config.mjs): POST /dev/config
-// with every schema knob set to its default, then poll /dev/snapshot until
-// the live config matches, and re-check the pin again after capture. A knob
+// pins the session over plain HTTP (the pin_session curl/jq path in
+// scripts/glimmung-native/verify.sh): POST /dev/config with every schema knob
+// set to its default, then poll /dev/snapshot until the live config matches,
+// and re-check the pin again after capture. A knob
 // that exists in the schema but never surfaces in the snapshot config makes
 // that loop unsatisfiable — `Number(undefined)` never equals the default.
 //
@@ -76,7 +78,7 @@ func TestEveryEffectSchemaKnobRoundTripsThroughDevConfig(t *testing.T) {
 		t.Run(effectType, func(t *testing.T) {
 			schema := def.Schema()
 			if len(schema.Knobs) == 0 {
-				// pin-session-config.mjs refuses to pin a knobless schema
+				// The verification pin refuses a knobless schema
 				// ("declares no knobs; nothing to pin"), which makes every
 				// claim against the effect unverifiable.
 				t.Fatal("schema declares no knobs; the verification pin contract needs at least one knob")
@@ -193,8 +195,9 @@ func pinnedKnobDefault(knob sim.Knob) float64 {
 	return knob.Default
 }
 
-// pinnedKnobDefaultMatches mirrors pin-session-config.mjs's comparison:
-// int knobs match after rounding, float knobs within schemaConfigPinEpsilon.
+// pinnedKnobDefaultMatches mirrors the verification pin comparison
+// (pin_config_mismatches in scripts/glimmung-native/verify.sh): int knobs
+// match after rounding, float knobs within schemaConfigPinEpsilon.
 func pinnedKnobDefaultMatches(knob sim.Knob, got float64) bool {
 	if knob.Type == sim.KnobInt {
 		return math.Round(got) == pinnedKnobDefault(knob)

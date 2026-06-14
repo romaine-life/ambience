@@ -39,20 +39,6 @@ def chart_path() -> Path:
     return repo_root() / "chart" / "ambience"
 
 
-def resolve_output_path(output_path: str) -> Path:
-    path = Path(output_path)
-    if path.is_absolute():
-        return path
-    return repo_root() / path
-
-
-def repo_relative_path(path: Path) -> str:
-    try:
-        return path.resolve().relative_to(repo_root()).as_posix()
-    except ValueError:
-        return str(path.resolve())
-
-
 def run_command(command: list[str], *, cwd: Path | None = None) -> str:
     result = subprocess.run(
         command,
@@ -313,67 +299,6 @@ def wait_http_ready(
 def wait_public_preview(*, url: str, health_path: str = "/healthz", timeout_seconds: int = 900) -> dict:
     health_url = urllib.parse.urljoin(url.rstrip("/") + "/", health_path.lstrip("/"))
     return wait_http_ready(url=health_url, timeout_seconds=timeout_seconds)
-
-
-def capture_validation_screenshot(
-    *,
-    namespace: str,
-    page_path: str,
-    output_path: str,
-    wait_ms: int = 5000,
-    service_name: str = DEFAULT_SERVICE_NAME,
-    local_port: int = 18080,
-    health_path: str = "/healthz",
-) -> dict:
-    final_output_path = resolve_output_path(output_path)
-    final_output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    log_path = final_output_path.parent / "kubectl-port-forward.log"
-    with log_path.open("w", encoding="utf-8") as log_file:
-        process = subprocess.Popen(
-            [
-                "kubectl",
-                "port-forward",
-                "-n",
-                namespace,
-                f"service/{service_name}",
-                f"{local_port}:80",
-            ],
-            cwd=str(repo_root()),
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        try:
-            wait_http_ready(url=f"http://127.0.0.1:{local_port}{health_path}", timeout_seconds=60, interval_seconds=2)
-            page_url = urllib.parse.urljoin(f"http://127.0.0.1:{local_port}/", page_path.lstrip("/"))
-            run_command(
-                [
-                    "node",
-                    str(repo_root() / "scripts" / "agent" / "capture-screenshot.mjs"),
-                    "--url",
-                    page_url,
-                    "--output",
-                    str(final_output_path),
-                    "--wait-ms",
-                    str(wait_ms),
-                    "--full-page",
-                ]
-            )
-        finally:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=10)
-
-    return {
-        "namespace": namespace,
-        "page_url": page_url,
-        "output_path": repo_relative_path(final_output_path),
-        "port_forward_log": repo_relative_path(log_path),
-    }
 
 
 def rebuild_validation_image(

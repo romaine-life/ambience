@@ -1,34 +1,44 @@
 #!/usr/bin/env bash
-# Local visual self-check for an effect, for the implementation stage.
+# Local lifecycle self-check for an effect, for the implementation stage.
 #
 # Builds the in-progress code, serves it on localhost (never the shared
-# validation env), records a WebM of /dev/<effect> while optionally firing a
-# lifecycle/event trigger, and inspects the final frame. Use this to confirm a
+# validation env), and drives a terminal-lifecycle event through plain HTTP
+# via /dev/observe — no browser, no Playwright. /dev/observe triggers the
+# event, waits for the lifecycle contract predicate, holds it for hold-ticks,
+# and returns a JSON trace plus a frozen grid frame. Use this to confirm a
 # visual or temporal claim — especially a terminal lifecycle state like
 # `ending` ("the gate goes dark and stays dark") — before writing a passing
-# implementation JSON. `go build`/`go test` cannot see pixels.
+# implementation JSON. `go build`/`go test` cannot see pixels; /dev/observe
+# reads the grid directly without rendering a page.
+#
+# Browser evidence (video/screenshots against the rebuilt env) is the
+# verification stage's job, captured through Glimmung's central capture tools.
+# The leased slot browser cannot reach this pod-local server, so this self-check
+# is intentionally browserless and stays on localhost HTTP.
 #
 # Usage:
-#   scripts/agent/selfcheck-effect.sh <effect> [trigger-event] [record-ms]
+#   scripts/agent/selfcheck-effect.sh <effect> <lifecycle-event> [lifecycle] [hold-ticks]
 # Examples:
-#   scripts/agent/selfcheck-effect.sh magic-portal ending
-#   scripts/agent/selfcheck-effect.sh magic-portal            # default render only
+#   scripts/agent/selfcheck-effect.sh magic-portal ending           # lifecycle defaults to "ended"
+#   scripts/agent/selfcheck-effect.sh magic-portal ending ended 12
 #
 # Output (under /tmp, not committed):
-#   /tmp/selfcheck-<effect>.webm        recorded clip
-#   /tmp/selfcheck-<effect>-final.png   final frame to eyeball vs the contract
-# Inspect the final frame against the issue's described lifecycle resting state.
+#   /tmp/selfcheck-<effect>-observe.json   the /dev/observe trace
+#   /tmp/selfcheck-<effect>-final.png      frozen grid frame to eyeball vs the contract
+# Confirm `applied` and `observed` are true and `lifecycle` matches the issue's
+# described terminal resting state.
 
 set -Eeuo pipefail
 
-EFFECT="${1:?usage: selfcheck-effect.sh <effect> [trigger-event] [record-ms]}"
-EVENT="${2:-}"
-RECORD_MS="${3:-12000}"
+EFFECT="${1:?usage: selfcheck-effect.sh <effect> <lifecycle-event> [lifecycle] [hold-ticks]}"
+EVENT="${2:?usage: selfcheck-effect.sh <effect> <lifecycle-event> [lifecycle] [hold-ticks]}"
+LIFECYCLE="${3:-ended}"
+HOLD_TICKS="${4:-12}"
 PORT="${SELFCHECK_PORT:-8765}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SESSION="selfcheck"
 BASE="http://127.0.0.1:${PORT}"
-WEBM="/tmp/selfcheck-${EFFECT}.webm"
+TRACE="/tmp/selfcheck-${EFFECT}-observe.json"
 SHOT="/tmp/selfcheck-${EFFECT}-final.png"
 
 cd "$ROOT"
@@ -52,25 +62,26 @@ for _ in $(seq 1 60); do
 done
 [ "${ready:-}" = "1" ] || { echo "[selfcheck] server never became ready" >&2; cat /tmp/selfcheck-server.log >&2; exit 1; }
 
-capture_args=(
-  --url "${BASE}/dev/${EFFECT}?session=${SESSION}"
-  --output "${WEBM}"
-  --wait-ms "${RECORD_MS}"
-)
-if [ -n "${EVENT}" ]; then
-  capture_args+=(
-    --trigger-url "${BASE}/dev/trigger/${SESSION}/${EVENT}?effect=${EFFECT}"
-    --trigger-delay-ms 1500
-  )
-  echo "[selfcheck] recording ${RECORD_MS}ms, firing '${EVENT}' at 1.5s..."
-else
-  echo "[selfcheck] recording ${RECORD_MS}ms (default render, no trigger)..."
+echo "[selfcheck] firing '${EVENT}' and waiting for lifecycle='${LIFECYCLE}' (hold ${HOLD_TICKS} ticks) via /dev/observe..."
+observe_url="${BASE}/dev/observe?effect=${EFFECT}&session=${SESSION}&trigger=${EVENT}&lifecycle=${LIFECYCLE}&hold_ticks=${HOLD_TICKS}"
+if ! curl -fsS -X POST "$observe_url" >"$TRACE"; then
+  echo "[selfcheck] /dev/observe request failed; server log:" >&2; cat /tmp/selfcheck-server.log >&2; exit 1
 fi
 
-node scripts/agent/capture-video.mjs "${capture_args[@]}"
-node scripts/agent/inspect-video.mjs --file "${WEBM}" --screenshot "${SHOT}" --frame final --min-duration-ms "$((RECORD_MS - 1500))"
+jq -e '.applied == true and .observed == true' "$TRACE" >/dev/null || {
+  echo "[selfcheck] lifecycle '${LIFECYCLE}' was not observed/held — fix the code; trace:" >&2
+  jq -c '{applied, observed, lifecycle, holdTicks, observedTick, heldUntilTick}' "$TRACE" >&2 || cat "$TRACE" >&2
+  exit 1
+}
+
+# Pull the frozen grid frame named in the trace so the final state can be eyeballed.
+observation_id="$(jq -r '.observationId // ""' "$TRACE")"
+if [ -n "$observation_id" ]; then
+  curl -fsS "${BASE}/dev/frame?effect=${EFFECT}&session=${SESSION}&observation=${observation_id}" -o "$SHOT" || true
+fi
 
 echo "[selfcheck] done."
-echo "[selfcheck] clip:        ${WEBM}"
-echo "[selfcheck] final frame:  ${SHOT}"
-echo "[selfcheck] Eyeball the final frame against the contract's lifecycle resting_state for '${EVENT:-default}'."
+echo "[selfcheck] trace:        ${TRACE}"
+echo "[selfcheck] observed: $(jq -c '{applied, observed, lifecycle, holdTicks}' "$TRACE")"
+[ -s "$SHOT" ] && echo "[selfcheck] final frame:  ${SHOT}"
+echo "[selfcheck] Confirm the trace lifecycle and frozen frame match the contract's resting_state for '${EVENT}'."

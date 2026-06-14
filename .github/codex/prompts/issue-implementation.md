@@ -23,9 +23,8 @@ Environment variables you can rely on:
 Use the `ambience_preview` MCP server for fixed platform operations:
 - `build_preview_image`
 - `deploy_validation_preview`
-- `capture_validation_screenshot`
 
-Those tools encode the exact build, deploy, and screenshot commands for this repo. Prefer them over ad hoc `az`, `helm`, `kubectl`, or Playwright command lines unless the MCP server is unavailable.
+Those tools encode the exact build and deploy commands for this repo. Prefer them over ad hoc `az`, `helm`, or `kubectl` command lines unless the MCP server is unavailable. Browser evidence (video/screenshots) is captured by Glimmung's central capture tools against the leased slot — there is no per-repo screenshot/Playwright tool; do not drive a local browser.
 
 Preview lifecycle rules:
 - Your run-scoped validation namespace is scratch space. The workflow tears it down after the run.

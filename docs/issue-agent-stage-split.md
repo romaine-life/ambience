@@ -312,24 +312,36 @@ branches from earlier runs after the issue's touchpoint path has merged.
 ### Stage 3 — `run-verification`
 
 **Goal:** Validate one ordered evidence case against the rebuilt validation
-env. Pin the case's dev session to its declared config
-(`scripts/agent/pin-session-config.mjs`: schema defaults + the case's
-`session_config`), capture the selected item from the test plan, and — for
-judged cases — confirm the `must_show` gestalt matches what the captured
-artifact actually shows. The verifier's judgment is gestalt-only: it never
-counts, measures, or infers internal state; every mechanical fact is
-wrapper-enforced.
+env. Pin the case's dev session to its declared config over plain HTTP
+(GET `/effects/<effect>/schema` → POST `/dev/config` with schema defaults +
+the case's `session_config`), capture the selected item from the test plan
+through Glimmung's central capture tools, and — for judged cases — confirm the
+`must_show` gestalt matches what the captured artifact actually shows. The
+verifier's judgment is gestalt-only: it never counts, measures, or infers
+internal state; every mechanical fact is wrapper-enforced.
+
+**Browser evidence comes only from the central tools.** The verifier does not
+drive a browser. There is no Playwright in the image, no
+`PLAYWRIGHT_WS_ENDPOINT`, and no per-repo capture script — those were deleted
+end to end. Glimmung's runner-MCP sidecar exposes `capture_video` and
+`capture_screenshot`: the agent calls them by name with JSON args (`url`,
+`wait_ms`, `label`, optional `trigger_url`, `width`/`height`, and `full_page`
+for screenshots), they connect to the leased slot browser, start recording
+only after the page renders (server-side blank-frame gate), upload the
+artifact, and return its `ref`/`url`. The verifier puts that ref on the case
+result. Pin/trigger/confirm stay plain `curl` HTTP.
 
 **Agentless mechanical cases.** A selected case without a `must_show` never
 launches the verification LLM. The wrapper (`run_mechanical_case` in
-`verify.sh`) performs the case itself: re-asserts the session pin, fires a
-declared `trigger_event` through the documented flow
+`verify.sh`) performs the case itself with curl + jq: re-asserts the session
+pin (GET schema → POST `/dev/config` → poll `/dev/snapshot`), fires a declared
+`trigger_event` through the documented flow
 (`POST /dev/trigger/<session>/<event>?effect=<effect>`, then requires the
 event to register in `snapshot.appliedEvents` — accepted is not applied),
-proves a declared `terminal_lifecycle` with
-`scripts/agent/capture-observation.mjs`, freezes a frame for `screenshot`
-cases (via `/dev/observe`, echoing the session's current lifecycle as the
-predicate when none is declared), and synthesizes
+proves a declared `terminal_lifecycle` via the `/dev/observe` HTTP endpoint
+(`POST /dev/observe` with the `lifecycle=` predicate; freezes a frame for
+`screenshot` cases via the observation's `frameUrl`, echoing the session's
+current lifecycle as the predicate when none is declared), and synthesizes
 `issue-agent-verification.{json,md}` in the exact verifier-output schema
 (`schema_version: 1`, `status`, `evidence`, `evidence_results` with an
 `observed_text` such as "mechanical: pin verified; trigger accepted;
@@ -347,15 +359,15 @@ failure as `observed_text` and a structured `failure` block
 `verification-case.json`, `.github/agent/prompt-verification.md`, the rebuilt
 validation URL, and the issue body for standing cases.
 
-**Tools:** Read, Grep, Bash (curl, node, playwright), Write (only to
-`/workspace/evidence/`). **No** Edit on `/workspace/repo/`. **No**
-GitHub-write tools.
+**Tools:** Read, Grep, Bash (curl), the `capture_video` / `capture_screenshot`
+MCP tools, Write (only to `/workspace/evidence/`). **No** Edit on
+`/workspace/repo/`. **No** local browser/Playwright. **No** GitHub-write tools.
 
-**Output:** `/workspace/evidence/issue-agent-verification.json` and
-`.md`, plus WebMs in `/workspace/evidence/videos/` and optional PNGs
-in `/workspace/evidence/screenshots/`. Video cases must run
-`scripts/agent/inspect-video.mjs` against the captured WebM before claiming
-pass; ad hoc playback servers are outside the contract. JSON shape:
+**Output:** `/workspace/evidence/issue-agent-verification.json` and `.md`. The
+captured WebM/PNG live as uploaded refs returned by the capture tools (not
+local files), carried on the `evidence_results` entry. The central tool's
+blank-frame gate already proves render + upload, so there is no local
+video-decode step and no ad hoc playback server. JSON shape:
 
 ```json
 {
@@ -364,10 +376,10 @@ pass; ad hoc playback servers are outside the contract. JSON shape:
   "abort_reason": "",
   "failure": null,
   "evidence": [
-    {"kind": "video", "ref": "videos/dev-distant-storm.webm", "content_type": "video/webm", "duration_ms": 6000}
+    {"kind": "video", "ref": "<ref returned by capture_video>", "content_type": "video/webm", "duration_ms": 6000}
   ],
   "evidence_results": [
-    {"id": "dev-distant-storm-default", "status": "pass", "video": "videos/dev-distant-storm.webm", "observed_text": "steady horizon line with layered cloud bank; no flash fired"}
+    {"id": "dev-distant-storm-default", "status": "pass", "video": "<ref returned by capture_video>", "observed_text": "steady horizon line with layered cloud bank; no flash fired"}
   ]
 }
 ```
@@ -414,11 +426,11 @@ session from prepare through emit teardown (and pins at prepare); without
 it the pinned session would die between capture and enforcement and the
 check would false-fail against a freshly randomized session. A
 verifier-claimed pass with a missing selected item flips to `fail` with
-`abort_reason: target_evidence_missing`. For selected video requirements, the
-wrapper also opens the reported local WebM with `inspect-video.mjs`, enforces
-the planned duration with a small capture tolerance, and writes a sampled-frame
-PNG. A verifier-claimed pass over an unopenable, remote-only, empty, or too
-short video flips to `fail` before evidence upload.
+`abort_reason: target_evidence_missing`. Video evidence is captured by the
+central `capture_video` tool, whose server-side blank-frame gate proves the
+clip rendered before its `ref` exists, so the wrapper performs no local
+video-decode pass — the retired per-repo decode gate was deleted with the
+browser scripts rather than reimplemented.
 
 ## Wrapper changes
 
