@@ -1,4 +1,4 @@
-import { mkdir, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -56,14 +56,15 @@ const browser = await chromium.launch({ headless: true });
 try {
   const context = await browser.newContext({
     viewport: { width, height },
-    recordVideo: {
-      dir: videoDir,
-      size: { width, height },
-    },
   });
   const page = await context.newPage();
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.locator("body").waitFor({ state: "visible", timeout: 30000 });
+  // Start recording only AFTER the page is visible. recordVideo (a context
+  // option) records from context creation and bakes in the white about:blank
+  // first frame; page.screencast captures from the current painted state
+  // forward, so the clip opens on real content.
+  await page.screencast.start({ path: out, size: { width, height } });
   if (click) {
     await page.locator(click).click();
   }
@@ -75,12 +76,8 @@ try {
     }
   }
   await page.waitForTimeout(waitMs);
-  const video = page.video();
+  await page.screencast.stop();
   await context.close();
-  const recordedPath = await video.path();
-  if (path.resolve(recordedPath) !== out) {
-    await rename(recordedPath, out);
-  }
   const info = await stat(out);
   if (info.size <= 0) {
     throw new Error(`captured video is empty: ${out}`);
