@@ -90,6 +90,12 @@ clone_repo() {
 }
 
 copy_claude_ca() {
+  if [ -s /etc/glimmung-provider-api-proxy-ca/ca.crt ]; then
+    kubectl -n "$NAMESPACE" create configmap claude-oauth-ca \
+      --from-file=ca.crt=/etc/glimmung-provider-api-proxy-ca/ca.crt \
+      --dry-run=client -o yaml | kubectl apply -f -
+    return 0
+  fi
   kubectl -n "$CLAUDE_CA_NAMESPACE" get configmap claude-oauth-ca -o json \
     | NAMESPACE="$NAMESPACE" jq '
         del(
@@ -106,6 +112,12 @@ copy_claude_ca() {
 }
 
 copy_github_policy_ca() {
+  if [ -s /etc/glimmung-provider-api-proxy-ca/ca.crt ]; then
+    kubectl -n "$NAMESPACE" create configmap "$GITHUB_POLICY_CA_CONFIGMAP" \
+      --from-file=ca.crt=/etc/glimmung-provider-api-proxy-ca/ca.crt \
+      --dry-run=client -o yaml | kubectl apply -f -
+    return 0
+  fi
   kubectl -n "$PROVIDER_API_PROXY_NAMESPACE" get secret "$GITHUB_POLICY_CA_SECRET" -o json \
     | NAMESPACE="$NAMESPACE" CONFIGMAP="$GITHUB_POLICY_CA_CONFIGMAP" jq '
         {
