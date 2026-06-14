@@ -56,7 +56,13 @@ Glimmung selects the concrete provider/model for this invocation through the
    claim it works. `go build`/`go test` cannot see pixels** — a visual
    claim ("the gate goes dark", "the surge brightens then fades") is not
    proven by a green build. This is required whenever you add or change
-   an effect's rendering, lifecycle, or event behavior. Two layers:
+   an effect's rendering, lifecycle, or event behavior. This stage has
+   **no browser and no local capture script** — proof here is the Go
+   end-state assertion plus the `/dev/observe` lifecycle trace, both of
+   which read the grid directly without rendering a page. (Browser
+   evidence against the rebuilt env is the verification stage's job,
+   captured through Glimmung's central capture tools; you do not record
+   video here.)
    a. **Deterministic end-state assertion (Go).** For each terminal
       lifecycle state in the contract's `public_surface.lifecycle`
       (e.g. `intro`, `ending`), add/extend a `sim` test that steps the
@@ -68,31 +74,36 @@ Glimmung selects the concrete provider/model for this invocation through the
       failing test. Also expose a stable machine predicate in the
       snapshot state for that terminal condition (for example
       `gateDark == true` or `endingTicks == 0` after the trigger is
-      applied) so `/dev/observe` can prove completion without guessing a
-      video timestamp. Run it and include the test name in your output.
-   b. **Visual self-check (localhost only).** Build and run your
-      in-progress code locally and watch it with the same browser tooling
-      the verification stage uses, pointed at `127.0.0.1` — never the
-      shared validation env. One helper does the whole dance (build wasm
-      → serve on localhost → record `/dev/<effect>` while firing the
-      trigger → write a final-frame PNG):
+      applied) so `/dev/observe` can prove completion against the grid,
+      no page render required. Run it and include the test name in your
+      output.
+   b. **Dev observer check (localhost, HTTP only).** Build and run your
+      in-progress code locally (`scripts/build-web-wasm.sh` then
+      `AMBIENCE_ADDR=:8765 go run ./cmd/ambience`), pointed at
+      `127.0.0.1` — never the shared validation env. Drive the terminal
+      lifecycle through plain HTTP with `curl` and read the grid-derived
+      state back: `/dev/observe` triggers the event, waits for the
+      `lifecycle=<value>` contract predicate, holds it for `hold_ticks`,
+      and returns a JSON trace plus a frozen-frame PNG URL — all without
+      a browser:
+      ```sh
+      EFFECT=magic-portal; EVENT=ending; SESSION=selfcheck
+      curl -fsS -X POST \
+        "http://127.0.0.1:8765/dev/observe?effect=$EFFECT&session=$SESSION&trigger=$EVENT&lifecycle=ended&hold_ticks=12" \
+        | jq '{applied, observed, lifecycle, holdTicks, observationId, frameUrl}'
+      # Optional: pull the frozen grid frame named in frameUrl to eyeball it.
+      curl -fsS "http://127.0.0.1:8765/dev/frame?effect=$EFFECT&session=$SESSION&observation=<observationId>" \
+        -o /tmp/selfcheck-$EFFECT-final.png
       ```
-      scripts/agent/selfcheck-effect.sh <effect> <lifecycle-event>
-      # e.g. scripts/agent/selfcheck-effect.sh magic-portal ending
-      # → /tmp/selfcheck-<effect>-final.png
-      ```
-      Open the final-frame PNG and confirm it matches the contract's
-      terminal `resting_state` (for `ending`: the gate is dark, and it
-      stayed dark — the clip is long enough to run *past* the outro). If
-      it does not match, **fix the code** — do not write a passing JSON
-      over a behavior you could not observe. Artifacts stay under `/tmp`;
-      do not add them to the branch.
-   c. **Dev observer check for terminal lifecycle.** When you add or
-      change a terminal lifecycle state, exercise `/dev/observe` (or
-      `scripts/agent/capture-observation.mjs`) against your local server
-      with the terminal state predicate and include the predicate in
-      `behavior_evidence`. This is the verifier's source of truth for
-      "done"; the video is reviewer context.
+      Confirm `applied` and `observed` are true and the trace's
+      `lifecycle` matches the contract's terminal `resting_state` (for
+      `ending`: `ended`, held the requested ticks). If it does not match,
+      **fix the code** — do not write a passing JSON over a behavior you
+      could not observe. Include the `/dev/observe` predicate you ran in
+      `behavior_evidence`. Any `/tmp` PNG stays under `/tmp`; do not add
+      it to the branch. This `/dev/observe` trace is the verifier's
+      source of truth for "done"; the verification stage adds reviewer
+      video against the rebuilt env via the central capture tools.
 8. Commit and publish your current branch through the managed helper:
    ```
    git add -A
@@ -125,7 +136,7 @@ Glimmung selects the concrete provider/model for this invocation through the
   },
   "behavior_evidence": {
     "lifecycle_assertions": "pass: TestMagicPortalEndingTerminal — gate stays dark past outro expiry",
-    "visual_selfcheck": "localhost /dev/magic-portal ending: final frame gate dark, matches contract resting_state",
+    "frame_observation": "localhost /dev/observe frozen frame (lifecycle=ended): gate dark, matches contract resting_state",
     "terminal_observer": "pass: /dev/observe trigger=ending lifecycle=ended hold_ticks=12"
   },
   "ui_hint": {
@@ -147,11 +158,11 @@ to the test. The wrapper fails a passing implementation that omits it
 when the workflow's feature type requires one.
 
 `behavior_evidence` is required whenever you changed rendering, lifecycle,
-or event behavior (step 7). Use `"n/a: no visual/temporal change"` for both
+or event behavior (step 7). Use `"n/a: no visual/temporal change"` for all
 fields when the change is purely non-visual (logic, schema, server wiring).
-Use `"n/a: no terminal lifecycle change"` for `terminal_observer` when no
-terminal state was added or changed. Never report a `visual_selfcheck` or
-`terminal_observer` you did not actually run.
+Use `"n/a: no terminal lifecycle change"` for `terminal_observer` and
+`frame_observation` when no terminal state was added or changed. Never report
+a `frame_observation` or `terminal_observer` you did not actually run.
 
 Allowed `abort_reason` values when `status` is `abort`:
 
@@ -187,15 +198,15 @@ Write a short companion `issue-agent-implementation.md` with:
 - **Do not** curl or otherwise touch the **shared validation
   environment** (`$VALIDATION_URL` / the deployed slot). It is rebuilt by
   the wrapper *after* this stage and still serves pre-change code; the
-  next LLM stage validates against it. Your visual self-check (step 7b)
+  next LLM stage validates against it. Your self-check (step 7b)
   runs a **local** `go run` server on `127.0.0.1`, never that shared env.
-- **Do** use the bundled Playwright/Chromium and the
-  `scripts/agent/capture-*.mjs` / `inspect-video.mjs` helpers for the
-  localhost self-check in step 7 — the agent image already ships them
-  (`PLAYWRIGHT_PACKAGE_PATH` is set). Browser capture against the shared
-  validation env remains the verification stage's job; here it is for
-  observing your own in-progress build only, and its artifacts stay under
-  `/tmp` (do not commit them).
+- **Do not** drive a browser or capture browser evidence here. There is no
+  Playwright in this stage and no local capture script — your self-check is
+  the Go end-state assertion plus the `/dev/observe` HTTP trace against your
+  **local** `127.0.0.1` server (step 7b), which read the grid directly. All
+  browser evidence (video/screenshots) is captured by the verification stage
+  against the rebuilt env through Glimmung's central capture tools; any local
+  `/tmp` frame you pull from `/dev/frame` stays under `/tmp` (do not commit it).
 - **Do not** modify `.github/workflows/`, `.github/agent/`, or
   `.mcp.json` — runner-local config, not yours to touch.
 - Keep diffs focused. Add comments only where the WHY is non-obvious.

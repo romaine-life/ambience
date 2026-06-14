@@ -55,33 +55,6 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["image"],
             },
         ),
-        types.Tool(
-            name="capture_validation_screenshot",
-            description="Capture a screenshot from the scratch validation preview by port-forwarding the service and using Playwright.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "page_path": {
-                        "type": "string",
-                        "description": "Route to capture, for example '/' or '/dev/waterfall'.",
-                    },
-                    "output_path": {
-                        "type": "string",
-                        "description": "Repo-relative path for the PNG output.",
-                    },
-                    "namespace": {
-                        "type": "string",
-                        "description": "Optional namespace override. Defaults to EPHEMERAL_NAMESPACE.",
-                    },
-                    "wait_ms": {
-                        "type": "integer",
-                        "description": "Additional browser settle time before the screenshot.",
-                        "default": 5000,
-                    },
-                },
-                "required": ["page_path", "output_path"],
-            },
-        ),
     ]
 
 
@@ -124,17 +97,6 @@ def handle_tool(name: str, arguments: dict) -> dict:
         if not namespace:
             raise ValueError("namespace is required when EPHEMERAL_NAMESPACE is not set")
         return ops.deploy_preview(namespace=namespace, image=arguments["image"], release=release)
-
-    if name == "capture_validation_screenshot":
-        namespace = arguments.get("namespace") or os.environ.get("EPHEMERAL_NAMESPACE", "")
-        if not namespace:
-            raise ValueError("namespace is required when EPHEMERAL_NAMESPACE is not set")
-        return ops.capture_validation_screenshot(
-            namespace=namespace,
-            page_path=arguments["page_path"],
-            output_path=arguments["output_path"],
-            wait_ms=int(arguments.get("wait_ms", 5000)),
-        )
 
     raise ValueError(f"Unknown tool: {name}")
 

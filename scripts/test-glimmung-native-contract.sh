@@ -777,12 +777,19 @@ jq -e '
 
 # --- verify.sh agentless mechanical cases ---
 # Source verify.sh (AMBIENCE_VERIFY_SOURCE_ONLY) and drive the mechanical
-# path through stubbed curl/node, in a subshell so the sourced globals and
-# stub PATH do not leak back into this harness.
+# path through a stubbed curl, in a subshell so the sourced globals and
+# stub PATH do not leak back into this harness. The mechanical path is now
+# pure HTTP (curl + jq): the vendored pin/observe node scripts were deleted,
+# so the stub models /effects/<effect>/schema, /dev/config, /dev/snapshot,
+# /dev/observe, and /dev/frame. A node stub remains only to FAIL the run if
+# any browser/node helper is invoked — nothing in the mechanical path should
+# shell out to node anymore.
 (
   VERIFY_STUB_DIR="${TMP_DIR}/verify-stubs"
   VERIFY_EVIDENCE_DIR="${TMP_DIR}/verify-evidence"
+  VERIFY_CONFIG_STATE="${TMP_DIR}/verify-dev-config.json"
   mkdir -p "$VERIFY_STUB_DIR" "$VERIFY_EVIDENCE_DIR"
+  printf '{}' >"$VERIFY_CONFIG_STATE"
 
   cat >"${VERIFY_STUB_DIR}/curl" <<'SH'
 #!/usr/bin/env bash
@@ -790,35 +797,93 @@ set -Eeuo pipefail
 
 url=""
 write_out=""
+out_file=""
 expect=""
 for arg in "$@"; do
   if [ -n "$expect" ]; then
-    if [ "$expect" = "w" ]; then
-      write_out="$arg"
-    fi
+    case "$expect" in
+      w) write_out="$arg" ;;
+      o) out_file="$arg" ;;
+    esac
     expect=""
     continue
   fi
   case "$arg" in
     -w) expect="w" ;;
-    -o|-d|-H|-X|--retry|--retry-delay|--max-time) expect="skip" ;;
+    -o) expect="o" ;;
+    -d|-H|-X|--retry|--retry-delay|--max-time) expect="skip" ;;
     -*) ;;
     *) url="$arg" ;;
   esac
 done
 
+# Helper: emit a body either to the -o file or stdout.
+emit_body() {
+  if [ -n "$out_file" ]; then
+    mkdir -p "$(dirname "$out_file")"
+    printf '%s' "$1" >"$out_file"
+  else
+    printf '%s' "$1"
+  fi
+}
+
 case "$url" in
-  */dev/trigger/*)
+  */effects/*/schema*)
+    # A deterministic schema. pin_expected_config derives
+    # {cluster:5, glow:0.5, emit_every:120} from these defaults unless the
+    # case session_config overrides them (the cases pin emit_every=9999).
+    # Two callers: pin_* fetches the body (-fsS), enforce_declared_surface
+    # probes the status (-o /dev/null -w %{http_code}). Serve whichever the
+    # caller asked for.
+    if [ "${NATIVE_CONTRACT_PIN_FAIL:-}" = "1" ]; then
+      [ -n "$write_out" ] && printf '500'
+      exit 22
+    fi
     if [ -n "$write_out" ]; then
-      printf '%s' "${NATIVE_CONTRACT_TRIGGER_HTTP:-204}"
+      printf '%s' "${NATIVE_CONTRACT_SURFACE_HTTP:-200}"
+    else
+      emit_body '{"knobs":[{"key":"cluster","type":"int","default":5,"min":0,"max":50},{"key":"glow","type":"float","default":0.5,"min":0,"max":1},{"key":"emit_every","type":"int","default":120,"min":0,"max":99999}]}'
     fi
     ;;
-  */dev/snapshot*)
-    snapshot_json="${NATIVE_CONTRACT_SNAPSHOT_JSON:-}"
-    if [ -z "$snapshot_json" ]; then
-      snapshot_json='{}'
+  */dev/config*)
+    # Record the knobs POSTed so /dev/snapshot can echo them back as the live
+    # config (mirrors the real server: the config you POST becomes live).
+    cfg="$(printf '%s' "$url" | sed -n 's/.*?//p' | tr '&' '\n' \
+      | awk -F= '$1!="session" && $1!="effect" && $1!="" {printf "%s\t%s\n", $1, $2}')"
+    if [ -n "$cfg" ] && [ -n "${VERIFY_CONFIG_STATE:-}" ]; then
+      printf '%s\n' "$cfg" | jq -c -R -s 'split("\n") | map(select(length>0) | split("\t")) | map({(.[0]): (.[1] | tonumber)}) | add // {}' >"$VERIFY_CONFIG_STATE"
     fi
-    printf '%s' "$snapshot_json"
+    [ -n "$write_out" ] && printf '%s' "${NATIVE_CONTRACT_CONFIG_HTTP:-204}"
+    ;;
+  */dev/trigger/*)
+    [ -n "$write_out" ] && printf '%s' "${NATIVE_CONTRACT_TRIGGER_HTTP:-204}"
+    ;;
+  */dev/snapshot*)
+    # Merge the pinned config (echoed from the last /dev/config) into the
+    # snapshot so pin_session/pin_check observe a matching live config.
+    # NOTE: do not write `${VAR:-{}}` — bash parses the `}}` so the brace
+    # default leaks a trailing `}` into the value and corrupts the JSON.
+    live_cfg='{}'
+    [ -s "${VERIFY_CONFIG_STATE:-/dev/null}" ] && live_cfg="$(cat "$VERIFY_CONFIG_STATE")"
+    snap_json="${NATIVE_CONTRACT_SNAPSHOT_JSON:-}"
+    [ -z "$snap_json" ] && snap_json='{}'
+    emit_body "$(jq -nc --argjson snap "$snap_json" --argjson cfg "$live_cfg" '$snap + {config: (($snap.config // {}) + $cfg)}')"
+    ;;
+  */dev/observe*)
+    [ -n "${NATIVE_CONTRACT_OBSERVE_LOG:-}" ] && printf '%s\n' "$url" >>"$NATIVE_CONTRACT_OBSERVE_LOG"
+    if [ "${NATIVE_CONTRACT_OBSERVE_FAIL:-}" = "1" ]; then
+      emit_body 'observe timed out'
+      [ -n "$write_out" ] && printf '408'
+      exit 0
+    fi
+    obs_json="${NATIVE_CONTRACT_OBSERVATION_JSON:-}"
+    [ -z "$obs_json" ] && obs_json='{}'
+    emit_body "$obs_json"
+    [ -n "$write_out" ] && printf '200'
+    ;;
+  */dev/frame*)
+    emit_body 'PNG-STUB'
+    [ -n "$write_out" ] && printf '200'
     ;;
   */dev/events*)
     ;;
@@ -837,55 +902,17 @@ SH
 
   cat >"${VERIFY_STUB_DIR}/node" <<'SH'
 #!/usr/bin/env bash
-set -Eeuo pipefail
-
-script="${1:-}"
-shift || true
-out=""
-shot=""
-prev=""
-for arg in "$@"; do
-  case "$prev" in
-    --output) out="$arg" ;;
-    --screenshot) shot="$arg" ;;
-  esac
-  prev="$arg"
-done
-printf '%s %s\n' "$(basename "$script")" "$*" >>"${NATIVE_CONTRACT_VERIFY_NODE_LOG:-/dev/null}"
-
-case "$(basename "$script")" in
-  pin-session-config.mjs)
-    if [ "${NATIVE_CONTRACT_PIN_FAIL:-}" = "1" ]; then
-      printf '{"error":"schema fetch failed"}\n'
-      exit 1
-    fi
-    printf '{"knob_count":7,"pinned_at_tick":3}\n'
-    ;;
-  capture-observation.mjs)
-    if [ "${NATIVE_CONTRACT_OBSERVE_FAIL:-}" = "1" ]; then
-      printf 'observe failed 408: observe timed out\n'
-      exit 1
-    fi
-    if [ -n "$out" ]; then
-      mkdir -p "$(dirname "$out")"
-      printf '%s' "${NATIVE_CONTRACT_OBSERVATION_JSON:-}" >"$out"
-    fi
-    if [ -n "$shot" ]; then
-      mkdir -p "$(dirname "$shot")"
-      printf 'PNG-STUB' >"$shot"
-    fi
-    printf '{"kind":"observation","observed":true,"applied":true}\n'
-    ;;
-  *)
-    printf 'unexpected node invocation: %s\n' "$script" >&2
-    exit 1
-    ;;
-esac
+# The mechanical verification path is pure HTTP now (curl + jq). Any node
+# invocation means a deleted browser/pin/observe helper crept back in.
+printf 'unexpected node invocation (mechanical path must be curl-only): %s\n' "$*" >&2
+exit 1
 SH
   chmod +x "${VERIFY_STUB_DIR}/node"
 
   export PATH="${VERIFY_STUB_DIR}:${PATH}"
-  export NATIVE_CONTRACT_VERIFY_NODE_LOG="${TMP_DIR}/verify-node.calls"
+  export VERIFY_CONFIG_STATE
+  export NATIVE_CONTRACT_OBSERVE_LOG="${TMP_DIR}/verify-observe.calls"
+  : >"$NATIVE_CONTRACT_OBSERVE_LOG"
   export AMBIENCE_VERIFY_SOURCE_ONLY=1
   export AMBIENCE_EVIDENCE_DIR="$VERIFY_EVIDENCE_DIR"
   export AMBIENCE_REPO_DIR="${TMP_DIR}/repo"
@@ -920,7 +947,7 @@ SH
 }
 JSON
   export NATIVE_CONTRACT_SNAPSHOT_JSON='{"lifecycle":"running","appliedEvents":[{"tick":4,"event":"ending"}]}'
-  export NATIVE_CONTRACT_OBSERVATION_JSON='{"applied":true,"observed":true,"lifecycle":"ended","holdTicks":12,"observedTick":40,"heldUntilTick":52}'
+  export NATIVE_CONTRACT_OBSERVATION_JSON='{"applied":true,"observed":true,"lifecycle":"ended","holdTicks":12,"observedTick":40,"heldUntilTick":52,"observationId":"obs-1","frameUrl":"/dev/frame?session=s&effect=lanterns&observation=obs-1"}'
   run_llm
   jq -e '
     .schema_version == 1
@@ -981,7 +1008,7 @@ JSON
     and .evidence_results[0].observation == "observations/mech-quiet-frame.json"
     and (.evidence_results[0].observed_text | test("frame frozen at lifecycle running"))
   ' "${VERIFY_EVIDENCE_DIR}/issue-agent-verification.json" >/dev/null
-  grep -q -- "--lifecycle running" "$NATIVE_CONTRACT_VERIFY_NODE_LOG"
+  grep -q "lifecycle=running" "$NATIVE_CONTRACT_OBSERVE_LOG"
 
   # --- standing case binding (resolve_standing_case) ---
 

@@ -580,23 +580,13 @@ run_mechanical_case() {
     mechanical_fail "mechanical_case_invalid" "mechanical cases require a /dev/<effect> url_path with a session param; got url_path=$(jq -r '.required_evidence.url_path // "<missing>"' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '<unreadable>')"
     return 0
   fi
-  if ! command -v node >/dev/null 2>&1; then
-    mechanical_fail "mechanical_case_invalid" "node is unavailable; cannot pin, observe, or capture for the mechanical case"
-    return 0
-  fi
 
   overrides="$(jq -c '.required_evidence.session_config // {}' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '{}')"
-  if ! pin_out="$(
-    node "${REPO_DIR}/scripts/agent/pin-session-config.mjs" \
-      --base-url "$VALIDATION_URL" \
-      --effect "$effect" \
-      --session "$session" \
-      --overrides "$overrides" 2>&1
-  )"; then
+  if ! pin_out="$(pin_session "$effect" "$session" "$overrides" 2>&1)"; then
     mechanical_fail "session_pin_failed" "session pin failed for effect=${effect} session=${session}: $(printf '%s' "$pin_out" | tail -1)"
     return 0
   fi
-  observed="${observed} pin verified ($(printf '%s' "$pin_out" | jq -r '.knob_count // "?"' 2>/dev/null || printf '?') knobs)"
+  observed="${observed} pin verified (${pin_out})"
 
   if [ -n "$trigger_event" ]; then
     local trigger_status applied attempt
@@ -625,29 +615,20 @@ run_mechanical_case() {
     observed="${observed}; trigger ${trigger_event} accepted and applied"
   fi
 
-  # Lifecycle observation runs without --trigger: the trigger (when declared)
-  # was already fired above, and /dev/observe treats `applied` as vacuously
-  # true when it fires no trigger itself — enforce_terminal_observation_artifact
-  # still requires observed/lifecycle/hold from the trace.
+  # Lifecycle observation runs without a trigger arg: the trigger (when
+  # declared) was already fired above, and /dev/observe treats `applied` as
+  # vacuously true when it fires no trigger itself —
+  # enforce_terminal_observation_artifact still requires observed/lifecycle/hold
+  # from the trace.
   if [ -n "$terminal_lifecycle" ]; then
-    local -a observe_args
+    local shot_arg=""
     observation_ref="observations/${safe_id}.json"
-    observe_args=(
-      --base-url "$VALIDATION_URL"
-      --effect "$effect"
-      --session "$session"
-      --lifecycle "$terminal_lifecycle"
-      --hold-ticks "$hold_ticks"
-      --output "${EVIDENCE_DIR}/${observation_ref}"
-    )
-    if [ "${max_ticks:-0}" -gt 0 ] 2>/dev/null; then
-      observe_args+=(--max-ticks "$max_ticks")
-    fi
     if [ "$kind" = "screenshot" ]; then
       screenshot_ref="screenshots/${safe_id}.png"
-      observe_args+=(--screenshot "${EVIDENCE_DIR}/${screenshot_ref}")
+      shot_arg="${EVIDENCE_DIR}/${screenshot_ref}"
     fi
-    if ! observe_out="$(EVIDENCE_DIR="$EVIDENCE_DIR" node "${REPO_DIR}/scripts/agent/capture-observation.mjs" "${observe_args[@]}" 2>&1)"; then
+    if ! observe_out="$(dev_observe "$effect" "$session" "$terminal_lifecycle" "$hold_ticks" "$max_ticks" \
+        "${EVIDENCE_DIR}/${observation_ref}" "$shot_arg" 2>&1)"; then
       observation_ref=""
       screenshot_ref=""
       mechanical_fail "lifecycle_not_observed" "lifecycle ${terminal_lifecycle} (hold ${hold_ticks} ticks) was not observed: $(printf '%s' "$observe_out" | tail -1)"
@@ -677,13 +658,8 @@ run_mechanical_case() {
     esac
     observation_ref="observations/${safe_id}-frame.json"
     screenshot_ref="screenshots/${safe_id}.png"
-    if ! observe_out="$(EVIDENCE_DIR="$EVIDENCE_DIR" node "${REPO_DIR}/scripts/agent/capture-observation.mjs" \
-      --base-url "$VALIDATION_URL" \
-      --effect "$effect" \
-      --session "$session" \
-      --lifecycle "$current_lifecycle" \
-      --output "${EVIDENCE_DIR}/${observation_ref}" \
-      --screenshot "${EVIDENCE_DIR}/${screenshot_ref}" 2>&1)"; then
+    if ! observe_out="$(dev_observe "$effect" "$session" "$current_lifecycle" "" "" \
+      "${EVIDENCE_DIR}/${observation_ref}" "${EVIDENCE_DIR}/${screenshot_ref}" 2>&1)"; then
       observation_ref=""
       screenshot_ref=""
       mechanical_fail "screenshot_missing" "frame freeze via /dev/observe (lifecycle=${current_lifecycle}) failed: $(printf '%s' "$observe_out" | tail -1)"
@@ -914,6 +890,202 @@ selected_case_session() {
   ' "$VERIFICATION_CASE_FILE" 2>/dev/null || true
 }
 
+# --- session pinning over plain HTTP -----------------------------------------
+#
+# Dev sessions are created with RANDOMIZED knob values (a /dev product
+# feature). Verification claims are written against the PINNED contract:
+# schema defaults overridden by the case's optional session_config. Pinning
+# is a sequence of plain HTTP calls (GET schema, POST /dev/config, GET
+# /dev/snapshot) — no browser — so the wrapper drives it with curl + jq
+# directly (the vendored per-repo pin script was deleted with the other
+# browser scripts): the comparison rules are identical to the
+# Go-side contract in cmd/ambience/effects_schema_config_test.go (int knobs
+# round; float knobs compare within 1e-6; overrides must name real knobs and
+# sit inside [min, max]).
+
+# pin_expected_config_json <effect> <overrides-json>
+# Emits the expected pinned config object {knob: value, ...} on success.
+# Fails (nonzero) with a one-line reason on stderr when the schema is
+# unreachable/knobless or an override is unknown / non-numeric / out of range.
+pin_expected_config_json() {
+  # NOTE: never default with ${2:-{}} — bash parses the trailing `}}` so the
+  # brace default leaks a literal `}` onto the value and corrupts the JSON.
+  local effect="$1" overrides="${2:-}" schema
+  [ -z "$overrides" ] && overrides='{}'
+  if ! schema="$(curl -fsS "${VALIDATION_URL}/effects/${effect}/schema" 2>/dev/null)"; then
+    echo "could not fetch effect schema for ${effect}" >&2
+    return 1
+  fi
+  # Validate the overrides and build the expected pinned-config map in one
+  # pass: defaults overridden by session_config, int knobs floored. jq's
+  # error() short-circuits with a named-knob message that surfaces on stderr.
+  printf '%s' "$schema" | jq -e \
+    --argjson ov "$overrides" '
+      (.knobs // []) as $knobs
+      | if ($knobs | length) == 0 then
+          error("effect schema declares no knobs; nothing to pin")
+        else . end
+      | ($knobs | map({(.key): .}) | add) as $byKey
+      | ($ov | to_entries | map(
+          .key as $k | .value as $v
+          | if ($byKey[$k] == null) then error("unknown knob \($k)")
+            elif ($v | type) != "number" then error("knob \($k) override is not a finite number")
+            elif ($v < ($byKey[$k].min) or $v > ($byKey[$k].max)) then
+              error("knob \($k)=\($v) outside schema range [\($byKey[$k].min), \($byKey[$k].max)]")
+            else true end)) as $checked
+      | [ $knobs[]
+          | .key as $k
+          | (if ($ov[$k] != null) then $ov[$k] else .default end) as $raw
+          | {key: $k, value: (if .type == "int" then ($raw | floor) else $raw end)} ]
+      | from_entries
+    ' 2>/tmp/pin-jq-err || { sed -n 's/^jq: error[^:]*: //p; s/^jq: error: //p' /tmp/pin-jq-err 2>/dev/null | head -1 >&2; return 1; }
+}
+
+# pin_query_string <expected-config-json> -> knob=value&knob=value...
+pin_query_string() {
+  printf '%s' "$1" | jq -r 'to_entries | map("\(.key)=\(.value)") | join("&")'
+}
+
+# pin_session <effect> <session> <overrides-json> [timeout-seconds]
+# Pins the session over HTTP and polls /dev/snapshot until the live config
+# matches. Returns 0 and echoes "<knob-count> knobs" on success; nonzero with
+# a one-line reason on stderr otherwise.
+pin_session() {
+  local effect="$1" session="$2" overrides="${3:-}" timeout="${4:-15}"
+  local expected qs knob_count deadline live mismatches status
+  [ -z "$overrides" ] && overrides='{}'
+  if ! expected="$(pin_expected_config_json "$effect" "$overrides" 2>/tmp/pin-err)"; then
+    cat /tmp/pin-err >&2 2>/dev/null || true
+    return 1
+  fi
+  qs="$(pin_query_string "$expected")"
+  knob_count="$(printf '%s' "$expected" | jq -r 'length')"
+  status="$(curl -sS -o /dev/null -w '%{http_code}' \
+    -X POST "${VALIDATION_URL}/dev/config?session=${session}&effect=${effect}&${qs}" 2>/dev/null || printf '000')"
+  case "$status" in
+    2*|3*) ;;
+    *) echo "POST /dev/config -> HTTP ${status}" >&2; return 1 ;;
+  esac
+  deadline=$(( $(date +%s) + timeout ))
+  while :; do
+    if live="$(curl -fsS "${VALIDATION_URL}/dev/snapshot?session=${session}&effect=${effect}" 2>/dev/null)"; then
+      mismatches="$(pin_config_mismatches "$effect" "$expected" "$(printf '%s' "$live" | jq -c '.config // {}')")"
+      if [ -z "$mismatches" ]; then
+        echo "${knob_count} knobs"
+        return 0
+      fi
+    fi
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      echo "pinned config did not become live before timeout: ${mismatches:-no snapshot}" >&2
+      return 1
+    fi
+    sleep 0.4
+  done
+}
+
+# pin_config_mismatches <effect> <expected-json> <live-config-json>
+# Echoes a comma-joined "key expected=.. actual=.." list of mismatches, empty
+# when the live config matches the expected pinned config knob-for-knob. Int
+# knobs round; float knobs compare within 1e-6 (mirrors the Go contract test).
+pin_config_mismatches() {
+  local effect="$1" expected="$2" live="$3" schema
+  schema="$(curl -fsS "${VALIDATION_URL}/effects/${effect}/schema" 2>/dev/null || printf '{}')"
+  jq -nr \
+    --argjson expected "$expected" \
+    --argjson live "$live" \
+    --argjson schema "$schema" '
+      ($schema.knobs // []) as $knobs
+      | ($knobs | map({(.key): .type}) | add // {}) as $types
+      | [ $expected | to_entries[]
+          | .key as $k | .value as $want
+          | ($live[$k]) as $got
+          | (if ($got == null) then "\($k) expected=\($want) actual=null"
+             elif (($types[$k] // "float") == "int") then
+               (if (($got | floor) != ($want | floor)) then "\($k) expected=\($want) actual=\($got)" else empty end)
+             else
+               (if (($got - $want) | fabs) > 1e-6 then "\($k) expected=\($want) actual=\($got)" else empty end)
+             end) ]
+      | join(", ")
+    '
+}
+
+# pin_check <effect> <session> <overrides-json>
+# Read-only contract check used by enforce_session_config_pinned. Returns 0
+# when the live session config matches the pinned contract; nonzero with a
+# one-line detail (including the session tick) on stderr otherwise.
+pin_check() {
+  local effect="$1" session="$2" overrides="${3:-}" expected snap live tick mismatches
+  [ -z "$overrides" ] && overrides='{}'
+  if ! expected="$(pin_expected_config_json "$effect" "$overrides" 2>/tmp/pin-err)"; then
+    cat /tmp/pin-err >&2 2>/dev/null || true
+    return 1
+  fi
+  if ! snap="$(curl -fsS "${VALIDATION_URL}/dev/snapshot?session=${session}&effect=${effect}" 2>/dev/null)"; then
+    echo "could not fetch session snapshot" >&2
+    return 1
+  fi
+  live="$(printf '%s' "$snap" | jq -c '.config // {}')"
+  tick="$(printf '%s' "$snap" | jq -r '.tick // "?"')"
+  mismatches="$(pin_config_mismatches "$effect" "$expected" "$live")"
+  if [ -n "$mismatches" ]; then
+    # A low tick relative to the case duration means the session was reaped and
+    # lazily recreated (randomized) after the pin — a session lifecycle problem,
+    # not config drift. The keepalive listener exists to prevent this; surface
+    # the tick so the failure reads correctly.
+    echo "${mismatches} [session tick=${tick} — a low tick means the session was reaped and recreated randomized; check the keepalive listener]" >&2
+    return 1
+  fi
+  return 0
+}
+
+# dev_observe <effect> <session> <lifecycle> <hold-ticks> <max-ticks> <out-json> [shot-png]
+# Drives the verification-only /dev/observe lifecycle observer over plain HTTP
+# (POST /dev/observe with the lifecycle predicate, GET /dev/frame for the
+# frozen grid frame). The vendored per-repo observation script was deleted with
+# the other browser scripts: /dev/observe and /dev/frame are
+# JSON/PNG HTTP endpoints, so no browser is involved. The trace JSON is written
+# to <out-json>; when <shot-png> is given, the observation's frameUrl PNG is
+# fetched to it. Returns 0 on a 2xx observe response; nonzero with a one-line
+# reason on stderr otherwise. The caller enforces applied/observed/hold from
+# the written trace, exactly as enforce_terminal_observation_artifact does.
+dev_observe() {
+  local effect="$1" session="$2" lifecycle="$3" hold_ticks="${4:-}" max_ticks="${5:-}" out_json="$6" shot_png="${7:-}"
+  local url status body frame_url frame_status
+  url="${VALIDATION_URL}/dev/observe?effect=${effect}&session=${session}"
+  [ -n "$lifecycle" ] && url="${url}&lifecycle=${lifecycle}"
+  [ -n "$hold_ticks" ] && [ "$hold_ticks" != "0" ] && url="${url}&hold_ticks=${hold_ticks}"
+  [ -n "$max_ticks" ] && [ "$max_ticks" != "0" ] && url="${url}&max_ticks=${max_ticks}"
+  mkdir -p "$(dirname "$out_json")"
+  status="$(curl -sS -X POST "$url" -o "$out_json" -w '%{http_code}' 2>/dev/null || printf '000')"
+  case "$status" in
+    2*|3*) ;;
+    *)
+      body="$(tail -c 200 "$out_json" 2>/dev/null | tr '\n' ' ')"
+      echo "observe failed ${status}: ${body}" >&2
+      return 1
+      ;;
+  esac
+  if [ -n "$shot_png" ]; then
+    frame_url="$(jq -r '.frameUrl // ""' "$out_json" 2>/dev/null || printf '')"
+    if [ -z "$frame_url" ]; then
+      echo "observe response did not include frameUrl" >&2
+      return 1
+    fi
+    case "$frame_url" in
+      http://*|https://*) ;;
+      /*) frame_url="${VALIDATION_URL}${frame_url}" ;;
+      *) frame_url="${VALIDATION_URL}/${frame_url}" ;;
+    esac
+    mkdir -p "$(dirname "$shot_png")"
+    frame_status="$(curl -sS "$frame_url" -o "$shot_png" -w '%{http_code}' 2>/dev/null || printf '000')"
+    case "$frame_status" in
+      2*|3*) ;;
+      *) echo "frame fetch failed ${frame_status}" >&2; return 1 ;;
+    esac
+  fi
+  return 0
+}
+
 # Dev sessions are reaped after 60s with no listeners (devSessionIdle in
 # cmd/ambience/main.go), and the gap between the verifier's capture and the
 # wrapper's finalize enforcement is minutes. Without a listener the pinned
@@ -941,22 +1113,14 @@ start_session_keepalive_and_pin() {
   disown || true
   echo "session keepalive listener started for effect=${effect} session=${session} (pid $(cat "$SESSION_KEEPALIVE_PID_FILE"))"
 
-  if command -v node >/dev/null 2>&1; then
-    overrides="$(jq -c '.required_evidence.session_config // {}' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '{}')"
-    if pin_out="$(
-      node "${REPO_DIR}/scripts/agent/pin-session-config.mjs" \
-        --base-url "$VALIDATION_URL" \
-        --effect "$effect" \
-        --session "$session" \
-        --overrides "$overrides" 2>&1
-    )"; then
-      echo "session pinned at prepare: $(printf '%s' "$pin_out" | jq -r '"\(.knob_count // "?") knobs, tick \(.pinned_at_tick // "?")"' 2>/dev/null || printf 'ok')"
-    else
-      # Do not fail prepare: the verifier agent pins again before capture,
-      # and finalize enforcement is the authoritative gate. This logs why
-      # an early pin could not land (e.g. env still warming).
-      echo "session pin at prepare failed (verifier will pin before capture): $(printf '%s' "$pin_out" | tail -1)"
-    fi
+  overrides="$(jq -c '.required_evidence.session_config // {}' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '{}')"
+  if pin_out="$(pin_session "$effect" "$session" "$overrides" 2>&1)"; then
+    echo "session pinned at prepare: ${pin_out}"
+  else
+    # Do not fail prepare: the verifier agent pins again before capture,
+    # and finalize enforcement is the authoritative gate. This logs why
+    # an early pin could not land (e.g. env still warming).
+    echo "session pin at prepare failed (verifier will pin before capture): $(printf '%s' "$pin_out" | tail -1)"
   fi
 }
 
@@ -976,7 +1140,7 @@ stop_session_keepalive() {
 # the motivating failure: a "5-10 lantern cluster" claim judged against a
 # session whose randomized cluster_min/cluster_max was 2/23.
 enforce_session_config_pinned() {
-  local effect session evidence_id overrides check_out check_exit
+  local effect session evidence_id overrides detail expected knob_count
   effect="$(selected_case_dev_effect)"
   if [ -z "$effect" ]; then
     # Non-/dev surface (e.g. the shared monitor page): no per-session config
@@ -989,36 +1153,16 @@ enforce_session_config_pinned() {
     add_reason "session config: case ${evidence_id:-unknown} url_path has no session param; test-plan normalization must assign one so the session can be pinned"
     return 1
   fi
-  if ! command -v node >/dev/null 2>&1; then
-    add_reason "session config: node is unavailable; cannot verify pinned session config"
-    return 1
-  fi
   overrides="$(jq -c '.required_evidence.session_config // {}' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '{}')"
-  check_out="$(
-    node "${REPO_DIR}/scripts/agent/pin-session-config.mjs" \
-      --check-only \
-      --base-url "$VALIDATION_URL" \
-      --effect "$effect" \
-      --session "$session" \
-      --overrides "$overrides" 2>&1
-  )" && check_exit=0 || check_exit=$?
-  if [ "$check_exit" -ne 0 ]; then
-    local detail
-    detail="$(
-      printf '%s' "$check_out" | jq -r '
-        if (.mismatches // []) | length > 0 then
-          (.mismatches[:6] | map("\(.key) expected=\(.expected) actual=\(.actual)") | join(", "))
-          + (if (.mismatches | length) > 6 then " (+\((.mismatches | length) - 6) more)" else "" end)
-          + " [session tick=\(.tick // "?") — a low tick means the session was reaped and recreated randomized; check the keepalive listener]"
-        else
-          (.error // "pin check failed")
-        end
-      ' 2>/dev/null || printf 'pin check produced no parseable output'
-    )"
-    add_reason "session config: case ${evidence_id:-unknown} session ${session} (effect ${effect}) does not match the pinned contract (schema defaults + session_config): ${detail}"
+  if ! detail="$(pin_check "$effect" "$session" "$overrides" 2>&1)"; then
+    add_reason "session config: case ${evidence_id:-unknown} session ${session} (effect ${effect}) does not match the pinned contract (schema defaults + session_config): ${detail:-pin check failed}"
     return 1
   fi
-  echo "session config pinned for ${evidence_id:-unknown}: effect=${effect} session=${session} ($(printf '%s' "$check_out" | jq -r '.knob_count // "?"') knobs)"
+  knob_count="?"
+  if expected="$(pin_expected_config_json "$effect" "$overrides" 2>/dev/null)"; then
+    knob_count="$(printf '%s' "$expected" | jq -r 'length' 2>/dev/null || printf '?')"
+  fi
+  echo "session config pinned for ${evidence_id:-unknown}: effect=${effect} session=${session} (${knob_count} knobs)"
   return 0
 }
 
@@ -1060,73 +1204,13 @@ evidence_ref_path() {
   esac
 }
 
-enforce_video_artifact_inspection() {
-  local verify="${EVIDENCE_DIR}/issue-agent-verification.json"
-  if [ "$(selected_required_evidence_kind)" != "video" ]; then
-    return 0
-  fi
-  if [ ! -s "$VERIFICATION_CASE_FILE" ] || [ ! -s "$verify" ]; then
-    add_reason "video artifact: missing handoff JSON; cannot inspect selected video"
-    return 1
-  fi
-
-  local evidence_id min_duration_ms ref video_path safe_id screenshot manifest log_tail inspect_log
-  evidence_id="$(jq -r '.required_evidence.id // ""' "$VERIFICATION_CASE_FILE" 2>/dev/null || true)"
-  min_duration_ms="$(
-    jq -r '
-      (.required_evidence.duration_seconds // 5 | tonumber? // 5) as $seconds
-      | (($seconds * 900) | floor)
-    ' "$VERIFICATION_CASE_FILE" 2>/dev/null || printf '4500'
-  )"
-  ref="$(
-    jq -r --arg id "$evidence_id" '
-      .evidence_results[]?
-      | select((.id // "") == $id and (.status // "") == "pass")
-      | .video // empty
-    ' "$verify" 2>/dev/null | head -1
-  )"
-
-  if [ -z "$ref" ]; then
-    add_reason "video artifact: selected evidence ${evidence_id:-unknown} did not report a video path"
-    return 1
-  fi
-
-  case "$ref" in
-    http://*|https://*|blob://*|/v1/artifacts/*)
-      add_reason "video artifact: selected evidence ${evidence_id:-unknown} reported non-local video ref ${ref}"
-      return 1
-      ;;
-  esac
-
-  video_path="$(evidence_ref_path "$ref")"
-  if [ ! -s "$video_path" ]; then
-    add_reason "video artifact: selected evidence ${evidence_id:-unknown} points at missing or empty video ${ref}"
-    return 1
-  fi
-
-  if ! command -v node >/dev/null 2>&1; then
-    add_reason "video artifact: node is unavailable; cannot inspect selected video ${ref}"
-    return 1
-  fi
-
-  safe_id="$(printf '%s' "${evidence_id:-selected-video}" | tr -c 'A-Za-z0-9_.-' '-')"
-  screenshot="${EVIDENCE_DIR}/screenshots/inspect-${safe_id}.png"
-  manifest="/tmp/video-inspect-${safe_id}.json"
-  inspect_log="/tmp/video-inspect-${safe_id}.log"
-  if ! EVIDENCE_DIR="$EVIDENCE_DIR" node "${REPO_DIR}/scripts/agent/inspect-video.mjs" \
-      --file "$video_path" \
-      --min-duration-ms "$min_duration_ms" \
-      --screenshot "$screenshot" \
-      --manifest "$manifest" \
-      >"$inspect_log" 2>&1; then
-    log_tail="$(tail -5 "$inspect_log" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g')"
-    add_reason "video artifact: inspection failed for ${evidence_id:-unknown} (${ref}): ${log_tail:-no inspect output}"
-    return 1
-  fi
-
-  echo "inspected selected video evidence ${evidence_id:-unknown}: $(cat "$inspect_log")"
-  return 0
-}
+# Video evidence is captured by Glimmung's central capture_video tool, which
+# connects to the leased slot browser, records only after the page has
+# rendered (its server-side blank-frame gate owns "did it render"), and uploads
+# the WebM — returning a remote ref/url, not a local file. There is therefore
+# no local decode/duration step here: the retired per-repo video-decode gate
+# was removed rather than reimplemented, since the central tool already proves
+# render + upload before the ref exists.
 
 write_evidence_artifacts() {
   local artifacts_out="$1"
@@ -1174,12 +1258,11 @@ write_evidence_artifacts() {
         --argjson size "${size:-0}" \
         '{kind:"video", ref:$ref, label:$label, content_type:$content_type, size_bytes:$size}' \
         >>"$file_artifacts"
-    # Exclude raw Playwright session recordings (page@<hash>.webm). These are
-    # un-curated recordVideo byproducts: capture-video.mjs renames the clip it
-    # keeps to a semantic name and inspect-video.mjs probes a real duration, so
-    # curated clips reach the report (via the verifier evidence) with a
-    # duration_ms. The leftover page@ recordings carry none and would otherwise
-    # surface here as 0-second videos. Only curated clips are evidence.
+    # Curated video evidence now lives as a remote ref on the verifier output
+    # (the central capture_video tool uploads the WebM and returns its ref),
+    # folded in below from $verifier. This local glob stays only to surface any
+    # stray local clip a future flow might drop here; the agent self-capture
+    # path that produced raw page@<hash>.webm byproducts is gone.
     done < <(find "${EVIDENCE_DIR}/videos" -maxdepth 1 -type f \( -name '*.webm' -o -name '*.mp4' -o -name '*.mov' \) ! -name 'page@*' | sort)
   fi
 
@@ -1399,11 +1482,6 @@ finalize() {
     return 0
   fi
 
-  if ! enforce_video_artifact_inspection; then
-    write_verification "fail"
-    return 0
-  fi
-
   if ! enforce_terminal_observation_artifact; then
     write_verification "fail"
     return 0
@@ -1504,9 +1582,10 @@ upload_evidence() {
         cp "$file" "$video_staging/"
         video_taken=$((video_taken + 1))
       fi
-    # Exclude raw page@<hash>.webm recordings: un-curated recordVideo byproducts
-    # are not curated evidence clips, so they are neither emitted as evidence
-    # (see the file-artifacts glob above) nor uploaded to blob storage.
+    # Video evidence is normally a remote ref from the central capture_video
+    # tool (uploaded by Glimmung, not staged here). This local upload path stays
+    # only for any stray local clip; the agent self-capture byproducts
+    # (page@<hash>.webm) it used to filter no longer exist.
     done < <(find "${EVIDENCE_DIR}/videos" -maxdepth 1 -type f \( -name '*.webm' -o -name '*.mp4' -o -name '*.mov' \) ! -name 'page@*' | sort)
 
     while IFS= read -r file; do

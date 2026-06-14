@@ -53,12 +53,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stable chart testEnv.slotName for split warm/hot test slots.",
     )
 
-    screenshot = subparsers.add_parser("capture-validation-screenshot")
-    screenshot.add_argument("--page-path", required=True)
-    screenshot.add_argument("--output-path", required=True)
-    screenshot.add_argument("--namespace", default="")
-    screenshot.add_argument("--wait-ms", type=int, default=5000)
-
     rebuild_validation = subparsers.add_parser(
         "rebuild-validation-image",
         help="Build a fresh image from a pushed branch ref and roll the "
@@ -168,16 +162,6 @@ def main() -> int:
                     external_dns=not args.skip_external_dns,
                     render_mode=args.render_mode or None,
                     test_env_slot_name=args.test_env_slot_name or None,
-                )
-            )
-        elif args.command == "capture-validation-screenshot":
-            namespace = args.namespace or str(get_required_env("EPHEMERAL_NAMESPACE"))
-            dump(
-                ops.capture_validation_screenshot(
-                    namespace=namespace,
-                    page_path=args.page_path,
-                    output_path=args.output_path,
-                    wait_ms=args.wait_ms,
                 )
             )
         elif args.command == "rebuild-validation-image":
