@@ -46,6 +46,25 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 		},
 	];
 
+	api.presets['rain-on-window'] = [
+		{
+			key: 'quiet-city', label: 'quiet city', note: 'cool sparse street glow',
+			config: { glow_hue: 214, glow_sat: 0.34, glow_light: 0.28, glass_tint: 0.42, nucleation: 0.10, grow: 0.024, critical: 2.1, fall_speed: 0.42, wind: 0.08, quiet_p: 0.00012 },
+		},
+		{
+			key: 'evening-downpour', label: 'evening downpour', note: 'warm dense pane',
+			config: { glow_hue: 42, glow_sat: 0.68, glow_light: 0.48, glass_tint: 0.46, nucleation: 0.32, grow: 0.055, critical: 1.55, fall_speed: 0.76, merge: 1.22, form_p: 0.00025, fall_p: 0.00022 },
+		},
+		{
+			key: 'neon-street', label: 'neon street', note: 'purple city reflections',
+			config: { glow_hue: 288, glow_sat: 0.78, glow_light: 0.40, glass_tint: 0.58, nucleation: 0.21, grow: 0.042, critical: 1.8, fall_speed: 0.62, wind: -0.22, gust_p: 0.00014, gust_strength: 1.1 },
+		},
+		{
+			key: 'gentle-drizzle', label: 'gentle drizzle', note: 'soft warm interior',
+			config: { glow_hue: 56, glow_sat: 0.42, glow_light: 0.34, glass_tint: 0.30, nucleation: 0.13, grow: 0.026, critical: 2.25, fall_speed: 0.36, wind: 0.02, quiet_p: 0.0001 },
+		},
+	];
+
 	api.presets['cottage-chimney'] = [
 		{
 			key: 'still-night', label: 'still night', note: 'slow vertical smoke',
