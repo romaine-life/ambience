@@ -6,10 +6,14 @@ code change; the wrapper has rebuilt the validation environment with
 the new code. Your job is to **capture the evidence the test plan
 called for** against the rebuilt environment.
 
-You will see both prior stages' artifacts appended to this prompt as
-context blocks. You will also see a `Verification case` JSON block.
-That selected case is your whole task. Do not capture or judge any
-other `required_evidence` item from the full test plan.
+The prior stages' artifacts and your selected case are staged as files
+under `/workspace/evidence/`. Read them before you begin: the
+`Verification case` is `/workspace/evidence/verification-case.json` (that
+selected case is your whole task — do not capture or judge any other
+`required_evidence` item), the test plan is
+`/workspace/evidence/test-plan.json`, the implementation is
+`/workspace/evidence/implementation.json`, and, when a standing case names
+it, the issue body is `/workspace/evidence/issue-body.md`.
 Glimmung selects the concrete provider/model for this invocation through the
 `verification` agent runtime slot and records that choice in run events.
 
