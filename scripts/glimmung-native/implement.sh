@@ -633,7 +633,7 @@ finalize() {
 # finalize step itself, which is the only failure channel that survives
 # managed per-step invocation (the /tmp exit-code file is re-initialized by
 # every step's script start). Route shape mirrors the verify-side binding
-# check (resolve_standing_case in verify.sh).
+# check the Glimmung verify agent step performs (resolve_standing_case).
 enforce_ui_hint_contract() {
   [ "${AMBIENCE_FEATURE_TYPE:-}" = "" ] && return 0
   [ "$(jq -r '.status // ""' "$IMPLEMENTATION_JSON" 2>/dev/null || printf '')" = "pass" ] || return 0

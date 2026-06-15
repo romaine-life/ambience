@@ -95,7 +95,7 @@ implementation when the feature type declares a standing case —
 `missing_ui_hint` fails the implement job before any verify spend). The
 hint is a **discovery aid only**: navigation knowledge flows forward
 (where to look), evaluation knowledge does not (what success looks like
-stays the issue text). `resolve_standing_case` in `verify.sh` binds
+stays the issue text). `resolve_standing_case` in the Glimmung verify agent step binds
 `url_path = route + ?session=<case-id>`, the session is pinned to schema
 defaults (name-free — no plan-authored knob overrides exist on a
 standing case), and the verifier judges the capture against the issue
@@ -332,8 +332,8 @@ artifact, and return its `ref`/`url`. The verifier puts that ref on the case
 result. Pin/trigger/confirm stay plain `curl` HTTP.
 
 **Agentless mechanical cases.** A selected case without a `must_show` never
-launches the verification LLM. The wrapper (`run_mechanical_case` in
-`verify.sh`) performs the case itself with curl + jq: re-asserts the session
+launches the verification LLM. The wrapper (`run_mechanical_case` in the
+Glimmung verify agent step) performs the case itself with curl + jq: re-asserts the session
 pin (GET schema → POST `/dev/config` → poll `/dev/snapshot`), fires a declared
 `trigger_event` through the documented flow
 (`POST /dev/trigger/<session>/<event>?effect=<effect>`, then requires the
@@ -439,7 +439,9 @@ The live phase scripts expose these job step boundaries:
 ```bash
 scripts/glimmung-native/test-plan.sh:      run-test-plan
 scripts/glimmung-native/implement.sh:      prepare-draft-pr-branch, ensure-draft-pr, run-implementation, push-branch, wait-pr-checks, rebuild-env
-scripts/glimmung-native/verify.sh:         run-verification, finalize, upload-screenshots
+# verification: Glimmung-native agent capture step (no per-repo wrapper script);
+# evidence is captured via the central capture_video / capture_screenshot /
+# upload_evidence tools.
 ```
 
 Each `run_*` function calls a per-stage helper that drives a fresh
