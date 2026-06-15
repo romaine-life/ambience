@@ -64,6 +64,7 @@ func supportedEffects(js.Value, []js.Value) any {
 		"aurora",
 		"autumn-leaves",
 		"beach",
+		"birds-on-a-wire",
 		"bog",
 		"burning-trees",
 		"campfire",
@@ -132,6 +133,8 @@ func makeRuntime(kind string, w, h int, seed int64, cfg json.RawMessage) (*runti
 		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewAutumnLeaves)
 	case "beach":
 		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewBeach)
+	case "birds-on-a-wire":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewBirdsOnAWire)
 	case "bog":
 		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewBog)
 	case "burning-trees":

@@ -65,6 +65,25 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 		},
 	];
 
+	api.presets['birds-on-a-wire'] = [
+		{
+			key: 'morning-wire', label: 'morning wire', note: 'cool sparse dawn',
+			config: { sky_hue: 208, sky_sat: 0.34, top_light: 0.24, horizon_light: 0.62, max_birds: 8, arrival_every: 260, pair_chance: 0.12, takeoff_every: 720, flock_chance: 0.18, quiet_dur: 900 },
+		},
+		{
+			key: 'evening-commute', label: 'evening commute', note: 'warm busier dusk',
+			config: { sky_hue: 32, sky_sat: 0.62, top_light: 0.19, horizon_light: 0.62, max_birds: 16, intro_target: 7, arrival_every: 125, pair_chance: 0.34, bob_chance: 0.004, takeoff_every: 480, flock_chance: 0.28 },
+		},
+		{
+			key: 'overcast-lull', label: 'overcast lull', note: 'grey quiet wire',
+			config: { sky_hue: 220, sky_sat: 0.08, top_light: 0.26, horizon_light: 0.46, max_birds: 6, intro_target: 3, arrival_every: 420, pair_chance: 0.08, takeoff_every: 940, flock_chance: 0.12, quiet_dur: 1320, quiet_arrival: 0.06 },
+		},
+		{
+			key: 'telephone-row', label: 'telephone row', note: 'two sagging lines',
+			config: { sky_hue: 42, sky_sat: 0.48, top_light: 0.18, horizon_light: 0.58, wire_count: 2, wire_y: 0.36, wire_sag: 3.8, max_birds: 18, perch_spacing: 4.5, arrival_every: 150, pair_chance: 0.26, takeoff_every: 560 },
+		},
+	];
+
 	api.presets['cottage-chimney'] = [
 		{
 			key: 'still-night', label: 'still night', note: 'slow vertical smoke',
