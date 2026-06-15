@@ -13,14 +13,14 @@ import (
 )
 
 // schemaConfigPinEpsilon mirrors the float tolerance the verification pin
-// helper (the pin_check curl/jq path in scripts/glimmung-native/verify.sh)
+// helper (the pin_check curl/jq path the Glimmung verify agent step runs)
 // uses when it compares the live /dev/snapshot config against the pinned
 // schema defaults. Int knobs compare after rounding, exactly like the helper.
 const schemaConfigPinEpsilon = 1e-6
 
 // schemaConfigGuardTicks is the capture-window stand-in: after the pin lands,
-// the verify wrapper records evidence for a while and then re-checks the pin
-// (enforce_session_config_pinned -> pin_check in verify.sh). A config that
+// the verify agent step records evidence for a while and then re-checks the
+// pin (enforce_session_config_pinned -> pin_check). A config that
 // only matches at the instant it is applied — because Step() drifts or
 // rewrites config fields — fails that post-capture re-check just as surely as
 // a missing knob does, so the guard holds the session for a window of ticks
@@ -45,8 +45,8 @@ var reservedDevConfigParams = map[string]bool{
 //
 // That contract is what verification runs against. Dev sessions are created
 // with RANDOMIZED knob values, so before capturing any evidence the verifier
-// pins the session over plain HTTP (the pin_session curl/jq path in
-// scripts/glimmung-native/verify.sh): POST /dev/config with every schema knob
+// pins the session over plain HTTP (the pin_session curl/jq path the Glimmung
+// verify agent step runs): POST /dev/config with every schema knob
 // set to its default, then poll /dev/snapshot until the live config matches,
 // and re-check the pin again after capture. A knob
 // that exists in the schema but never surfaces in the snapshot config makes
@@ -196,7 +196,7 @@ func pinnedKnobDefault(knob sim.Knob) float64 {
 }
 
 // pinnedKnobDefaultMatches mirrors the verification pin comparison
-// (pin_config_mismatches in scripts/glimmung-native/verify.sh): int knobs
+// (pin_config_mismatches in the Glimmung verify agent step): int knobs
 // match after rounding, float knobs within schemaConfigPinEpsilon.
 func pinnedKnobDefaultMatches(knob sim.Knob, got float64) bool {
 	if knob.Type == sim.KnobInt {
