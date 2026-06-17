@@ -322,8 +322,9 @@ Use the dev helpers like this:
 
 1. Test-slot validation for browser assets, authority Go, edge static
    serving, or chart/runtime image inputs:
-   push the ref, wait for the CI image, then deploy the fingerprint-tagged
-   image with Glimmung `deploy_image_to_test_slot`.
+   push the ref, wait for CI to prove the `app-<fingerprint>` image and
+   publish its run-scoped lookup tag, then deploy it with Glimmung
+   `deploy_image_to_test_slot`.
 2. Direct dev-environment rollouts that need a new image on edge,
    authority, or both:
    run `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component edge`

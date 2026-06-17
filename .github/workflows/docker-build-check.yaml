@@ -116,7 +116,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Azure Login (OIDC)
-        if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
         uses: azure/login@v3
         with:
           client-id: ${{ vars.ARM_CLIENT_ID }}
@@ -124,7 +124,7 @@ jobs:
           subscription-id: ${{ vars.ARM_SUBSCRIPTION_ID }}
 
       - name: ACR login
-        if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
         run: az acr login --name romainecr
 
       - name: Compute image fingerprint
@@ -140,7 +140,7 @@ jobs:
 
       - name: Check ACR candidate image
         id: candidate
-        if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
         shell: bash
         run: |
           set -euo pipefail
@@ -158,7 +158,7 @@ jobs:
           fi
 
       - name: Build and push candidate image
-        if: (github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && steps.candidate.outputs.hit != 'true'
+        if: (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && steps.candidate.outputs.hit != 'true'
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -172,8 +172,38 @@ jobs:
             type=registry,ref=${{ matrix.cache-ref }},mode=max
             type=gha,mode=max,scope=${{ matrix.name }}
 
+      - name: Tag app image by CI lookup
+        # App image identity remains the fingerprint tag. This run-scoped
+        # lookup tag is only for Glimmung deploy-image resolution and points
+        # at the same ACR manifest, whether this run built or reused it.
+        if: matrix.name == 'app' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository))
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          REF_NAME: ${{ github.ref_name }}
+          REF: ${{ github.ref }}
+          INPUT_REF: ${{ inputs.git_ref || '' }}
+          SOURCE_TAG: ${{ steps.fingerprint.outputs.proof_tag }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            lookup_tag="ci-pr-${PR_NUMBER}-run-${RUN_ID}-attempt-${RUN_ATTEMPT}"
+          else
+            ref_label="${INPUT_REF:-${REF_NAME:-${REF}}}"
+            ref_hash="$(printf '%s' "${ref_label}" | sha256sum | cut -c1-12)"
+            lookup_tag="ci-ref-${ref_hash}-run-${RUN_ID}-attempt-${RUN_ATTEMPT}"
+          fi
+
+          az acr import --name romainecr \
+            --source "romainecr.azurecr.io/${{ matrix.image-repo }}:${SOURCE_TAG}" \
+            --image "${{ matrix.image-repo }}:${lookup_tag}" --force
+          echo "Tagged romainecr.azurecr.io/${{ matrix.image-repo }}:${lookup_tag} -> ${SOURCE_TAG}"
+
       - name: Build image without pushing
-        if: github.ref != 'refs/heads/main' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository)
+        if: github.event_name != 'workflow_dispatch' && github.ref != 'refs/heads/main' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository)
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}

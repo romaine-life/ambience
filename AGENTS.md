@@ -36,9 +36,11 @@ Agent pods are not expected to have Docker. Do not report missing local Docker
 as a blocker. Run available repo checks first, then use PR CI as the normal
 container build gate: `.github/workflows/docker-build-check.yaml` computes
 image fingerprints and reuses or pushes ACR proof images for trusted PRs,
-falling back to `push: false` for fork PRs. If image-packaging feedback is
-needed before a PR is ready, manually dispatch that workflow with `git_ref`.
-Release/deploy workflows publish the fingerprint-tagged images used by deploys.
+then creates a run-scoped app-image lookup tag that points at the same
+fingerprint manifest for Glimmung test-slot deploys, falling back to
+`push: false` for fork PRs. If image-packaging feedback is needed before a
+PR is ready, manually dispatch that workflow with `git_ref`. Release/deploy
+workflows publish the fingerprint-tagged images used by deploys.
 
 ## Architecture
 
