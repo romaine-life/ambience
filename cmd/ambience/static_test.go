@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -14,7 +13,7 @@ import (
 func TestStaticAssetsReadFileFallsBackToEmbedded(t *testing.T) {
 	static := newStaticAssets(fstest.MapFS{
 		"dev.html": &fstest.MapFile{Data: []byte("embedded-dev")},
-	}, "")
+	})
 
 	got, err := static.readFile("dev.html")
 	if err != nil {
@@ -25,51 +24,10 @@ func TestStaticAssetsReadFileFallsBackToEmbedded(t *testing.T) {
 	}
 }
 
-func TestStaticAssetsReadFileUsesOverride(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "dev.html"), []byte("override-dev"), 0o644); err != nil {
-		t.Fatalf("write override file: %v", err)
-	}
-
-	static := newStaticAssets(fstest.MapFS{
-		"dev.html": &fstest.MapFile{Data: []byte("embedded-dev")},
-	}, dir)
-
-	got, err := static.readFile("dev.html")
-	if err != nil {
-		t.Fatalf("readFile returned error: %v", err)
-	}
-	if string(got) != "override-dev" {
-		t.Fatalf("readFile = %q, want override content", string(got))
-	}
-}
-
-func TestServeDevPageUsesOverride(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "dev.html"), []byte("override-dev"), 0o644); err != nil {
-		t.Fatalf("write override file: %v", err)
-	}
-
-	static := newStaticAssets(fstest.MapFS{
-		"dev.html": &fstest.MapFile{Data: []byte("embedded-dev")},
-	}, dir)
-
-	req := httptest.NewRequest(http.MethodGet, "/dev/dust", nil)
-	rec := httptest.NewRecorder()
-	serveDevPage(static).ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if body := rec.Body.String(); body != "override-dev" {
-		t.Fatalf("body = %q, want override content", body)
-	}
-}
-
 func TestServeDevPageWithEffectLookupUsesCustomLookup(t *testing.T) {
 	static := newStaticAssets(fstest.MapFS{
 		"dev.html": &fstest.MapFile{Data: []byte("dev-page")},
-	}, "")
+	})
 
 	var lookedUp string
 	handler := serveDevPageWithEffectLookup(static, func(effect string) (bool, error) {
@@ -95,7 +53,7 @@ func TestServeDevPageWithEffectLookupUsesCustomLookup(t *testing.T) {
 func TestServeDevPageInjectsSocialEmbeds(t *testing.T) {
 	static := newStaticAssets(fstest.MapFS{
 		"dev.html": &fstest.MapFile{Data: []byte("<html><head><!-- __AMBIENCE_SOCIAL_META__ --></head><body></body></html>")},
-	}, "")
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/dev/beach", nil)
 	req.Host = "ambience.dev.romaine.life"
@@ -122,7 +80,7 @@ func TestServeDevPageInjectsSocialEmbeds(t *testing.T) {
 func TestServeDevPageWithEffectLookupReturnsUnavailableOnLookupError(t *testing.T) {
 	static := newStaticAssets(fstest.MapFS{
 		"dev.html": &fstest.MapFile{Data: []byte("dev-page")},
-	}, "")
+	})
 
 	handler := serveDevPageWithEffectLookup(static, func(string) (bool, error) {
 		return false, os.ErrDeadlineExceeded
@@ -140,7 +98,7 @@ func TestServeDevPageWithEffectLookupReturnsUnavailableOnLookupError(t *testing.
 func TestServeExactStaticFileServesOnlyConfiguredRoute(t *testing.T) {
 	static := newStaticAssets(fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte("home")},
-	}, "")
+	})
 
 	handler := serveExactStaticFile(static, "/", "index.html")
 
@@ -166,18 +124,6 @@ func TestServeExactStaticFileServesOnlyConfiguredRoute(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown path status = %d, want %d", rec.Code, http.StatusNotFound)
-	}
-}
-
-func TestLoadAppConfigFromEnvWebOverrideDir(t *testing.T) {
-	t.Setenv("AMBIENCE_WEB_OVERRIDE_DIR", "C:\\override")
-
-	cfg, err := loadAppConfigFromEnv()
-	if err != nil {
-		t.Fatalf("loadAppConfigFromEnv returned error: %v", err)
-	}
-	if cfg.webOverrideDir != "C:\\override" {
-		t.Fatalf("webOverrideDir = %q, want %q", cfg.webOverrideDir, "C:\\override")
 	}
 }
 

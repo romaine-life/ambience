@@ -93,7 +93,7 @@ func TestRenderOGImageWithProceduralFrameIsVisible(t *testing.T) {
 func TestServeIndexPageInjectsVersionedOGImage(t *testing.T) {
 	static := newStaticAssets(fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte(`<meta property="og:image" content="__AMBIENCE_OG_IMAGE__">`)},
-	}, "")
+	})
 	handler := serveIndexPage(static, func() string { return "rain-scene-t1" })
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
