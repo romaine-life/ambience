@@ -1062,11 +1062,37 @@ func (l *LavaLamp) renderLocked(grid [][]Pixel) {
 		}
 	}
 
+	l.paintGlassHighlightsLocked(grid, cx, top, bottom, heat)
 	l.paintHeatGlowLocked(grid, cx, bottom, body, heat)
 	for _, b := range l.blobs {
 		l.paintBlobLocked(grid, b, heat)
 	}
 	l.paintBottleCapsLocked(grid, cx, top, bottom, neck, body, heat)
+}
+
+func (l *LavaLamp) paintGlassHighlightsLocked(grid [][]Pixel, cx, top, bottom, heat float64) {
+	h := len(grid)
+	if h == 0 {
+		return
+	}
+	w := len(grid[0])
+	glass := hslToRGB(l.cfg.Hue+18, 0.16, l.cfg.GlassLight*(0.88+0.32*heat))
+	for y := max(0, int(top)); y < min(h, int(bottom)); y++ {
+		yy := float64(y) + 0.5
+		t := clamp01((yy - top) / math.Max(1, bottom-top))
+		if t < 0.12 || t > 0.90 {
+			continue
+		}
+		hw := lavaHalfWidthAt(w, h, yy)
+		alpha := (0.18 + 0.18*(1-math.Abs(t-0.44))) * (0.58 + 0.42*heat)
+		left := int(cx - hw*0.70)
+		right := int(cx + hw*0.82)
+		lavaBlendPixel(grid, left, y, glass, alpha)
+		if hw > 8 {
+			lavaBlendPixel(grid, left+1, y, glass, alpha*0.55)
+			lavaBlendPixel(grid, right, y, glass, alpha*0.42)
+		}
+	}
 }
 
 func (l *LavaLamp) paintHeatGlowLocked(grid [][]Pixel, cx, bottom, body, heat float64) {
