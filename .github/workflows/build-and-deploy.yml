@@ -84,7 +84,7 @@ jobs:
             --paths 'Dockerfile go.mod go.sum scripts/build-web-wasm.sh rngutil sim cmd/ambience cmd/ambience-wasm' \
             | tee /tmp/ambience-image-fingerprint.txt \
             | awk -F= '$1 == "fingerprint" { print $2 }')"
-          echo "ALIAS_TAG=app-${fingerprint}" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=app-${fingerprint}" >> "$GITHUB_ENV"
 
       - name: Check existing image
         id: image
@@ -94,10 +94,10 @@ jobs:
           if az acr repository show-tags \
               --name romainecr \
               --repository ambience \
-              --query "[?@=='${ALIAS_TAG}'] | [0]" \
-              --output tsv | grep -qx "${ALIAS_TAG}"; then
+              --query "[?@=='${IMAGE_TAG}'] | [0]" \
+              --output tsv | grep -qx "${IMAGE_TAG}"; then
             echo "exists=true" >>"${GITHUB_OUTPUT}"
-            echo "Found reusable image romainecr.azurecr.io/ambience:${ALIAS_TAG}"
+            echo "Found reusable image romainecr.azurecr.io/ambience:${IMAGE_TAG}"
           else
             echo "exists=false" >>"${GITHUB_OUTPUT}"
             echo "No reusable image found for app fingerprint ${{ steps.fingerprint.outputs.fingerprint }}"
@@ -110,7 +110,7 @@ jobs:
           context: .
           file: Dockerfile
           push: true
-          tags: romainecr.azurecr.io/ambience:${{ env.ALIAS_TAG }}
+          tags: romainecr.azurecr.io/ambience:${{ env.IMAGE_TAG }}
           cache-from: type=registry,ref=romainecr.azurecr.io/ambience-build-cache:app
           cache-to: type=registry,ref=romainecr.azurecr.io/ambience-build-cache:app,mode=max
 
@@ -118,15 +118,15 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           set -euo pipefail
-          # Bump the SHA-pinned image.tag in BOTH the prod values file and
-          # the base values file. The base file is what Glimmung-managed
-          # warm test slots pin to (they install the chart with default
-          # values only); without this sync, slots drift behind prod and
-          # surface bugs already fixed upstream.
+          # Bump the fingerprint-pinned image.tag in BOTH the prod values
+          # file and the base values file. The base file is what
+          # Glimmung-managed warm test slots pin to (they install the chart
+          # with default values only); without this sync, slots drift behind
+          # prod and surface bugs already fixed upstream.
           python - <<'PY'
           from pathlib import Path
 
-          tag = "${{ env.ALIAS_TAG }}"
+          tag = "${{ env.IMAGE_TAG }}"
           paths = [Path("chart/ambience/values-prod.yaml"), Path("chart/ambience/values.yaml")]
           for path in paths:
               lines = path.read_text().splitlines()
@@ -148,11 +148,11 @@ jobs:
           PY
           files=(chart/ambience/values-prod.yaml chart/ambience/values.yaml)
           if git diff --quiet -- "${files[@]}"; then
-            echo "Chart image tag already ${ALIAS_TAG}"
+            echo "Chart image tag already ${IMAGE_TAG}"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "${files[@]}"
-          git commit -m "chore: bump ambience image to ${ALIAS_TAG} [skip ci]"
+          git commit -m "chore: bump ambience image to ${IMAGE_TAG} [skip ci]"
           git push origin HEAD:main

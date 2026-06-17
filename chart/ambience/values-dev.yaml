@@ -3,7 +3,7 @@ domain:
   tlsSecretName: ambience-wildcard-tls
 
 image:
-  tag: 38391ed
+  tag: "app-1f2c3184eb9262537828760ddf61d4ce1230f5f9e8b3a90b1dee4aadc721ee80"
 
 # Dev no longer provisions its own per-host cert + listener — it shares the
 # wildcard infrastructure below with all ephemeral environments under
