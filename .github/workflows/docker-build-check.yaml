@@ -183,17 +183,14 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || '' }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
-          REF_NAME: ${{ github.ref_name }}
-          REF: ${{ github.ref }}
-          INPUT_REF: ${{ inputs.git_ref || '' }}
+          LOOKUP_REF: ${{ inputs.git_ref || github.ref }}
           SOURCE_TAG: ${{ steps.fingerprint.outputs.proof_tag }}
         run: |
           set -euo pipefail
           if [[ "${EVENT_NAME}" == "pull_request" ]]; then
             lookup_tag="ci-pr-${PR_NUMBER}-run-${RUN_ID}-attempt-${RUN_ATTEMPT}"
           else
-            ref_label="${INPUT_REF:-${REF_NAME:-${REF}}}"
-            ref_hash="$(printf '%s' "${ref_label}" | sha256sum | cut -c1-12)"
+            ref_hash="$(printf '%s' "${LOOKUP_REF}" | sha256sum | cut -c1-12)"
             lookup_tag="ci-ref-${ref_hash}-run-${RUN_ID}-attempt-${RUN_ATTEMPT}"
           fi
 
