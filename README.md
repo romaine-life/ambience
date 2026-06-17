@@ -293,17 +293,18 @@ briefly unavailable, then retries forwarding on a short cadence.
 
 ## Deploying
 
-This repo now uses manual, session-driven CI. `.github/workflows/build-and-deploy.yml`
-has no automatic triggers; it only runs when manually dispatched.
+`.github/workflows/build-and-deploy.yml` publishes the canonical
+`romainecr.azurecr.io/ambience:app-<fingerprint>` image. On pushes to
+main it commits the matching tag into the prod and base Helm values files.
+Manual dispatch can prebuild a requested `git_ref` without changing chart
+desired state.
 
 The intended production deploy loop is:
 
-1. Push the code change you want built.
-2. Manually dispatch the workflow to build and push
-   `romainecr.azurecr.io/ambience:<sha>`.
-3. Update `chart/ambience/values-prod.yaml` to that image tag.
-4. Commit and push the tag bump from the session.
-5. Let ArgoCD reconcile the committed chart change, or manually refresh/sync
+1. Merge or push the code change to `main`.
+2. Let the build workflow publish the `app-<fingerprint>` image and commit
+   the chart tag bump.
+3. Let ArgoCD reconcile the committed chart change, or manually refresh/sync
    it if you want a faster rollout.
 
 A dev environment under `ambience.dev.romaine.life` shares the wildcard
@@ -321,8 +322,8 @@ Use the dev helpers like this:
 
 1. Test-slot validation for browser assets, authority Go, edge static
    serving, or chart/runtime image inputs:
-   push the ref, wait for the CI image, then deploy that SHA-tagged image
-   with Glimmung `deploy_image_to_test_slot`.
+   push the ref, wait for the CI image, then deploy the fingerprint-tagged
+   image with Glimmung `deploy_image_to_test_slot`.
 2. Direct dev-environment rollouts that need a new image on edge,
    authority, or both:
    run `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component edge`

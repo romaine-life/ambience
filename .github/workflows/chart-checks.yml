@@ -18,5 +18,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Guard against base/prod chart image.tag drift
+      - name: Guard chart app image tags
         run: node scripts/check-chart-image-tag-sync.mjs

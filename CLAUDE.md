@@ -10,7 +10,7 @@ Read `D:/shell-config/setup/claude/CLAUDE.md` for global Claude config.
 
 Agent pods are not expected to have Docker. Do not report missing local Docker
 as a blocker. Run available repo checks first, then use PR CI as the normal
-container build gate: `.github/workflows/docker-build-check.yml` computes
+container build gate: `.github/workflows/docker-build-check.yaml` computes
 image fingerprints and reuses or pushes ACR proof images for trusted PRs,
 falling back to `push: false` for fork PRs. If image-packaging feedback is
 needed before a PR is ready, manually dispatch that workflow with `git_ref`.
@@ -163,14 +163,13 @@ chart/ambience/  Helm chart used by ArgoCD for prod and held in reserve
                  if continuous dev hosting becomes useful again. The live
                  ArgoCD Application is at
                  `infra-bootstrap/k8s/apps/ambience.yaml`.
-                 CI is manual / session-driven:
-                 `.github/workflows/build-and-deploy.yml` has no automatic
-                 triggers and only builds + pushes
-                 `romainecr.azurecr.io/ambience:<sha>` when manually
-                 dispatched. The follow-up image-tag bump commit is done
-                 from the session by editing the appropriate Helm values
-                 file, then ArgoCD picks up that committed chart change
-                 and rolls out.
+                 `.github/workflows/build-and-deploy.yml` builds + pushes
+                 `romainecr.azurecr.io/ambience:app-<fingerprint>`. On
+                 pushes to main it commits the corresponding fingerprint
+                 tag into the prod and base Helm values files, then ArgoCD
+                 picks up that committed chart change and rolls out. Manual
+                 dispatch can prebuild a requested `git_ref` without
+                 changing chart desired state.
 ```
 
 ## Pixel-world contract

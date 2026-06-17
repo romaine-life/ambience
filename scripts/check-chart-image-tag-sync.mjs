@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-// Migration guard for the chart-image-tag drift fix.
+// Guard for the chart image tag contract.
 //
 // The prod values file (chart/ambience/values-prod.yaml) and the base
 // values file (chart/ambience/values.yaml) MUST share the same
 // `image.tag`. The build workflow bumps both files atomically; this
 // guard fails CI if anyone reintroduces drift by hand or removes one
-// file's pin.
+// file's pin. Any chart values file that pins the app image must use the
+// canonical app-<fingerprint> tag shape rather than a commit SHA alias.
 //
 // Why this matters: Glimmung-managed warm test slots install
 // chart/ambience with default values only — no `-f values-prod.yaml`
@@ -21,6 +22,12 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const files = ["chart/ambience/values.yaml", "chart/ambience/values-prod.yaml"];
+const chartDir = path.join(repoRoot, "chart/ambience");
+const allValuesFiles = (await fs.readdir(chartDir))
+  .filter((name) => /^values.*\.yaml$/.test(name))
+  .sort()
+  .map((name) => path.join("chart/ambience", name));
+const fingerprintTagPattern = /^app-[0-9a-f]{64}$/;
 
 // Extract the `image.tag` value from a YAML file via a deliberately
 // shallow line scan — both files keep the field at the same two-space
@@ -47,16 +54,28 @@ function extractImageTag(text, filePath) {
 }
 
 const results = await Promise.all(
-  files.map(async (rel) => {
+  allValuesFiles.map(async (rel) => {
     const abs = path.join(repoRoot, rel);
     const text = await fs.readFile(abs, "utf8");
     return { file: rel, tag: extractImageTag(text, rel) };
   })
 );
 
-const tags = new Set(results.map((r) => r.tag));
+const invalidTags = results.filter((r) => !fingerprintTagPattern.test(r.tag));
+if (invalidTags.length > 0) {
+  const detail = invalidTags.map((r) => `  ${r.file}: ${r.tag}`).join("\n");
+  console.error(
+    "chart app image tags must use app-<64-hex-fingerprint>:\n" +
+      detail +
+      "\n\nDo not pin chart-managed app images to commit SHA aliases.",
+  );
+  process.exit(1);
+}
+
+const lockstepResults = results.filter((r) => files.includes(r.file));
+const tags = new Set(lockstepResults.map((r) => r.tag));
 if (tags.size !== 1) {
-  const detail = results.map((r) => `  ${r.file}: ${r.tag}`).join("\n");
+  const detail = lockstepResults.map((r) => `  ${r.file}: ${r.tag}`).join("\n");
   console.error(
     "image.tag drift between chart values files:\n" +
       detail +
@@ -67,4 +86,5 @@ if (tags.size !== 1) {
   process.exit(1);
 }
 
-console.log(`image.tag consistent across ${files.length} files: ${[...tags][0]}`);
+console.log(`image.tag fingerprint contract valid across ${results.length} files`);
+console.log(`image.tag consistent across ${files.length} lockstep files: ${[...tags][0]}`);
