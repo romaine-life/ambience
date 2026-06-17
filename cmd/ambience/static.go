@@ -2,11 +2,9 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"io/fs"
 	"mime"
 	"net/http"
-	"os"
 	"path/filepath"
 	"time"
 )
@@ -22,28 +20,16 @@ func init() {
 }
 
 type staticAssets struct {
-	embedded    fs.FS
-	overrideDir string
+	embedded fs.FS
 }
 
-func newStaticAssets(embedded fs.FS, overrideDir string) staticAssets {
+func newStaticAssets(embedded fs.FS) staticAssets {
 	return staticAssets{
-		embedded:    embedded,
-		overrideDir: overrideDir,
+		embedded: embedded,
 	}
 }
 
 func (s staticAssets) readFile(name string) ([]byte, error) {
-	if s.overrideDir != "" {
-		path := filepath.Join(s.overrideDir, filepath.FromSlash(name))
-		data, err := os.ReadFile(path)
-		if err == nil {
-			return data, nil
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			return nil, err
-		}
-	}
 	return fs.ReadFile(s.embedded, name)
 }
 

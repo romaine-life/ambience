@@ -15,24 +15,17 @@ If you only read one section in this file, read this one.
 2. Treat `https://ambience.dev.romaine.life` as the default test target.
    Do not spin up or rely on localhost unless the user explicitly asks
    for a local repro.
-3. For browser-only static work in `cmd/ambience/web/**`, use
-   `powershell -ExecutionPolicy Bypass -File scripts/dev-loop.ps1 -Once`.
-   This is the fast path that syncs edited web files into the live dev
-   edge pod without a Docker build. Never run the background watcher
-   form unless the user explicitly asks for it.
-4. For effect work that changes authority-side Go plus `cmd/ambience/web/**`
-   without changing edge-only proxy/static serving behavior, use
-   `powershell -ExecutionPolicy Bypass -File scripts/dev-effect-loop.ps1`.
-   This rolls the authority image, then syncs web overrides into the live
-   edge pod so new or updated dev effects avoid an unnecessary edge image
-   rollout.
-5. For true edge/runtime/image-backed changes, use
+3. For browser assets, authority Go, or runtime image inputs, validate with a
+   CI-built image deployed through Glimmung test slots using
+   `deploy_image_to_test_slot`.
+4. For direct dev-environment rollouts outside test slots, use
    `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component all`
    by default. Use `edge` or `authority` only when the change is truly
    one-sided.
-6. Validate the result on `ambience.dev.romaine.life`, usually on
+5. Validate the result on the assigned test-slot URL or
+   `ambience.dev.romaine.life`, usually on
    `/dev/<effect>` for effect work, before treating it as ready.
-7. Only after dev validation should the change move into the manual
+6. Only after dev validation should the change move into the manual
    production promotion flow: build/push the real image, bump the prod
    Helm values file, commit that desired-state change, and let ArgoCD
    reconcile it.
@@ -118,11 +111,10 @@ chart/ambience/  Helm chart used by ArgoCD for prod and held in reserve
                  release. The script prefers local Docker when it is
                  available, but can fall back to `az acr build` and
                  verifies the image tag exists before patching, so local
-                 Docker is optional for the dev path. For static browser
-                 work, `scripts/dev-loop.ps1` syncs `cmd/ambience/web`
-                 straight into the dev edge pod's override directory so
-                 testing stays on `ambience.dev.romaine.life` instead of
-                 falling back to localhost.
+                 Docker is optional for the dev path. Test-slot validation
+                 should deploy the CI-built image with
+                 `deploy_image_to_test_slot` so browser assets and Go code
+                 are exercised from the same artifact that PR CI proved.
 ```
 
 ## Pixel-world contract
@@ -170,17 +162,11 @@ For future Codex sessions, the default loop should be:
 3. Treat `ambience.dev.romaine.life` as the default test target. Do not
    spin up or rely on a local runtime unless the user explicitly asks for
    a localhost repro.
-4. For browser-only static work in `cmd/ambience/web`, use
-   `powershell -ExecutionPolicy Bypass -File scripts/dev-loop.ps1 -Once`
-   so the edge pod serves override files directly. Never run the
-   long-lived watcher form unless the user explicitly asks for it.
+4. For browser-only static work in `cmd/ambience/web`, use the image deploy
+   loop; browser assets are baked into the app image.
 5. For effect work that changes authority-side Go together with
-   `cmd/ambience/web`, prefer
-   `powershell -ExecutionPolicy Bypass -File scripts/dev-effect-loop.ps1`.
-   The edge now proxies effect schemas and validates `/dev/<effect>` via
-   authority, so this path keeps effect iteration on the fast
-   authority+web-sync loop instead of rebuilding edge.
-6. For true edge or shared image-backed changes, patch the dev
+   `cmd/ambience/web`, patch the dev environment with the combined image.
+6. For edge or shared image-backed changes, patch the dev
    environment with
    `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component all`.
    If the change is only edge-side or only authority-side, use `edge` or

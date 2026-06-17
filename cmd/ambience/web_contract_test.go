@@ -153,7 +153,7 @@ func TestRegisterStaticRoutesServesChromeAssets(t *testing.T) {
 		"chrome.js":         &fstest.MapFile{Data: []byte("// chrome js")},
 		"chrome.css":        &fstest.MapFile{Data: []byte("/* chrome css */")},
 		"fonts/Archivo.ttf": &fstest.MapFile{Data: []byte{0x00, 0x01, 0x00, 0x00}},
-	}, "")
+	})
 
 	mux := http.NewServeMux()
 	registerStaticRoutes(mux, static,

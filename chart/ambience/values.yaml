@@ -97,12 +97,6 @@ edge:
       failureThreshold: 3
   authorityURL: http://ambience-authority-client
   shutdownDrain: 12s
-  webOverride:
-    enabled: false
-    mountPath: /var/run/ambience-web-override
-    containerName: web-sync
-    sidecarImage: alpine:3.20
-    sidecarImagePullPolicy: IfNotPresent
   resources:
     requests:
       cpu: 10m

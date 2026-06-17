@@ -90,7 +90,6 @@ type appConfig struct {
 	controlPassword  string
 	controlMicrosoft microsoftControlAuthConfig
 	shutdownDrain    time.Duration
-	webOverrideDir   string
 }
 
 type lifecycleState struct {
@@ -114,7 +113,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	static := newStaticAssets(web, cfg.webOverrideDir)
+	static := newStaticAssets(web)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	lifecycle := &lifecycleState{}
@@ -223,7 +222,6 @@ func loadAppConfigFromEnv() (appConfig, error) {
 		}
 		cfg.shutdownDrain = d
 	}
-	cfg.webOverrideDir = strings.TrimSpace(os.Getenv("AMBIENCE_WEB_OVERRIDE_DIR"))
 	return cfg, nil
 }
 

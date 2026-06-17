@@ -108,17 +108,11 @@ scripts/dev-deploy.ps1
                   `all`, it updates authority before edge so edge
                   readiness does not wait on a simultaneously replacing
                   authority pod.
-scripts/dev-effect-loop.ps1
-                 Fast effect-work helper for the common "authority Go +
-                 browser sim" path. Rolls `authority`, then syncs
-                 `cmd/ambience/web` into the live edge override pod so
-                 new effects avoid an unnecessary edge image rollout.
-scripts/dev-loop.ps1
-                  Fast static-web dev helper for the dev environment.
-                  Syncs `cmd/ambience/web` straight into the live edge
-                  pod's override directory so `/dev` changes can be
-                  tested on `ambience.dev.romaine.life` without a local
-                 runtime or a full image rebuild.
+Glimmung test slots
+                  Deploy the CI-built image for the pushed ref with
+                  `deploy_image_to_test_slot`. Browser assets, authority
+                  code, and edge static serving are validated together from
+                  the same image artifact that PR CI proved.
 ```
 
 ## Atmosphere model
@@ -325,64 +319,28 @@ not a local runtime.
 
 Use the dev helpers like this:
 
-1. Static browser-only work in `cmd/ambience/web/`:
-   run `powershell -ExecutionPolicy Bypass -File scripts/dev-loop.ps1 -Once`
-   to sync the web files into the live dev edge pod without a Docker
-   build. Do not run the background watcher form unless you explicitly
-   want it.
-2. Effect work that changes authority-side Go together with
-   `cmd/ambience/web/`:
-   run `powershell -ExecutionPolicy Bypass -File scripts/dev-effect-loop.ps1`.
-   That rolls `authority`, then syncs the web files into the live dev
-   edge pod so new or updated effects avoid an unnecessary edge image
-   rollout.
-3. True Go/runtime changes that need a new image on edge, authority, or
-   both:
+1. Test-slot validation for browser assets, authority Go, edge static
+   serving, or chart/runtime image inputs:
+   push the ref, wait for the CI image, then deploy that SHA-tagged image
+   with Glimmung `deploy_image_to_test_slot`.
+2. Direct dev-environment rollouts that need a new image on edge,
+   authority, or both:
    run `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component edge`
    or swap `edge` for `authority` / `all`. The script builds and pushes a
    temporary image tag, then patches the live `ambience-edge` and/or
    `ambience-authority` image fields with `kubectl set image`.
-4. If local Docker is unavailable, `scripts/dev-deploy.ps1` automatically
+3. If local Docker is unavailable, `scripts/dev-deploy.ps1` automatically
    falls back to `az acr build` and verifies the tag exists in ACR before
    patching, so the session can stay k8s-first without relying on a local
    Docker daemon.
 
-The web sync path is backed by `AMBIENCE_WEB_OVERRIDE_DIR` on the dev
-edge deployment: the main container reads static files from the shared
-override directory first, then falls back to embedded assets from the
-image. That keeps static `/dev` iteration fast without changing the
-authority workload.
-
-Glimmung native test slots use the same split. Browser assets keep using the
-edge web override directory. Authority-only Go edits can use
-`test_slot_hot_swap.backend` against the authority pod in test slots:
-
-```json
-{
-  "test_slot_hot_swap": {
-    "enabled": true,
-    "static": {
-      "enabled": true,
-      "source": "cmd/ambience/web",
-      "target": "/var/run/ambience-web-override"
-    },
-    "backend": {
-      "enabled": true,
-      "strategy": "supervisor",
-      "build_command": "go build -o /tmp/ambience ./cmd/ambience",
-      "artifact": "/tmp/ambience",
-      "target": "/var/run/ambience-hot/ambience",
-      "health_path": "/healthz",
-      "copy_container": "hot-writer",
-      "restart_container": "ambience",
-      "restart_command": ["/ambience-supervisor", "signal"]
-    }
-  }
-}
-```
+Glimmung native test slots are validated by deploying the CI-built image for a
+pushed ref with `deploy_image_to_test_slot`. Browser assets and authority code
+ship together in that image, so the slot runs the same artifact that PR CI
+proved and main will deploy.
 
 Keep image rollout for edge binary changes, dependency changes, chart changes,
-and any edit that changes the shared runtime image inputs.
+and edits that change runtime image inputs.
 
 The recommended feature-iteration loop is:
 
@@ -393,13 +351,10 @@ The recommended feature-iteration loop is:
    already support it cleanly.
 3. Validate it on `ambience.dev.romaine.life` first, not localhost, unless
    the task explicitly needs a local-only repro.
-4. Use `scripts/dev-loop.ps1 -Once` for browser-only static work in
-   `cmd/ambience/web/`; do not default to the long-lived watcher form.
-5. Use `scripts/dev-effect-loop.ps1` for the common new-effect path that
-   touches authority-side Go together with browser assets. Use
-   `scripts/dev-deploy.ps1 -Component all` only when the change truly
-   needs a new edge image as well.
-6. Verify the result on `/dev/<effect>` or the relevant dev route before
+4. Deploy the pushed ref's CI image with `deploy_image_to_test_slot` for
+   browser assets and authority-side Go. Use `scripts/dev-deploy.ps1
+   -Component all` only for direct dev-environment image rollouts.
+5. Verify the result on `/dev/<effect>` or the relevant dev route before
    promoting it.
 
 When a dev image should become declared state again, update
