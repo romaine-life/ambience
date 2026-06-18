@@ -42,6 +42,8 @@ var (
 	runtimes = map[int]*runtime{}
 )
 
+const wasmLavaLampEffect = "lava-lamp"
+
 func main() {
 	js.Global().Set("ambienceWasm", map[string]any{
 		"supportedEffects": js.FuncOf(supportedEffects),
@@ -73,7 +75,7 @@ func supportedEffects(js.Value, []js.Value) any {
 		"distant-storm",
 		"dust",
 		"fireflies",
-		"lava-lamp",
+		wasmLavaLampEffect,
 		"lighthouse",
 		"magic-portal",
 		"mysterious-man",
@@ -152,7 +154,7 @@ func makeRuntime(kind string, w, h int, seed int64, cfg json.RawMessage) (*runti
 		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewDust)
 	case "fireflies":
 		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewFireflies)
-	case "lava-lamp":
+	case wasmLavaLampEffect:
 		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewLavaLamp)
 	case "lighthouse":
 		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewLighthouse)

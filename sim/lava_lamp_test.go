@@ -54,6 +54,26 @@ func TestLavaLampBlobRiseAndSurfacePop(t *testing.T) {
 	}
 }
 
+func TestLavaLampLowResolutionFrameShowsBottleGlowAndBlobs(t *testing.T) {
+	l := NewLavaLamp(48, 28, 2, LavaLampConfig{
+		MinBlobs: 3,
+		MaxBlobs: 5,
+	})
+	for i := 0; i < 12; i++ {
+		l.Step()
+	}
+	grid := l.GridCopy()
+	cx, top, bottom, _, body := lavaBottleGeometry(48, 28)
+	x0, x1 := int(cx-body)-4, int(cx+body)+5
+
+	assertAtLeast(t, "bottle silhouette pixels", countRegion(grid, x0, int(top)-2, x1, int(bottom)+4, isLavaBottlePixel), 180)
+	assertAtLeast(t, "warm base glow", countRegion(grid, x0, int(bottom)-5, x1, 28, isLavaWarmPixel), 22)
+	assertAtLeast(t, "visible lava blobs", countRegion(grid, x0, int(top), x1, int(bottom), isLavaBlobPixel), 40)
+	if suspended := countLavaBlobsInMode(l.Snapshot().Blobs, LavaBlobRising) + countLavaBlobsInMode(l.Snapshot().Blobs, LavaBlobFalling) + countLavaBlobsInMode(l.Snapshot().Blobs, LavaBlobSurface); suspended < 2 {
+		t.Fatalf("suspended blobs = %d, want at least 2", suspended)
+	}
+}
+
 func TestLavaLampSnapshotRoundTrip(t *testing.T) {
 	cfg := LavaLampConfig{
 		MinBlobs:         3,
@@ -135,4 +155,16 @@ func countLavaBlobsInMode(blobs []LavaBlob, mode string) int {
 		}
 	}
 	return n
+}
+
+func isLavaBottlePixel(p Pixel) bool {
+	return p.Filled && brightness(p) > 28 && brightness(p) < 150
+}
+
+func isLavaWarmPixel(p Pixel) bool {
+	return p.Filled && p.C.R > 95 && p.C.G > 28 && p.C.R > p.C.B+35
+}
+
+func isLavaBlobPixel(p Pixel) bool {
+	return p.Filled && p.C.R > 85 && p.C.R > p.C.G+12 && p.C.R > p.C.B+25
 }

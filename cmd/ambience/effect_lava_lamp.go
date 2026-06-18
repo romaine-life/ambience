@@ -7,9 +7,11 @@ import (
 	"github.com/romaine-life/ambience/sim"
 )
 
+const lavaLampEffectType = "lava-lamp"
+
 func init() {
 	register(effectDefinition{
-		Type:       "lava-lamp",
+		Type:       lavaLampEffectType,
 		Schema:     sim.LavaLampSchema,
 		NewRuntime: newLavaLampRuntime,
 	})
@@ -29,7 +31,7 @@ func newLavaLampRuntime(w, h int, seed int64, cfg json.RawMessage) (effectRuntim
 	return &lavaLampRuntime{sim: sim.NewLavaLamp(w, h, seed, parsed)}, nil
 }
 
-func (l *lavaLampRuntime) Type() string { return "lava-lamp" }
+func (l *lavaLampRuntime) Type() string { return lavaLampEffectType }
 
 func (l *lavaLampRuntime) Schema() sim.EffectSchema { return sim.LavaLampSchema() }
 
