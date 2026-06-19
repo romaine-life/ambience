@@ -88,6 +88,7 @@ func supportedEffects(js.Value, []js.Value) any {
 		"sand",
 		"slimes",
 		"snow",
+		"snow-globe",
 		"starfield",
 		"tetris",
 		"train",
@@ -181,6 +182,8 @@ func makeRuntime(kind string, w, h int, seed int64, cfg json.RawMessage) (*runti
 		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewSlimes)
 	case "snow":
 		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewSnow)
+	case "snow-globe":
+		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewSnowGlobe)
 	case "starfield":
 		return makeTypedRuntime(kind, w, h, seed, cfg, sim.NewStarfield)
 	case "tetris":

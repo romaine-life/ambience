@@ -51,6 +51,8 @@ func renderProceduralGrid(kind string, w, h, tick int, cfg ProceduralConfig, tim
 		r.renderRowboat()
 	case "snow":
 		r.renderSnow()
+	case "snow-globe":
+		r.renderSnowGlobe()
 	case "starfield":
 		r.renderStarfield()
 	case "train":
@@ -509,6 +511,263 @@ func (r *proceduralRenderState) renderSnow() {
 			r.fillRectAlpha(int(math.Round(col)), int(math.Round(row)), size, size, r.hsl(localHue, sat, light), alpha)
 		}
 	}
+}
+
+func (r *proceduralRenderState) renderSnowGlobe() {
+	r.verticalGradient(color.RGBA{13, 18, 28, 255}, color.RGBA{30, 33, 41, 255})
+	cx := float64(r.w-1) / 2
+	cy := float64(r.h) * 0.43
+	rx := math.Max(7, math.Min(float64(r.w)*0.36, float64(r.h)*0.52))
+	ry := math.Max(7, math.Min(float64(r.h)*0.38, float64(r.w)*0.29))
+	baseTop := min(r.h-3, int(math.Round(cy+ry*0.70)))
+	baseBottom := min(r.h-1, baseTop+max(4, int(math.Round(ry*0.42))))
+	domeBottom := int(math.Round(cy + ry*0.78))
+	snowVolume := r.cfgFloat("snowVolume", 0.72)
+	snowDepth := math.Max(2, ry*(0.14+0.08*math.Min(1.6, snowVolume)))
+	surfaceBase := float64(domeBottom) - snowDepth
+
+	inside := func(x, y int) bool {
+		dx := (float64(x) - cx) / rx
+		dy := (float64(y) - cy) / ry
+		return dx*dx+dy*dy <= 1.0
+	}
+	paintClip := func(x, y int, c color.RGBA, alpha float64) {
+		if inside(x, y) {
+			r.paintAlpha(x, y, c, alpha)
+		}
+	}
+	fillRectClip := func(x0, y0, w, h int, c color.RGBA, alpha float64) {
+		for y := y0; y < y0+h; y++ {
+			for x := x0; x < x0+w; x++ {
+				paintClip(x, y, c, alpha)
+			}
+		}
+	}
+
+	top := int(math.Floor(cy - ry))
+	bottom := int(math.Ceil(cy + ry))
+	left := int(math.Floor(cx - rx))
+	right := int(math.Ceil(cx + rx))
+	for y := max(0, top); y <= min(r.h-1, bottom); y++ {
+		for x := max(0, left); x <= min(r.w-1, right); x++ {
+			if !inside(x, y) {
+				continue
+			}
+			t := clamp01((float64(y) - (cy - ry)) / math.Max(1, 2*ry))
+			sky := mixColor(color.RGBA{31, 52, 78, 255}, color.RGBA{96, 118, 139, 255}, t)
+			if y >= int(math.Round(surfaceBase)) {
+				sky = mixColor(sky, color.RGBA{196, 212, 230, 255}, 0.55)
+			}
+			r.paintAlpha(x, y, sky, 0.88)
+		}
+	}
+
+	for x := max(0, left); x <= min(r.w-1, right); x++ {
+		nx := (float64(x) - cx) / rx
+		lump := math.Sin(float64(x)*0.31+r.hash(9201)*5.7)*1.2 + (r.hash(9300+x)-0.5)*1.3
+		surface := int(math.Round(surfaceBase + nx*nx*ry*0.06 + lump))
+		for y := max(0, surface); y <= min(r.h-1, domeBottom); y++ {
+			if !inside(x, y) {
+				continue
+			}
+			depth := clamp01(float64(y-surface) / math.Max(1, float64(domeBottom-surface)))
+			r.paintAlpha(x, y, mixColor(color.RGBA{225, 235, 246, 255}, color.RGBA{162, 183, 207, 255}, depth), 0.96)
+		}
+	}
+
+	sceneBaseY := int(math.Round(surfaceBase + 1))
+	r.renderSnowGlobeScene(int(math.Round(r.cfgFloat("scene", 0))), cx, float64(sceneBaseY), rx, ry, fillRectClip, paintClip)
+	r.renderSnowGlobeAirborneSnow(cx, cy, rx, ry, surfaceBase, domeBottom, paintClip, fillRectClip)
+	r.renderSnowGlobeSettledSpecks(cx, rx, ry, surfaceBase, domeBottom, paintClip)
+
+	rim := color.RGBA{195, 220, 240, 255}
+	for y := max(0, top-1); y <= min(r.h-1, bottom+1); y++ {
+		for x := max(0, left-1); x <= min(r.w-1, right+1); x++ {
+			dx := (float64(x) - cx) / rx
+			dy := (float64(y) - cy) / ry
+			d := dx*dx + dy*dy
+			if d >= 0.92 && d <= 1.08 && y <= baseTop+1 {
+				r.paintAlpha(x, y, rim, 0.42)
+			}
+		}
+	}
+	for i := 0; i < int(rx*0.82); i++ {
+		x := int(math.Round(cx - rx*0.50 + float64(i)))
+		y := int(math.Round(cy - ry*0.58 + math.Sin(float64(i)*0.22)*1.1))
+		paintClip(x, y, color.RGBA{245, 252, 255, 255}, 0.35)
+		if i%3 == 0 {
+			paintClip(x, y+1, color.RGBA{245, 252, 255, 255}, 0.16)
+		}
+	}
+
+	r.renderSnowGlobeBase(cx, rx, baseTop, baseBottom)
+}
+
+func (r *proceduralRenderState) renderSnowGlobeScene(scene int, cx, baseY, rx, ry float64, fillRectClip func(int, int, int, int, color.RGBA, float64), paintClip func(int, int, color.RGBA, float64)) {
+	unit := max(1, int(math.Round(math.Min(rx, ry)/12)))
+	drawPine := func(x, base, height int) {
+		trunk := color.RGBA{79, 55, 38, 255}
+		needle := color.RGBA{35, 76, 61, 255}
+		snow := color.RGBA{222, 235, 244, 255}
+		fillRectClip(x, base-max(1, height/5), 1, max(1, height/5), trunk, 0.95)
+		for row := 0; row < height; row++ {
+			t := float64(row) / math.Max(1, float64(height-1))
+			half := max(1, int(math.Round(t*float64(height)*0.34)))
+			y := base - height + row
+			fillRectClip(x-half, y, half*2+1, 1, needle, 0.92)
+			if row%3 == 0 {
+				paintClip(x-half, y, snow, 0.72)
+				paintClip(x+half, y, snow, 0.64)
+			}
+		}
+	}
+	drawCabin := func(center, base, width int) {
+		bodyH := max(2, width/3)
+		roofH := max(2, width/4)
+		bodyY := base - bodyH
+		bodyX := center - width/2
+		wall := color.RGBA{106, 68, 48, 255}
+		roof := color.RGBA{105, 40, 43, 255}
+		warm := color.RGBA{238, 187, 91, 255}
+		fillRectClip(bodyX, bodyY, width, bodyH, wall, 0.98)
+		for row := 0; row < roofH; row++ {
+			half := width/2 + 1 - row/2
+			fillRectClip(center-half, bodyY-roofH+row, half*2+1, 1, roof, 0.98)
+		}
+		fillRectClip(center-width/5, bodyY+1, max(1, width/5), max(1, bodyH/2), warm, 0.92)
+		fillRectClip(center+width/4, bodyY-roofH-1, 1, max(1, roofH), color.RGBA{66, 48, 43, 255}, 0.95)
+	}
+
+	base := int(math.Round(baseY))
+	center := int(math.Round(cx))
+	switch scene {
+	case snowGlobeScenePine:
+		drawPine(center, base, max(7, int(ry*0.46)))
+		drawPine(center-int(rx*0.26), base+1, max(5, int(ry*0.32)))
+		drawPine(center+int(rx*0.25), base+1, max(4, int(ry*0.28)))
+	case snowGlobeSceneVillage:
+		drawCabin(center-int(rx*0.18), base, max(5, unit*5))
+		drawCabin(center+int(rx*0.18), base+1, max(4, unit*4))
+		drawCabin(center, base-2, max(4, unit*4))
+		drawPine(center-int(rx*0.38), base+1, max(5, int(ry*0.30)))
+		drawPine(center+int(rx*0.39), base+1, max(5, int(ry*0.31)))
+	case snowGlobeSceneBeacon:
+		towerH := max(8, int(ry*0.52))
+		towerW := max(3, int(rx*0.16))
+		topY := base - towerH
+		for row := 0; row < towerH; row++ {
+			t := float64(row) / math.Max(1, float64(towerH-1))
+			w := max(2, int(math.Round(float64(towerW)*(0.72+0.36*t))))
+			c := mixColor(color.RGBA{214, 221, 220, 255}, color.RGBA{154, 165, 170, 255}, t)
+			fillRectClip(center-w/2, topY+row, w, 1, c, 0.98)
+			if row%4 == 1 {
+				fillRectClip(center-w/2, topY+row, w, 1, color.RGBA{111, 52, 56, 255}, 0.86)
+			}
+		}
+		fillRectClip(center-towerW/2-1, topY-2, towerW+2, 2, color.RGBA{43, 55, 66, 255}, 0.95)
+		paintClip(center, topY-1, color.RGBA{255, 223, 111, 255}, 0.98)
+		for x := center + 1; x < center+int(rx*0.38); x++ {
+			y := topY - 1 + (x-center)/5
+			paintClip(x, y, color.RGBA{255, 229, 126, 255}, 0.18)
+		}
+	default:
+		drawCabin(center-int(rx*0.08), base, max(6, unit*6))
+		drawPine(center+int(rx*0.28), base+1, max(6, int(ry*0.34)))
+		drawPine(center-int(rx*0.36), base+1, max(4, int(ry*0.26)))
+	}
+}
+
+func (r *proceduralRenderState) renderSnowGlobeAirborneSnow(cx, cy, rx, ry, surfaceBase float64, domeBottom int, paintClip func(int, int, color.RGBA, float64), fillRectClip func(int, int, int, int, color.RGBA, float64)) {
+	swirlLeft := r.timer("swirl")
+	settleLeft := r.timer("settle")
+	if swirlLeft <= 0 && settleLeft <= 0 {
+		return
+	}
+	snowVolume := r.cfgFloat("snowVolume", 0.72)
+	count := max(18, int(math.Round(rx*ry*0.095*snowVolume)))
+	if r.timer("intro") > 0 {
+		count = max(12, int(float64(count)*0.62))
+	}
+	turbulence := r.cfgFloat("swirlTurbulence", 1)
+	flake := color.RGBA{238, 246, 255, 255}
+	for i := 0; i < count; i++ {
+		var x, y float64
+		alpha := 0.72
+		if swirlLeft > 0 {
+			total := int(math.Round(r.value("swirl_total", float64(swirlLeft))))
+			progress := proceduralPhaseProgress(max(total, swirlLeft), swirlLeft)
+			strength := math.Sin(math.Pi * progress)
+			x, y = r.snowGlobeSwirlPosition(i, r.tick, cx, cy, rx, ry, strength, turbulence)
+			alpha = 0.58 + 0.34*strength
+		} else {
+			total := int(math.Round(r.value("settle_total", float64(settleLeft))))
+			progress := proceduralPhaseProgress(max(total, settleLeft), settleLeft)
+			eased := 1 - math.Pow(1-progress, 2.4)
+			startTick := int(math.Round(r.value("settle_start_tick", float64(r.tick))))
+			sx, sy := r.snowGlobeSwirlPosition(i, startTick, cx, cy, rx, ry, 0.72, turbulence)
+			tx, ty := r.snowGlobeSettledPosition(i, cx, rx, ry, surfaceBase, domeBottom)
+			x = sx + (tx-sx)*eased + math.Sin(float64(r.tick)*0.03+float64(i))*rx*0.018*(1-eased)
+			y = sy + (ty-sy)*eased
+			alpha = 0.72 * (1 - 0.38*eased)
+		}
+		size := 1
+		if rx > 28 && r.hash(82000+i) > 0.86 {
+			size = 2
+			alpha *= 0.8
+		}
+		fillRectClip(int(math.Round(x)), int(math.Round(y)), size, size, flake, alpha)
+	}
+}
+
+func (r *proceduralRenderState) snowGlobeSwirlPosition(i, tick int, cx, cy, rx, ry, strength, turbulence float64) (float64, float64) {
+	seed := int(math.Round(r.value("swirl_seed", 0)))
+	dir := r.value("swirl_dir", 1)
+	idx := seed + i*17
+	baseAngle := r.hash(70000+idx) * math.Pi * 2
+	baseRadius := math.Sqrt(r.hash(71000+idx)) * 0.82
+	angular := baseAngle + dir*(float64(tick)*0.074*turbulence*(0.7+r.hash(72000+idx)*0.75)+strength*4.4)
+	angular += math.Sin(float64(tick)*0.041+float64(i)*0.61) * 0.42 * turbulence
+	radius := baseRadius * (0.76 + 0.18*math.Sin(float64(tick)*0.05+float64(i)*0.27))
+	x := cx + math.Cos(angular)*rx*radius + math.Sin(float64(tick)*0.09+float64(i))*rx*0.055*strength*turbulence
+	y := cy + math.Sin(angular)*ry*radius*0.78 - ry*0.05*strength + math.Cos(float64(tick)*0.06+float64(i))*ry*0.045*turbulence
+	return x, y
+}
+
+func (r *proceduralRenderState) snowGlobeSettledPosition(i int, cx, rx, ry, surfaceBase float64, domeBottom int) (float64, float64) {
+	x := cx + (r.hash(73000+i)*2-1)*rx*0.82
+	nx := (x - cx) / rx
+	surface := surfaceBase + nx*nx*ry*0.06 + (r.hash(74000+i)-0.5)*2.2
+	depth := r.hash(75000+i) * math.Max(2, float64(domeBottom)-surface)
+	y := math.Min(float64(domeBottom), surface+depth*0.62)
+	return x, y
+}
+
+func (r *proceduralRenderState) renderSnowGlobeSettledSpecks(cx, rx, ry, surfaceBase float64, domeBottom int, paintClip func(int, int, color.RGBA, float64)) {
+	count := max(10, int(math.Round(rx*r.cfgFloat("snowVolume", 0.72)*1.5)))
+	for i := 0; i < count; i++ {
+		x, y := r.snowGlobeSettledPosition(900+i, cx, rx, ry, surfaceBase, domeBottom)
+		paintClip(int(math.Round(x)), int(math.Round(y)), color.RGBA{248, 252, 255, 255}, 0.72)
+	}
+}
+
+func (r *proceduralRenderState) renderSnowGlobeBase(cx, rx float64, baseTop, baseBottom int) {
+	topHalf := int(math.Round(rx * 0.88))
+	bottomHalf := int(math.Round(rx * 0.66))
+	for y := baseTop; y <= baseBottom; y++ {
+		t := 0.0
+		if baseBottom > baseTop {
+			t = float64(y-baseTop) / float64(baseBottom-baseTop)
+		}
+		half := int(math.Round(float64(topHalf)*(1-t) + float64(bottomHalf)*t))
+		c := mixColor(color.RGBA{131, 86, 53, 255}, color.RGBA{70, 47, 40, 255}, t)
+		r.fillRect(int(math.Round(cx))-half, y, half*2+1, 1, c)
+		if y == baseTop || y == baseTop+1 {
+			r.fillRectAlpha(int(math.Round(cx))-topHalf, y, topHalf*2+1, 1, color.RGBA{205, 155, 91, 255}, 0.45)
+		}
+	}
+	labelHalf := max(3, bottomHalf/3)
+	labelY := baseTop + max(2, (baseBottom-baseTop)/2)
+	r.fillRectAlpha(int(math.Round(cx))-labelHalf, labelY, labelHalf*2+1, 1, color.RGBA{211, 169, 96, 255}, 0.65)
 }
 
 func (r *proceduralRenderState) renderStarfield() {
