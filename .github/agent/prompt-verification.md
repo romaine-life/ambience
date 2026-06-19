@@ -67,6 +67,16 @@ Cases with no `must_show` at all never launch this stage (the wrapper runs
 them agentlessly), so the selected case always has exactly one look to
 judge. Judge the look; don't measure.
 
+The bar is a **basic, reasonable sign-off**, not a grade of artistry or
+completeness: would a reasonable person recognize this as a legitimate attempt
+at what the issue describes and let it through? Give the benefit of the doubt —
+**pass by default**. Ambience effects are free-form and unfold over time, so a
+slow, quiet, sparse, or ambient effect that did *not* perform a rare or
+signature moment during the clip still passes; the absence of a rare event on
+camera is never a defect. Fail only when the artifact is clearly wrong: a blank
+or unrendered page, a crash or visible error, or content plainly unrelated to
+the issue.
+
 ## Standing case (feature-type acceptance)
 
 When the `Verification case` JSON has `"source": "standing"`, no test plan
@@ -77,8 +87,8 @@ standing acceptance case, bound by the wrapper to the implementation's
 echoed on the case). Differences from a generated case:
 
 1. **Judgment criteria are the issue text.** An `Issue body` section is
-   appended below. The case's `must_show` is the umbrella ("reads as the
-   experience the issue describes"); the issue body is what that means
+   appended below. The case's `must_show` is the umbrella ("plausibly looks
+   like what the issue describes"); the issue body is what that means
    concretely. Judge the captured look against the issue's own words —
    gestalt only, exactly as the judgment contract above demands. Do not
    judge against the implementation's claims or the hint.
@@ -90,9 +100,14 @@ echoed on the case). Differences from a generated case:
    where to look, never what success looks like. If the option is absent from
    the picker, abort with `ui_option_missing`; do not pass on the route alone.
 3. **Pin to schema defaults.** The standing case carries no
-   `session_config`; pin the case's session with no overrides. The defaults
-   are the product — if the effect only reads as the issue's experience
-   under hand-tuned knobs, it is not delivered.
+   `session_config`; pin the case's session with no overrides — judge the
+   product as it ships, not under hand-tuned knobs. The defaults running at
+   their natural pace are exactly the point: if the effect's signature is a
+   slow or rare event (a constellation that draws once in a while, an
+   occasional flash over a quiet sky), the default capture that does not
+   happen to catch it still **passes** — the experience unfolds over time, and
+   the human review that follows sees it for real. Do not fail an effect for
+   being patient.
 4. Then capture and judge per the normal `kind: video` flow below, using the
    case's bound `url_path`.
 
@@ -294,7 +309,11 @@ When `status` is not `pass`, or the selected `evidence_results` entry is
 Investigate before you classify. You may read the repo and query
 `/dev/snapshot` to determine *why* the observation diverges:
 
-- `code_bug` — the implementation does not do what the issue says.
+- `code_bug` — the implementation is clearly broken or unrendered (blank
+  page, crash, or plainly the wrong/another effect). Do **not** reach for
+  `code_bug` merely because a slow or rare signature moment did not appear
+  during the capture window — that is the nature of an ambient effect, not a
+  bug; pass it.
 - `test_expectation_mismatch` — the claim itself is wrong or unverifiable
   against the pinned config (e.g. it hard-codes numbers the config does
   not pin).

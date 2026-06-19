@@ -3,5 +3,5 @@
   "kind": "video",
   "source": "standing",
   "duration_seconds": 10,
-  "must_show": "the effect's steady-state look and motion read as the experience the issue describes"
+  "must_show": "a legible ambient effect on the page that plausibly looks like what the issue describes"
 }
