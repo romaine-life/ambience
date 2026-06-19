@@ -27,6 +27,25 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 		},
 	];
 
+	api.presets['crystal-ball'] = [
+		{
+			key: 'violet-seer', label: 'violet seer', note: 'luminous violet mist',
+			config: { hue: 276, swirl: 0.72, mistRate: 0.84, visionChance: 0.00055, glowPulse: 0.72 },
+		},
+		{
+			key: 'emerald', label: 'emerald', note: 'green low swirl',
+			config: { hue: 142, swirl: 0.62, mistRate: 0.76, visionChance: 0.00048, glowPulse: 0.58 },
+		},
+		{
+			key: 'smoke-grey', label: 'smoke grey', note: 'dim quiet glass',
+			config: { hue: 218, swirl: 0.42, mistRate: 0.52, visionChance: 0.00028, glowPulse: 0.34 },
+		},
+		{
+			key: 'starlit', label: 'starlit', note: 'blue bright pulse',
+			config: { hue: 228, swirl: 1.08, mistRate: 0.66, visionChance: 0.00062, glowPulse: 0.86 },
+		},
+	];
+
 	api.presets['paper-lanterns'] = [
 		{
 			key: 'spirits-eve', label: "spirit's eve", note: 'soft amber drift',
