@@ -122,6 +122,25 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 		},
 	];
 
+	api.presets['spider-web'] = [
+		{
+			key: 'dawn-dew', label: 'dawn dew', note: 'warm first light',
+			config: { palette: 0, dropletShimmer: 1.35, glintRate: 1.12, moveChance: 0.032, webSway: 0.48 },
+		},
+		{
+			key: 'moonlit-silver', label: 'moonlit silver', note: 'cool quiet glints',
+			config: { palette: 1, dropletShimmer: 0.88, glintRate: 0.58, moveChance: 0.022, webSway: 0.26 },
+		},
+		{
+			key: 'autumn-gold', label: 'autumn gold', note: 'amber breezy beads',
+			config: { palette: 2, dropletShimmer: 1.08, glintRate: 0.86, moveChance: 0.04, webSway: 0.82 },
+		},
+		{
+			key: 'misty', label: 'misty', note: 'soft muted dew',
+			config: { palette: 3, dropletShimmer: 0.58, glintRate: 0.44, moveChance: 0.018, webSway: 0.22 },
+		},
+	];
+
 	function makeRNG(seed) {
 		let state = seed >>> 0;
 		const rng = () => {
