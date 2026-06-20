@@ -221,6 +221,28 @@ jobs:
             --image "${{ matrix.image-repo }}:${lookup_tag}" --force
           echo "Tagged romainecr.azurecr.io/${{ matrix.image-repo }}:${lookup_tag} -> ${SOURCE_TAG}"
 
+      - name: Tag app image by commit
+        # Commit-addressed alias of the fingerprint manifest so Glimmung's
+        # deploy-image resolver looks the image up by the verified commit SHA.
+        # Additive alongside the run-scoped lookup tag during the sha-alias
+        # migration; the lookup tag is removed once the resolver reads sha-<commit>.
+        if: matrix.name == 'app' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository))
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          SOURCE_TAG: ${{ steps.fingerprint.outputs.proof_tag }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SOURCE_SHA}" ]]; then
+            echo "::error::SOURCE_SHA is required for the commit image alias."
+            exit 1
+          fi
+          commit_tag="sha-${SOURCE_SHA}"
+          az acr import --name romainecr \
+            --source "romainecr.azurecr.io/${{ matrix.image-repo }}:${SOURCE_TAG}" \
+            --image "${{ matrix.image-repo }}:${commit_tag}" --force
+          echo "Tagged romainecr.azurecr.io/${{ matrix.image-repo }}:${commit_tag} -> ${SOURCE_TAG}"
+
       - name: Build image without pushing
         if: github.event_name != 'workflow_dispatch' && github.ref != 'refs/heads/main' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository)
         uses: docker/build-push-action@v6
