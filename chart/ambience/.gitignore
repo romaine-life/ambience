@@ -1,0 +1,7 @@
+# The live-preview-edge library partial is NEVER committed here: ambience
+# declares no Helm dependency for it (live-preview-plan.md, Stage 4a — ACR is
+# Basic SKU, so no oci:// pull and no in-Job registry auth). Glimmung vendors it
+# into charts/live-preview-edge/ at preview-provision time from its published
+# ConfigMap. Keep any locally-vendored copy (used only to render/verify an
+# enabled preview) out of git.
+charts/

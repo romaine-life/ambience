@@ -1,4 +1,11 @@
-{{- if and .Values.edge.enabled (eq (include "ambience.renderHot" .) "true") }}
+{{- /*
+The native edge tier. Not rendered on a live-preview lease: the generic
+live-preview-edge co-located in the authority pod replaces it (it fronts the
+stable authority backend directly), so the native edge would be a redundant,
+unselected second proxy. Guarded on (not livePreview.enabled) so normal / prod /
+validation renders are byte-identical (livePreview.enabled defaults false).
+*/ -}}
+{{- if and .Values.edge.enabled (eq (include "ambience.renderHot" .) "true") (not .Values.livePreview.enabled) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
