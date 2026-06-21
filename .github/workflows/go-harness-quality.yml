@@ -1,0 +1,56 @@
+name: Go Harness Quality
+
+# Quality gate for the ambience Glimmung run-harness Go module
+# (glimmung-harness/), modeled on spirelens's go-harness-quality.yml. The
+# repo-root Docker Build Check `go test ./...` runs the ROOT module only and
+# does NOT descend into this nested module, so the harness needs its own gate.
+#
+# ambience's harness is single-faced and in-cluster: there is NO Windows
+# cross-compile (no host face), unlike spirelens.
+
+on:
+  pull_request:
+    paths:
+      - "glimmung-harness/**"
+      - ".github/workflows/go-harness-quality.yml"
+  push:
+    branches: [main]
+    paths:
+      - "glimmung-harness/**"
+      - ".github/workflows/go-harness-quality.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-harness-quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: build / vet / test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOPRIVATE: github.com/romaine-life/*
+    defaults:
+      run:
+        working-directory: glimmung-harness
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: glimmung-harness/go.mod
+          cache-dependency-path: glimmung-harness/go.sum
+          check-latest: true
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./...

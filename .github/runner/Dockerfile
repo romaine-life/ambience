@@ -66,6 +66,17 @@ RUN KUBECTL_VERSION="$(curl -fsSL https://dl.k8s.io/release/stable.txt)" \
 
 RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
+# Go toolchain: the Glimmung run-harness is the Go module under
+# glimmung-harness/, built from the run's checkout at re-registration time
+# (the harness is git_ref-controlled, exactly like spirelens). This replaces
+# the retired scripts/glimmung-native shell fork the image used to bake.
+RUN GO_VERSION=1.26.2 \
+    && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz \
+    && tar -C /usr/local -xzf /tmp/go.tgz \
+    && rm /tmp/go.tgz
+ENV PATH="/usr/local/go/bin:${PATH}" \
+    GOPRIVATE="github.com/romaine-life/*"
+
 RUN npm install -g @openai/codex \
     && mkdir -p /opt/ambience-agent \
     && npm install --prefix /opt/ambience-agent playwright \
@@ -74,9 +85,7 @@ RUN npm install -g @openai/codex \
     && npm cache clean --force \
     && rm -rf /root/.npm /opt/ambience-agent/.cache
 
-COPY scripts/glimmung-native /opt/ambience-native/scripts
-RUN chmod +x /opt/ambience-native/scripts/*.sh \
-    && mkdir -p /workspace \
+RUN mkdir -p /workspace \
     && chown runner:runner /workspace
 
 USER runner

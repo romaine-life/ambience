@@ -296,7 +296,7 @@ The wrapper creates and pushes the issue-scoped implementation branch
 `glimmung/issue-<issue-number>/<run-id>`, opens or updates a draft PR, then
 runs the implementation agent. The agent can publish its current work and read
 the draft PR CI state through
-`scripts/glimmung-native/agent-ci-feedback.sh publish-and-wait`; it should use
+`scripts/agent/agent-ci-feedback.sh publish-and-wait`; it should use
 that deterministic feedback instead of inventing a build/test proof. After the
 agent exits, the wrapper confirms the branch, waits for the PR's GitHub checks
 to pass, then rebuilds the validation environment from the checked branch before

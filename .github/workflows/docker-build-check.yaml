@@ -84,10 +84,11 @@ jobs:
             context: .
             cache-ref: romainecr.azurecr.io/ambience-build-cache:native-runner
             image-repo: ambience-agent-runner
-            # Native-runner only bakes its Dockerfile and runtime scripts.
-            # Tooling changes should touch the Dockerfile; script changes are
-            # the only repo content copied into the image.
-            fingerprint-paths: .github/runner/Dockerfile scripts/glimmung-native
+            # Native-runner bakes only its Dockerfile (Go toolchain + venue
+            # tools). The Glimmung run-harness is the glimmung-harness/ Go module
+            # built from the run checkout at re-registration time, not baked, so
+            # only the Dockerfile changes the image.
+            fingerprint-paths: .github/runner/Dockerfile
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -121,14 +122,6 @@ jobs:
           git checkout --detach "$full_sha"
           echo "Resolved image source -> ${full_sha}"
           echo "sha=${full_sha}" >> "${GITHUB_OUTPUT}"
-
-      - name: Check native runner contract
-        if: matrix.name == 'native-runner'
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash scripts/test-glimmung-native-contract.sh
-          bash -n scripts/glimmung-native/*.sh scripts/test-glimmung-native-contract.sh
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3

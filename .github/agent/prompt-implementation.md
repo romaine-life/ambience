@@ -108,7 +108,7 @@ Glimmung selects the concrete provider/model for this invocation through the
    ```
    git add -A
    git commit -m "agent: address $ISSUE_REFERENCE"
-   scripts/glimmung-native/agent-ci-feedback.sh publish-and-wait
+   scripts/agent/agent-ci-feedback.sh publish-and-wait
    ```
    The branch is pre-created and has a draft PR, so repository CI will run on
    pushed commits. The helper rebases onto the PR base, publishes only the
