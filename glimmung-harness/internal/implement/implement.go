@@ -59,31 +59,31 @@ func Registry() *step.Registry {
 }
 
 type config struct {
-	repoSlug                   string
-	repoDir                    string
-	workflowRef                string
-	claudeNamespace            string
-	claudeCANamespace          string
-	providerAPIProxyNamespace  string
-	githubPolicyCASecret       string
-	githubPolicyCAConfigMap    string
-	githubPolicyProxyService   string
-	agentEgressGatewayName     string
-	agentEgressGatewayNS       string
-	envoyGatewaySystemNS       string
-	validationURL              string
-	namespace                  string
-	imageTag                   string
-	branchName                 string
-	jobName                    string
-	configMap                  string
-	agentContainerTag          string
-	agentContainerImage        string
-	agentRuntimeJSON           string
-	featureType                string
-	evidenceDir                string
-	prBase                     string
-	issue                      agentjob.IssueContext
+	repoSlug                  string
+	repoDir                   string
+	workflowRef               string
+	claudeNamespace           string
+	claudeCANamespace         string
+	providerAPIProxyNamespace string
+	githubPolicyCASecret      string
+	githubPolicyCAConfigMap   string
+	githubPolicyProxyService  string
+	agentEgressGatewayName    string
+	agentEgressGatewayNS      string
+	envoyGatewaySystemNS      string
+	validationURL             string
+	namespace                 string
+	imageTag                  string
+	branchName                string
+	jobName                   string
+	configMap                 string
+	agentContainerTag         string
+	agentContainerImage       string
+	agentRuntimeJSON          string
+	featureType               string
+	evidenceDir               string
+	prBase                    string
+	issue                     agentjob.IssueContext
 }
 
 func envOr(c *step.Context, key, def string) string {
@@ -692,4 +692,3 @@ func atoiOr(s string, def int) int {
 	}
 	return def
 }
-

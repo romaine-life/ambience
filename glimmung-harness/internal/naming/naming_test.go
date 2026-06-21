@@ -99,11 +99,11 @@ func TestWorkflowCheckoutRef(t *testing.T) {
 
 func TestSanitizeRefSegment(t *testing.T) {
 	tests := map[string]string{
-		"Run-1":          "run-1",
+		"Run-1":           "run-1",
 		"feature/Foo Bar": "feature-foo-bar",
-		"  ":             "unknown",
-		"--a--b--":       "a-b", // leading/trailing '-' trimmed, internal runs collapsed
-		"...dotted...":   "dotted",
+		"  ":              "unknown",
+		"--a--b--":        "a-b", // leading/trailing '-' trimmed, internal runs collapsed
+		"...dotted...":    "dotted",
 		"keep_underscore": "keep_underscore",
 	}
 	for in, want := range tests {

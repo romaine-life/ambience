@@ -75,8 +75,8 @@ func Lint(planJSON []byte) Outcome {
 	// 2. Case-count bounds.
 	if len(items) > 10 {
 		return failOutcome("too_many_required_evidence", map[string]any{
-			"summary":                  "Test plan produced too many required evidence cases for the bounded verifier.",
-			"required_evidence_count":  len(items),
+			"summary":                 "Test plan produced too many required evidence cases for the bounded verifier.",
+			"required_evidence_count": len(items),
 		})
 	}
 	if len(items) == 0 {
@@ -100,7 +100,7 @@ func Lint(planJSON []byte) Outcome {
 	}
 	if len(unsupported) > 0 {
 		return failOutcome("unsupported_required_evidence_kind", map[string]any{
-			"summary":                      "Test plan included non-media verification cases. Ambience LLM verification only accepts screenshot and video evidence; deterministic checks belong in PR CI.",
+			"summary":                       "Test plan included non-media verification cases. Ambience LLM verification only accepts screenshot and video evidence; deterministic checks belong in PR CI.",
 			"unsupported_required_evidence": unsupported,
 		})
 	}
@@ -150,7 +150,7 @@ func Lint(planJSON []byte) Outcome {
 	}
 	if len(videoNoJudgment) > 0 {
 		return failOutcome("video_requires_judgment", map[string]any{
-			"summary":                     "Test plan declared video cases without a must_show. Video evidence exists to be judged; a case with nothing to judge is mechanical-only and uses screenshot/observation evidence.",
+			"summary":                      "Test plan declared video cases without a must_show. Video evidence exists to be judged; a case with nothing to judge is mechanical-only and uses screenshot/observation evidence.",
 			"video_without_judgment_cases": videoNoJudgment,
 		})
 	}
@@ -198,7 +198,7 @@ func Lint(planJSON []byte) Outcome {
 	}
 	if len(triggerNoBaseline) > 0 {
 		return failOutcome("trigger_case_without_baseline", map[string]any{
-			"summary":                       "Test plan declared trigger_event cases without a session_config baseline. A trigger judged against default background cadence is undecidable; pin a quiescent baseline (suppress competing cadence knobs: emission rates near zero, pulse probabilities 0) so the triggered behavior is isolated.",
+			"summary":                        "Test plan declared trigger_event cases without a session_config baseline. A trigger judged against default background cadence is undecidable; pin a quiescent baseline (suppress competing cadence knobs: emission rates near zero, pulse probabilities 0) so the triggered behavior is isolated.",
 			"trigger_cases_without_baseline": triggerNoBaseline,
 		})
 	}
@@ -240,8 +240,8 @@ func Lint(planJSON []byte) Outcome {
 	}
 	if len(invalidSessionConfig) > 0 {
 		return failOutcome("invalid_session_config", map[string]any{
-			"summary":                       "Test plan declared session_config that is not a flat object of numeric knob overrides.",
-			"invalid_session_config_cases":  invalidSessionConfig,
+			"summary":                      "Test plan declared session_config that is not a flat object of numeric knob overrides.",
+			"invalid_session_config_cases": invalidSessionConfig,
 		})
 	}
 

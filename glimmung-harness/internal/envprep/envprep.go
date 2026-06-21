@@ -334,13 +334,13 @@ func emitEnvOutputs(c *step.Context) (step.Result, error) {
 		return step.Result{}, lerr
 	}
 	return step.Result{Outputs: map[string]string{
-		"validation_url":         cfg.validationURL,
-		"validation_slot_index":  cfg.slotIndex,
-		"namespace":              cfg.namespace,
-		"image_tag":              imageTag,
-		"base_revision":          baseRevision,
-		"claude_namespace":       cfg.claudeNamespace,
-		"claude_ca_namespace":    cfg.claudeCANamespace,
+		"validation_url":        cfg.validationURL,
+		"validation_slot_index": cfg.slotIndex,
+		"namespace":             cfg.namespace,
+		"image_tag":             imageTag,
+		"base_revision":         baseRevision,
+		"claude_namespace":      cfg.claudeNamespace,
+		"claude_ca_namespace":   cfg.claudeCANamespace,
 	}}, nil
 }
 

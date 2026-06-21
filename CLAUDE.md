@@ -81,7 +81,14 @@ like. Types without a standing case keep generated plans (correct when the
 world exists before the feature, e.g. a stats-display project). Full
 rationale: [docs/issue-agent-stage-split.md](docs/issue-agent-stage-split.md).
 
-Each phase has wrapper scripts in `scripts/glimmung-native/`. Planning and
+The env-prep, test-plan, implement, and env-destroy phases are the typed Go
+run-harness at `glimmung-harness/`, built on the Glimmung run-harness SDK
+(`github.com/romaine-life/glimmung` v0.2.0). It replaces the retired
+`scripts/glimmung-native/*.sh` shell fork end to end; see
+[docs/glimmung-run-harness.md](docs/glimmung-run-harness.md) for the phase →
+step-slug → `run` invocation mapping the workflow registration binds. The
+verify phase is still the Python inner-Job renderer in
+`mcp/ambience_preview/ops.py`. Planning and
 implementation use Glimmung-managed `type: agent` workflow steps.
 Verification cases use the script-launched inner Job path so the wrapper can
 skip empty slots before invoking an LLM. Both paths take provider/model
