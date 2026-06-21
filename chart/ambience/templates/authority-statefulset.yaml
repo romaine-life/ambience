@@ -8,7 +8,7 @@ metadata:
     {{- include "ambience.labels" . | nindent 4 }}
 spec:
   serviceName: {{ include "ambience.name" . }}-authority
-  replicas: {{ include "ambience.authorityReplicas" . }}
+  replicas: {{ if .Values.livePreview.enabled }}{{ include "live-preview-edge.replicas" (dict "spec" .Values.livePreview "requested" (include "ambience.authorityReplicas" . | int)) }}{{ else }}{{ include "ambience.authorityReplicas" . }}{{ end }}
   updateStrategy:
     type: RollingUpdate
   selector:
@@ -30,14 +30,14 @@ spec:
         - name: {{ include "ambience.name" . }}
           image: "{{ include "ambience.authorityImage" . }}"
           imagePullPolicy: {{ include "ambience.authorityImagePullPolicy" . }}
-          {{- if and (eq (include "ambience.isTestEnv" .) "true") .Values.authority.hotSwapBackend.enabled }}
+          {{- if eq (include "ambience.authorityHotSwap" .) "true" }}
           command:
             - /ambience-supervisor
           {{- end }}
           env:
             - name: AMBIENCE_ROLE
               value: authority
-            {{- if and (eq (include "ambience.isTestEnv" .) "true") .Values.authority.hotSwapBackend.enabled }}
+            {{- if eq (include "ambience.authorityHotSwap" .) "true" }}
             - name: GLIMMUNG_SUPERVISOR_CHILD
               value: {{ .Values.authority.hotSwapBackend.childCommand | quote }}
             - name: GLIMMUNG_SUPERVISOR_HOT_ARTIFACT
@@ -106,12 +106,12 @@ spec:
             failureThreshold: {{ .Values.authority.probes.liveness.failureThreshold }}
           resources:
             {{- toYaml .Values.authority.resources | nindent 12 }}
-          {{- if and (eq (include "ambience.isTestEnv" .) "true") .Values.authority.hotSwapBackend.enabled }}
+          {{- if eq (include "ambience.authorityHotSwap" .) "true" }}
           volumeMounts:
             - name: hot-backend
               mountPath: {{ .Values.authority.hotSwapBackend.mountPath | quote }}
           {{- end }}
-        {{- if and (eq (include "ambience.isTestEnv" .) "true") .Values.authority.hotSwapBackend.enabled }}
+        {{- if eq (include "ambience.authorityHotSwap" .) "true" }}
         - name: {{ .Values.authority.hotSwapBackend.writerContainerName }}
           image: {{ .Values.authority.hotSwapBackend.writerImage | quote }}
           imagePullPolicy: {{ .Values.authority.hotSwapBackend.writerImagePullPolicy }}
@@ -125,9 +125,28 @@ spec:
             - name: hot-backend
               mountPath: {{ .Values.authority.hotSwapBackend.mountPath | quote }}
         {{- end }}
-      {{- if and (eq (include "ambience.isTestEnv" .) "true") .Values.authority.hotSwapBackend.enabled }}
+        {{- /*
+        Live-preview lane (live-preview-plan.md, Stage 4b): the generic
+        glimmung-live-preview-edge, co-located in the STABLE authority pod and
+        fronting it on loopback (upstream 127.0.0.1:8080). Self-gates on
+        livePreview.enabled (off by default -> renders nothing), so a normal /
+        prod / validation install is byte-identical. When enabled it becomes the
+        pod's served port (the public Service flips to it) and serves the pushed
+        frontend override-first / backend-prefix + fresh-passthrough to the
+        authority. Mutually exclusive with the hot-swap lane above
+        (ambience.authorityHotSwap is false whenever livePreview is enabled).
+        */}}
+        {{- if .Values.livePreview.enabled }}
+        {{- include "live-preview-edge.container" .Values.livePreview | nindent 8 }}
+        {{- end }}
+      {{- if or (eq (include "ambience.authorityHotSwap" .) "true") .Values.livePreview.enabled }}
       volumes:
+        {{- if eq (include "ambience.authorityHotSwap" .) "true" }}
         - name: hot-backend
           emptyDir: {}
+        {{- end }}
+        {{- if .Values.livePreview.enabled }}
+        {{- include "live-preview-edge.volume" .Values.livePreview | nindent 8 }}
+        {{- end }}
       {{- end }}
 {{- end }}

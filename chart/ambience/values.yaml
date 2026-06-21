@@ -179,6 +179,68 @@ authority:
     writerImage: alpine:3.20
     writerImagePullPolicy: IfNotPresent
 
+# Live-preview lane (live-preview-plan.md, Stage 4b). OFF by default, so a
+# normal, prod, dev, or validation (warm/hot) render emits NO live-preview edge
+# and is byte-identical to today — nothing changes until Glimmung sets
+# livePreview.enabled=true on a PREVIEW lease. This is the live-preview lane
+# (scratch, for seeing a freshly-pushed frontend over a STABLE backend); it is
+# NOT the faithful image-deploy/validation lane and shares no vocabulary with the
+# retired hot-swap path.
+#
+# Topology (the hard case — ambience has its own edge/authority split): the
+# generic glimmung-live-preview-edge REPLACES ambience's native edge tier in
+# preview mode. The authority StatefulSet is the stable backend; on a preview
+# lease the edge is co-located in the authority pod and reverse-proxies it on
+# loopback (upstream http://127.0.0.1:8080 — the only model Glimmung's provision
+# emits). The native edge Deployment is not rendered, the public Service selects
+# the authority pod and targets the edge, and the authority runs WITHOUT hot-swap
+# (the two lanes are mutually exclusive). The edge serves the developer's pushed
+# frontend override-first and proxies backendPrefixes + fresh-passthrough (no
+# override) to the authority, so a fresh preview shows the stable app until the
+# first push. Justification for REPLACE over FRONT: the authority (role=authority)
+# already serves the frontend assets AND every data route, so the native edge is
+# pure horizontal-scale + SSE-fanout + entropy-batching — irrelevant for a
+# single co-watched preview pod, where fronting it would only add a redundant
+# proxy hop.
+#
+# The edge uses a DISTINCT served port/name (preview-http:8090) so it coexists
+# with the authority's own http:8080 in the same pod (port names are unique per
+# pod). Glimmung fills enabled / image.tag / authorizedSubject / upstream.url /
+# backendPrefixes via --set per lease and VENDORS the partial into
+# charts/live-preview-edge/ at provision time (this chart declares NO Helm
+# dependency and commits no copy of it). The single-serving-pod invariant
+# (replicas=1; flicker guard, v1 #1419) is enforced by live-preview-edge.replicas.
+# Auth is JWKS-only: the edge verifies pushes against auth.romaine.life's public
+# RS256 JWKS over HTTPS, so NO projected service-account token is added to the
+# slot pod. The spec shape mirrors glimmung k8s/live-preview-edge/values.yaml.
+livePreview:
+  enabled: false
+  image:
+    repository: romainecr.azurecr.io/glimmung-live-preview-edge
+    # Required when enabled; Glimmung --sets the fingerprint-pinned tag per lease
+    # from its control-plane Settings. Empty here on purpose — there is no in-repo
+    # lockstep because ambience does not build the edge image (Glimmung owns it).
+    tag: ""
+    pullPolicy: IfNotPresent
+  # The edge's own served port + name. Distinct from the authority's http:8080 so
+  # both containers coexist in the authority pod.
+  port: 8090
+  servedPortName: preview-http
+  upstream:
+    # The authority's in-pod port; Glimmung --sets this from live_preview.backend_port.
+    url: "http://127.0.0.1:8080"
+  # Request prefixes always proxied to the authority (the stable backend's data
+  # API stays reachable through the edge regardless of override state). Glimmung
+  # --sets these from live_preview.backend_prefixes; the default is informational.
+  backendPrefixes: []
+  # The auth.romaine.life JWT subject permitted to push/delete the override (the
+  # preview lease owner). Required when enabled; Glimmung --sets it per lease.
+  authorizedSubject: ""
+  override:
+    volumeName: live-preview-override
+    mountPath: /var/run/glimmung-live-preview
+  resources: {}
+
 pdb:
   enabled: true
   # authority is a single-replica StatefulSet; a PDB on it blocks every
