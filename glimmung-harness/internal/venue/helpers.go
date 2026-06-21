@@ -177,6 +177,36 @@ func (e Exec) PreviewCLIOutput(ctx context.Context, dir string, args ...string) 
 	return e.Output(ctx, dir, "python3", full...)
 }
 
+// WriteExitCode persists a step's recorded exit code to a cross-step state file
+// (managed per-step invocations share the pod filesystem), mirroring
+// native_record_exit_code.
+func WriteExitCode(path string, code int) error {
+	return os.WriteFile(path, []byte(fmt.Sprintf("%d\n", code)), 0o644)
+}
+
+// ReadExitCode reads a recorded exit code, defaulting to 0 for a missing or
+// non-numeric file, mirroring native_read_exit_code.
+func ReadExitCode(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	s := strings.TrimSpace(string(data))
+	if s == "" {
+		return 0
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return 0
+		}
+	}
+	n := 0
+	for _, r := range s {
+		n = n*10 + int(r-'0')
+	}
+	return n
+}
+
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
 		if strings.TrimSpace(v) != "" {
