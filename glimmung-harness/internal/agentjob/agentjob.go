@@ -105,6 +105,29 @@ func (p Prep) CopyClaudeCA(ctx context.Context, claudeCANamespace string) error 
 	return p.apply(ctx, rewritten)
 }
 
+// CopyGitHubPolicyCA mirrors copy_github_policy_ca: prefer the mounted provider
+// CA, else materialize a ConfigMap in the slot namespace from the policy-proxy
+// CA Secret's base64 ca.crt.
+func (p Prep) CopyGitHubPolicyCA(ctx context.Context, providerNamespace, secretName, configmapName string) error {
+	if fileNonEmpty("/etc/glimmung-provider-api-proxy-ca/ca.crt") {
+		yaml, err := p.Exec.Output(ctx, "", "kubectl", "-n", p.Namespace, "create", "configmap", configmapName,
+			"--from-file=ca.crt=/etc/glimmung-provider-api-proxy-ca/ca.crt", "--dry-run=client", "-o", "yaml")
+		if err != nil {
+			return err
+		}
+		return p.apply(ctx, yaml)
+	}
+	src, err := p.Exec.Output(ctx, "", "kubectl", "-n", providerNamespace, "get", "secret", secretName, "-o", "json")
+	if err != nil {
+		return err
+	}
+	manifest, err := caConfigMapFromSecret(src, p.Namespace, configmapName)
+	if err != nil {
+		return err
+	}
+	return p.apply(ctx, manifest)
+}
+
 // ResolveClusterIP returns a Service's clusterIP, failing when absent.
 func (p Prep) ResolveClusterIP(ctx context.Context, namespace, service string) (string, error) {
 	ip, err := p.Exec.Output(ctx, "", "kubectl", "-n", namespace, "get", "svc", service, "-o", "jsonpath={.spec.clusterIP}")

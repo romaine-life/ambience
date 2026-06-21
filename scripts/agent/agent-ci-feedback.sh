@@ -1,19 +1,26 @@
 #!/usr/bin/env bash
 #
-# Publish the managed implementation agent's current branch and show the
-# deterministic CI result for that exact commit.
+# Agent-side helper: publish the implementation agent's current branch and show
+# the deterministic CI result for that exact commit. Runs INSIDE the
+# implementation agent inner Job (rendered by mcp/ambience_preview), not in the
+# Glimmung runner — the runner harness is the Go module under glimmung-harness/.
+#
+# Self-contained by design: it reads the repo-scoped GitHub token the agent Job
+# mounts (GITHUB_TOKEN_FILE) and the BRANCH_NAME the Job exports. It does NOT
+# depend on the retired scripts/glimmung-native/lib.sh fork.
 
 set -Eeuo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib.sh
-source "${SCRIPT_DIR}/lib.sh"
-
 REPO_SLUG="${AMBIENCE_REPO_SLUG:-romaine-life/ambience}"
 REPO_DIR="${AMBIENCE_REPO_DIR:-/workspace/repo}"
-BRANCH_NAME="${BRANCH_NAME:-$(native_implementation_branch_name)}"
+BRANCH_NAME="${BRANCH_NAME:-}"
 BASE_REF="${AMBIENCE_PR_BASE:-main}"
 REMOTE_URL="${AMBIENCE_GIT_REMOTE_URL:-https://github.com/${REPO_SLUG}.git}"
+
+if [ -z "$BRANCH_NAME" ]; then
+  echo "BRANCH_NAME is required for agent CI feedback" >&2
+  exit 2
+fi
 
 github_api() {
   local method="$1"
@@ -21,9 +28,8 @@ github_api() {
   local body="${3:-}"
   local token
   # The implementation agent job mounts the repo-scoped token as a file
-  # (GITHUB_TOKEN_FILE) — the only GitHub credential the agent gets. The
-  # GLIMMUNG_GITHUB_TOKEN_URL callback is deliberately not exposed to the agent
-  # subprocess, so this token is required; there is no fallback path.
+  # (GITHUB_TOKEN_FILE) — the only GitHub credential the agent gets. There is
+  # no fallback path.
   if [ -z "${GITHUB_TOKEN_FILE:-}" ] || [ ! -s "${GITHUB_TOKEN_FILE}" ]; then
     echo "GITHUB_TOKEN_FILE is required for agent CI feedback" >&2
     return 1
@@ -60,7 +66,7 @@ assert_branch() {
 commit_if_needed() {
   cd "$REPO_DIR"
   local blocked
-  blocked="$(git status --porcelain -- .github/workflows .github/agent .mcp.json 2>/dev/null || true)"
+  blocked="$(git status --porcelain -- .github/workflows .github/agent .mcp.json glimmung-harness 2>/dev/null || true)"
   if [ -n "$blocked" ]; then
     echo "runner-local config changes are not publishable from the implementation agent:" >&2
     echo "$blocked" >&2
@@ -71,7 +77,7 @@ commit_if_needed() {
     echo "no staged changes to commit"
     return 0
   fi
-  git commit -m "agent: address ${GLIMMUNG_ISSUE_NUMBER:-${GLIMMUNG_RUN_ID}}"
+  git commit -m "agent: address ${GLIMMUNG_ISSUE_NUMBER:-${GLIMMUNG_RUN_ID:-update}}"
 }
 
 push_branch() {
@@ -139,10 +145,6 @@ wait_checks() {
     sleep "${AMBIENCE_AGENT_CI_POLL_SECONDS:-20}"
   done
 }
-
-if [ "${AMBIENCE_AGENT_CI_FEEDBACK_SOURCE_ONLY:-}" = "1" ]; then
-  return 0 2>/dev/null || exit 0
-fi
 
 case "${1:-status}" in
   publish)
