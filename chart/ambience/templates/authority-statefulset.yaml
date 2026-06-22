@@ -75,15 +75,12 @@ spec:
                   name: {{ .existingSecret | quote }}
                   key: {{ .passwordKey | quote }}
             {{- end }}
-            {{- with .microsoft }}
+            {{- with .oidc }}
             {{- if .enabled }}
-            - name: AMBIENCE_MICROSOFT_TENANT
-              value: {{ $.Values.oauth.microsoft.tenant | quote }}
-            - name: AMBIENCE_MICROSOFT_CLIENT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .existingSecret | quote }}
-                  key: {{ .clientIdKey | quote }}
+            - name: AMBIENCE_OIDC_ISSUER
+              value: {{ .issuer | quote }}
+            - name: AMBIENCE_OIDC_CLIENT_ID
+              value: {{ .clientId | quote }}
             {{- end }}
             {{- end }}
             {{- end }}

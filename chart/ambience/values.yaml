@@ -61,19 +61,6 @@ service:
   port: 80
   targetPort: http
 
-oauth:
-  microsoft:
-    tenant: 2236b5e4-81d2-4d82-bde5-17b1037999ea
-  externalSecret:
-    enabled: false
-    name: ambience-oauth
-    createStore: true
-    storeName: ng6-ambience
-    storeKind: ClusterSecretStore
-    vaultUrl: https://ng6-ambience.vault.azure.net
-    refreshInterval: 1h
-    clientIdKey: ambience-oauth-client-id
-
 edge:
   enabled: true
   image:
@@ -159,10 +146,14 @@ authority:
   controlAuth:
     existingSecret: ""
     passwordKey: password
-    microsoft:
+    # Admins sign in through auth.romaine.life (OIDC authorization-code + PKCE).
+    # The backend (BFF) does the code exchange and verifies the id_token
+    # (aud=clientId, iss=issuer). Public client, no secret — register clientId
+    # in auth.romaine.life trustedClients.
+    oidc:
       enabled: false
-      existingSecret: ambience-oauth
-      clientIdKey: client-id
+      issuer: https://auth.romaine.life
+      clientId: ambience
   resources:
     requests:
       cpu: 10m

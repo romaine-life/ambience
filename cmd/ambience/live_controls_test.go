@@ -15,7 +15,7 @@ func withSharedControlTestState(t *testing.T, a *atmosphere) {
 	prevShared := shared
 	prevAuth := controlAuth
 	shared = a
-	controlAuth = newControlAuthenticator("", microsoftControlAuthConfig{})
+	controlAuth = newControlAuthenticator("", oidcControlAuthConfig{})
 	t.Cleanup(func() {
 		shared = prevShared
 		controlAuth = prevAuth

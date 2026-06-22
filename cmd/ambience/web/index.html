@@ -76,7 +76,7 @@
 
 	// auth state
 	let authRequired = true, authed = false, armed = false;
-	let authProvider = '', microsoftTenant = '', microsoftClientId = '';
+	let authProvider = '';
 
 	// ── chrome controller ──────────────────────────────────────────────────
 	// World-first by default: the live monitor loads with the chrome dismissed.
@@ -170,8 +170,6 @@
 			authRequired = !!s.required;
 			authed = !authRequired || !!s.authenticated;
 			authProvider = s.provider || '';
-			microsoftTenant = s.microsoftTenant || '';
-			microsoftClientId = s.microsoftClientId || '';
 		} catch (err) {
 			console.error('control auth', err);
 			authRequired = true; authed = false;
@@ -180,51 +178,47 @@
 		setAuthUI();
 	}
 
-	function microsoftAuthURL() {
-		const state = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
-		const nonce = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
-		sessionStorage.setItem('ambience.microsoft.state', state);
-		sessionStorage.setItem('ambience.microsoft.nonce', nonce);
-		const q = new URLSearchParams({
-			client_id: microsoftClientId, response_type: 'id_token', redirect_uri: window.location.origin + '/auth/callback',
-			response_mode: 'fragment', scope: 'openid profile email', state, nonce,
-		});
-		return 'https://login.microsoftonline.com/' + encodeURIComponent(microsoftTenant) + '/oauth2/v2.0/authorize?' + q.toString();
-	}
-	async function completeMicrosoftSignIn(idToken, nonce) {
+	// auth.romaine.life login: authorization-code + PKCE. The backend (BFF)
+	// holds the PKCE verifier and does the code→token exchange, so the browser
+	// only ever carries the opaque `code`/`state`.
+	async function startOidcSignIn() {
 		const resp = await fetch('/control-auth', {
 			method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ idToken, nonce }),
+			body: JSON.stringify({ action: 'start' }),
 		});
-		if (!resp.ok) throw new Error('auth ' + resp.status);
+		if (!resp.ok) throw new Error('auth start ' + resp.status);
 		const s = await resp.json();
-		authRequired = !!s.required;
-		authed = !authRequired || !!s.authenticated;
-		chrome.appendLog({ t: now(), kind: 'scene', text: 'live controls signed in' });
-		return authed;
+		if (!s.authorizeUrl) throw new Error('no authorize url');
+		window.location.assign(s.authorizeUrl);
 	}
-	async function handleMicrosoftCallback() {
-		if (!window.location.hash || !window.location.hash.includes('id_token=')) return;
-		const params = new URLSearchParams(window.location.hash.slice(1));
-		const expState = sessionStorage.getItem('ambience.microsoft.state');
-		const expNonce = sessionStorage.getItem('ambience.microsoft.nonce');
-		sessionStorage.removeItem('ambience.microsoft.state');
-		sessionStorage.removeItem('ambience.microsoft.nonce');
+	async function handleOidcCallback() {
+		const params = new URLSearchParams(window.location.search);
+		const code = params.get('code'), state = params.get('state');
+		if (!code || !state) return;
 		history.replaceState(null, '', '/');
-		if (!params.get('id_token') || !expState || !expNonce || params.get('state') !== expState) {
-			chrome.appendLog({ t: now(), kind: 'trigger', text: 'live control sign-in failed' });
-			return;
-		}
 		try {
-			const ok = await completeMicrosoftSignIn(params.get('id_token'), expNonce);
-			armed = ok; setAuthUI();
+			const resp = await fetch('/control-auth', {
+				method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ code, state }),
+			});
+			if (!resp.ok) throw new Error('auth ' + resp.status);
+			const s = await resp.json();
+			authRequired = !!s.required;
+			authed = !authRequired || !!s.authenticated;
+			armed = authed;
+			chrome.appendLog({ t: now(), kind: 'scene', text: 'live controls signed in' });
 		} catch (err) {
-			console.error('control auth', err); authed = false; setAuthUI();
+			console.error('control auth', err); authed = false;
+			chrome.appendLog({ t: now(), kind: 'trigger', text: 'live control sign-in failed' });
 		}
+		setAuthUI();
 	}
 	async function signInControls() {
-		if (authProvider === 'microsoft' && microsoftTenant && microsoftClientId) {
-			window.location.assign(microsoftAuthURL());
+		if (authProvider === 'oidc') {
+			try { await startOidcSignIn(); } catch (err) {
+				console.error('control auth', err);
+				chrome.appendLog({ t: now(), kind: 'trigger', text: 'live control sign-in failed' });
+			}
 			return;
 		}
 		const password = window.prompt('live control password');
@@ -546,7 +540,7 @@
 
 	// ── boot ─────────────────────────────────────────────────────────────
 	setAuthUI();
-	handleMicrosoftCallback();
+	handleOidcCallback();
 	refreshControlAuth();
 	startRuntime().catch((err) => { console.error(err); chrome.setLine('wasm runtime failed'); });
 })();
