@@ -87,9 +87,9 @@ type appConfig struct {
 	role             appRole
 	addr             string
 	authorityURL     string
-	controlPassword  string
-	controlMicrosoft microsoftControlAuthConfig
-	shutdownDrain    time.Duration
+	controlPassword string
+	controlOIDC     oidcControlAuthConfig
+	shutdownDrain   time.Duration
 }
 
 type lifecycleState struct {
@@ -117,7 +117,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	lifecycle := &lifecycleState{}
-	controlAuth = newControlAuthenticator(cfg.controlPassword, cfg.controlMicrosoft)
+	controlAuth = newControlAuthenticator(cfg.controlPassword, cfg.controlOIDC)
 
 	mux := http.NewServeMux()
 	baseReady := func() bool { return true }
@@ -208,9 +208,9 @@ func loadAppConfigFromEnv() (appConfig, error) {
 		return appConfig{}, fmt.Errorf("AMBIENCE_AUTHORITY_URL is required when AMBIENCE_ROLE=%q", roleEdge)
 	}
 	cfg.controlPassword = os.Getenv("AMBIENCE_CONTROL_PASSWORD")
-	cfg.controlMicrosoft = microsoftControlAuthConfig{
-		Tenant:   strings.TrimSpace(os.Getenv("AMBIENCE_MICROSOFT_TENANT")),
-		ClientID: strings.TrimSpace(os.Getenv("AMBIENCE_MICROSOFT_CLIENT_ID")),
+	cfg.controlOIDC = oidcControlAuthConfig{
+		Issuer:   strings.TrimSpace(os.Getenv("AMBIENCE_OIDC_ISSUER")),
+		ClientID: strings.TrimSpace(os.Getenv("AMBIENCE_OIDC_CLIENT_ID")),
 	}
 	if rawDrain := strings.TrimSpace(os.Getenv("AMBIENCE_SHUTDOWN_DRAIN")); rawDrain != "" {
 		d, err := time.ParseDuration(rawDrain)

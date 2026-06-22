@@ -17,23 +17,42 @@ const controlAuthCookie = "ambience_control"
 type controlAuthenticator struct {
 	passwordHash [sha256.Size]byte
 	required     bool
-	microsoft    *microsoftControlAuth
+	oidc         *oidcControlAuth
 	mu           sync.Mutex
 	sessions     map[string]time.Time
 }
 
-func newControlAuthenticator(password string, microsoftCfg microsoftControlAuthConfig) *controlAuthenticator {
+func newControlAuthenticator(password string, oidcCfg oidcControlAuthConfig) *controlAuthenticator {
 	password = strings.TrimSpace(password)
-	microsoftAuth := newMicrosoftControlAuth(microsoftCfg)
+	oidcAuth := newOIDCControlAuth(oidcCfg)
 	a := &controlAuthenticator{
-		required:  password != "" || microsoftAuth != nil,
-		microsoft: microsoftAuth,
-		sessions:  make(map[string]time.Time),
+		required: password != "" || oidcAuth != nil,
+		oidc:     oidcAuth,
+		sessions: make(map[string]time.Time),
 	}
 	if password != "" {
 		a.passwordHash = sha256.Sum256([]byte(password))
 	}
 	return a
+}
+
+// controlCallbackURL derives the OIDC redirect_uri from the inbound request so
+// it always matches the public origin (and the redirectUrls registered for the
+// "ambience" client in auth.romaine.life) without trusting client input.
+func controlCallbackURL(req *http.Request) string {
+	host := req.Header.Get("X-Forwarded-Host")
+	if host == "" {
+		host = req.Host
+	}
+	proto := req.Header.Get("X-Forwarded-Proto")
+	if proto == "" {
+		if req.TLS != nil {
+			proto = "https"
+		} else {
+			proto = "http"
+		}
+	}
+	return proto + "://" + host + "/auth/callback"
 }
 
 func (a *controlAuthenticator) authenticated(req *http.Request) bool {
@@ -88,10 +107,8 @@ func (a *controlAuthenticator) writeStatus(w http.ResponseWriter, req *http.Requ
 		"required":      a.required,
 		"authenticated": a.authenticated(req),
 	}
-	if a.microsoft != nil {
-		status["provider"] = "microsoft"
-		status["microsoftTenant"] = a.microsoft.tenant
-		status["microsoftClientId"] = a.microsoft.clientID
+	if a.oidc != nil {
+		status["provider"] = "oidc"
 	}
 	_ = json.NewEncoder(w).Encode(status)
 }
@@ -102,17 +119,30 @@ func (a *controlAuthenticator) login(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	var body struct {
+		Action   string `json:"action"`
 		Password string `json:"password"`
-		IDToken  string `json:"idToken"`
-		Nonce    string `json:"nonce"`
+		Code     string `json:"code"`
+		State    string `json:"state"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 		http.Error(w, "bad auth payload", http.StatusBadRequest)
 		return
 	}
-	if a.microsoft != nil {
-		if err := a.microsoft.verifyIDToken(req.Context(), body.IDToken, body.Nonce); err != nil {
-			http.Error(w, "bad microsoft token", http.StatusUnauthorized)
+	// OIDC first leg: hand the browser the provider authorize URL. No session
+	// is established until the code comes back to completeLogin.
+	if a.oidc != nil && body.Action == "start" {
+		authURL, err := a.oidc.startLogin(req.Context(), controlCallbackURL(req))
+		if err != nil {
+			http.Error(w, "oidc start failed", http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"authorizeUrl": authURL})
+		return
+	}
+	if a.oidc != nil {
+		if err := a.oidc.completeLogin(req.Context(), body.Code, body.State); err != nil {
+			http.Error(w, "oidc sign-in failed", http.StatusUnauthorized)
 			return
 		}
 	} else {
