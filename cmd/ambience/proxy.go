@@ -33,6 +33,10 @@ type authorityProxy struct {
 	proxy   *httputil.ReverseProxy
 	entropy *entropyForwarder
 	mirror  *authorityMirror
+	// worlds holds a mirror per named world, keyed by route prefix
+	// (e.g. "/chess"). Each fans out its own authority stream so consumers of a
+	// named world get the same edge replay/fanout the default world gets.
+	worlds  map[string]*authorityMirror
 	client  *http.Client
 	baseURL *url.URL
 }
@@ -56,10 +60,17 @@ func newAuthorityProxy(ctx context.Context, rawURL string) (*authorityProxy, err
 		http.Error(w, "authority unavailable", http.StatusBadGateway)
 	}
 
+	worlds := make(map[string]*authorityMirror)
+	for _, def := range namedWorldDefs() {
+		prefix := "/" + def.Name
+		worlds[prefix] = newAuthorityMirror(ctx, baseURL, prefix)
+	}
+
 	return &authorityProxy{
 		proxy:   proxy,
 		entropy: newEntropyForwarder(ctx, baseURL),
-		mirror:  newAuthorityMirror(ctx, baseURL),
+		mirror:  newAuthorityMirror(ctx, baseURL, ""),
+		worlds:  worlds,
 		client:  &http.Client{},
 		baseURL: baseURL,
 	}, nil
@@ -82,6 +93,41 @@ func registerEdgeRoutes(mux *http.ServeMux, proxy *authorityProxy) {
 	mux.HandleFunc("/dev/observe", proxy.serveHTTP)
 	mux.HandleFunc("/dev/frame", proxy.serveHTTP)
 	mux.HandleFunc("/dev/trigger/", proxy.serveHTTP)
+
+	// Named worlds — read-only stream per world, fanned out by a dedicated
+	// mirror. Entropy is a direct passthrough to the authority (which adds its
+	// own CORS), so it is not double-wrapped here.
+	for _, def := range namedWorldDefs() {
+		prefix := "/" + def.Name
+		mirror := proxy.worlds[prefix]
+		if mirror == nil {
+			continue
+		}
+		mux.HandleFunc(prefix+"/snapshot", cors(mirrorSnapshotHandler(mirror)))
+		mux.HandleFunc(prefix+"/events", cors(mirrorEventsHandler(mirror)))
+		mux.HandleFunc(prefix+"/entropy", proxy.serveHTTP)
+	}
+}
+
+// mirrorSnapshotHandler serves the current cached snapshot from a specific
+// world mirror.
+func mirrorSnapshotHandler(m *authorityMirror) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		snap, _, ok := m.snapshot()
+		if !ok {
+			http.Error(w, "authority snapshot unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(snap)
+	}
+}
+
+// mirrorEventsHandler streams a specific world mirror to one subscriber.
+func mirrorEventsHandler(m *authorityMirror) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		m.stream(w, r)
+	}
 }
 
 func (p *authorityProxy) ready() bool {
@@ -188,12 +234,12 @@ type authorityMirror struct {
 	listeners   map[chan Command]struct{}
 }
 
-func newAuthorityMirror(ctx context.Context, baseURL *url.URL) *authorityMirror {
+func newAuthorityMirror(ctx context.Context, baseURL *url.URL, prefix string) *authorityMirror {
 	m := &authorityMirror{
 		ctx:         ctx,
 		client:      &http.Client{},
-		eventsURL:   baseURL.ResolveReference(&url.URL{Path: "/events"}).String(),
-		snapshotURL: baseURL.ResolveReference(&url.URL{Path: "/snapshot"}).String(),
+		eventsURL:   baseURL.ResolveReference(&url.URL{Path: prefix + "/events"}).String(),
+		snapshotURL: baseURL.ResolveReference(&url.URL{Path: prefix + "/snapshot"}).String(),
 		listeners:   make(map[chan Command]struct{}),
 	}
 	go func() {

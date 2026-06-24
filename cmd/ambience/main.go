@@ -40,7 +40,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -242,6 +241,9 @@ func bootAuthority(ctx context.Context) error {
 	if store != nil {
 		go persistLoop(ctx, persistInterval, store, shared)
 	}
+	// Named worlds (curated effect-sets, e.g. /chess) run alongside the default
+	// shared world. They are not persisted — pinned, decorative broadcasts.
+	startNamedWorlds(ctx)
 	go sweepDevSessions()
 	return nil
 }
@@ -289,19 +291,30 @@ func registerSchemaRoute(mux *http.ServeMux) {
 }
 
 func registerAuthorityRoutes(mux *http.ServeMux) {
-	// Shared atmosphere — CORS-enabled so third-party pages (fzt-showcase,
-	// my-homepage, etc.) can consume the stream.
-	mux.HandleFunc("/snapshot", cors(serveSharedSnapshot))
-	mux.HandleFunc("/events", cors(serveSharedEvents))
+	// Default world — the public rotating atmosphere at the bare paths.
+	// CORS-enabled so third-party pages (fzt-showcase, my-homepage, etc.) can
+	// consume the stream.
+	mux.HandleFunc("/snapshot", cors(serveAtmosphereSnapshot(shared)))
+	mux.HandleFunc("/events", cors(serveAtmosphereEvents(shared)))
+	// Entropy intake — clients POST keystroke-derived bytes here; bytes get
+	// folded into the world's RNG.
+	mux.HandleFunc("/entropy", cors(serveAtmosphereEntropy(shared)))
 	// Shared live controls stay same-origin only. They intentionally do not
 	// opt into permissive CORS because they mutate the shared atmosphere.
 	mux.HandleFunc("/control-auth", controlAuth.serve)
 	mux.HandleFunc("/config", serveSharedConfig)
 	mux.HandleFunc("/trigger/", serveSharedTrigger)
 	mux.HandleFunc("/next-effect", serveSharedNextEffect)
-	// Entropy intake — clients POST keystroke-derived bytes here; bytes
-	// get folded into the shared atmosphere's RNG.
-	mux.HandleFunc("/entropy", cors(serveEntropy))
+	// Named worlds — curated effect-sets served read-only under /{name}/
+	// (snapshot + events + entropy). Mutation/dev/og-image stay default-world
+	// only. Registered after bootAuthority has populated namedWorlds.
+	for _, world := range namedWorlds {
+		prefix := "/" + world.def.Name
+		atmosphere := world.atmosphere
+		mux.HandleFunc(prefix+"/snapshot", cors(serveAtmosphereSnapshot(atmosphere)))
+		mux.HandleFunc(prefix+"/events", cors(serveAtmosphereEvents(atmosphere)))
+		mux.HandleFunc(prefix+"/entropy", cors(serveAtmosphereEntropy(atmosphere)))
+	}
 }
 
 func registerDevRoutes(mux *http.ServeMux) {
@@ -485,31 +498,6 @@ func streamAtmosphere(w http.ResponseWriter, req *http.Request, a *atmosphere) {
 	}
 }
 
-func serveSharedSnapshot(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(shared.snapshot())
-}
-
-func serveSharedEvents(w http.ResponseWriter, req *http.Request) {
-	streamAtmosphere(w, req, shared)
-}
-
-// serveEntropy accepts raw bytes from clients (POSTed by client.js on a
-// throttled keystroke cadence) and folds them into the shared atmosphere's
-// RNG. Cheap, lossy, intentional — this is aesthetic perturbation, not
-// secure randomness. A small request-size cap keeps the endpoint from
-// being used for anything but short entropy bursts.
-func serveEntropy(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPost {
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
-		return
-	}
-	const maxBytes = 4096
-	req.Body = http.MaxBytesReader(w, req.Body, maxBytes)
-	buf := make([]byte, maxBytes)
-	n, _ := io.ReadFull(req.Body, buf)
-	if n > 0 {
-		shared.AddEntropy(buf[:n])
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
+// Per-world snapshot/events/entropy handlers live in worlds.go
+// (serveAtmosphere*), bound to a specific atmosphere so the default world and
+// named worlds share one implementation.

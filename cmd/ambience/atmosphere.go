@@ -78,6 +78,11 @@ type snapshotData struct {
 	ScenePolicy    scenePolicyData     `json:"scenePolicy"`
 	Transition     transitionStateData `json:"transition"`
 	RotationPolicy rotationPolicyData  `json:"rotationPolicy"`
+	// ServedEffects is the set of effect types this world may broadcast — its
+	// handshake contract. On connect a consumer verifies its vendored runtime
+	// supports every entry; a missing one means the client was not built for
+	// this world (fail loudly rather than render nothing).
+	ServedEffects []string `json:"servedEffects"`
 }
 
 type clockData struct {
@@ -770,6 +775,7 @@ func (a *atmosphere) snapshot() snapshotData {
 			ScenePolicy:    policy.data(),
 			Transition:     transitionData(transitionStart, transitionDur, cur),
 			RotationPolicy: rotationPolicy.data(),
+			ServedEffects:  rotationPolicy.resolvedAllowedEffects(),
 		}
 	}
 	return snapshotData{
@@ -787,6 +793,7 @@ func (a *atmosphere) snapshot() snapshotData {
 		ScenePolicy:    policy.data(),
 		Transition:     transitionData(transitionStart, transitionDur, effectSnap.Tick),
 		RotationPolicy: rotationPolicy.data(),
+		ServedEffects:  rotationPolicy.resolvedAllowedEffects(),
 	}
 }
 
