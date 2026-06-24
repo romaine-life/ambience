@@ -11,7 +11,10 @@
 // per-consumer JS required.
 //
 // Configuration, via attributes on the <canvas>:
-//   data-ambience-url="https://ambience.romaine.life"   — server override
+//   data-ambience-url="https://ambience.romaine.life"   — stream/server override
+//   data-ambience-wasm-url / -wasm-exec-url / -runtime-url — load the runtime
+//     from a vendored, version-pinned copy instead of the stream origin. Lets a
+//     consumer bundle its own (effect-scoped) WASM while subscribing to a world.
 //   data-ambience-grid-w="320" / data-ambience-grid-h="180" — sim grid size
 //   data-ambience-transparent="false"  — paint solid bg (default: true)
 //   data-ambience-entropy="off"        — disable keystroke entropy upload
@@ -135,6 +138,18 @@
 		canvas.dataset.ambienceUrl ||
 		window.AMBIENCE_URL ||
 		(isLocalhost ? 'http://127.0.0.1:8080' : 'https://ambience.romaine.life');
+	const trimSlashes = (s) => s.replace(/\/+$/, '');
+	// Asset URLs default to SERVER (load the runtime from the same origin as the
+	// stream). A vendoring consumer overrides them so the WASM/runtime load from
+	// its OWN bundled, version-pinned copy while the stream still points at the
+	// world. This is what lets the chess menu ship a vendored rain-only WASM yet
+	// subscribe to ambience's /chess world.
+	const WASM_URL =
+		canvas.dataset.ambienceWasmUrl || trimSlashes(SERVER) + '/ambience.wasm';
+	const WASM_EXEC_URL =
+		canvas.dataset.ambienceWasmExecUrl || trimSlashes(SERVER) + '/wasm_exec.js';
+	const RUNTIME_URL =
+		canvas.dataset.ambienceRuntimeUrl || trimSlashes(SERVER) + '/wasm_runtime.js';
 	const GRID_W = parseInt(canvas.dataset.ambienceGridW || '320', 10);
 	const GRID_H = parseInt(canvas.dataset.ambienceGridH || '180', 10);
 	const TRANSPARENT = canvas.dataset.ambienceTransparent !== 'false';
@@ -173,6 +188,12 @@
 	let initialFadePending = false;
 	let initialFadeStarted = false;
 	let lastError = null;
+	// Capability handshake: on the first snapshot we verify this client's
+	// runtime supports every effect the world advertises in servedEffects. If
+	// one is missing, the client was not built for this world — fail loudly
+	// (log + refuse to render) instead of silently mis-rendering.
+	let handshakeChecked = false;
+	let handshakeOK = true;
 	const sceneState = {
 		currentName: null,
 		nextName: null,
@@ -325,9 +346,30 @@
 		}
 	}
 
+	// runHandshake verifies the client supports every effect the world may
+	// broadcast. Returns false (and logs) when an advertised effect is missing
+	// from this build. An older authority that advertises nothing passes.
+	function runHandshake(served) {
+		if (!Array.isArray(served) || served.length === 0) return true;
+		const missing = served.filter((name) => !AmbienceSim.effects[name]);
+		if (missing.length === 0) return true;
+		lastError = `client missing world effects: ${missing.join(', ')}`;
+		console.error(
+			'[ambience] handshake failed — this client was not built to render ' +
+			`effect(s) [${missing.join(', ')}] served by ${SERVER}. Update the ` +
+			'ambience client to a version that includes them.',
+		);
+		return false;
+	}
+
 	function applyCommandNow(cmd, data) {
 		switch (cmd.kind) {
 			case 'snapshot': {
+				if (!handshakeChecked) {
+					handshakeChecked = true;
+					handshakeOK = runHandshake(data && data.servedEffects);
+				}
+				if (!handshakeOK) break;
 				const newType = (data && data.type) || 'rain';
 				const ctor = AmbienceSim.effects[newType];
 				if (!ctor) {
@@ -391,14 +433,14 @@
 
 	async function start() {
 		if (!AmbienceSim.wasm) {
-			await loadScript(SERVER.replace(/\/+$/, '') + '/wasm_runtime.js');
+			await loadScript(RUNTIME_URL);
 		}
 		if (!AmbienceSim.wasm || !AmbienceSim.wasm.ready) {
 			throw new Error('ambience-client: Go WASM runtime missing');
 		}
 		await AmbienceSim.wasm.ready({
-			wasmExecURL: SERVER.replace(/\/+$/, '') + '/wasm_exec.js',
-			wasmURL: SERVER.replace(/\/+$/, '') + '/ambience.wasm',
+			wasmExecURL: WASM_EXEC_URL,
+			wasmURL: WASM_URL,
 		});
 
 		// Patch the subscribe snapshot handler so we can detect effect-type

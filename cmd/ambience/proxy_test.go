@@ -318,7 +318,7 @@ func TestNewAuthorityProxyStartsReadyAfterSnapshotFetch(t *testing.T) {
 	p := &authorityProxy{
 		proxy:   httputil.NewSingleHostReverseProxy(baseURL),
 		entropy: newEntropyForwarder(ctx, baseURL),
-		mirror:  newAuthorityMirror(ctx, baseURL),
+		mirror:  newAuthorityMirror(ctx, baseURL, ""),
 	}
 	for i := 0; i < 20; i++ {
 		if p.ready() {
