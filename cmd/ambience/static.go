@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"io/fs"
 	"mime"
 	"net/http"
@@ -10,6 +12,16 @@ import (
 )
 
 var defaultStaticMTime = time.Unix(0, 0)
+
+// staticETag derives a strong, content-addressed ETag from the asset bytes.
+// http.ServeContent prefers If-None-Match over If-Modified-Since, so a
+// content-derived validator makes conditional GETs revalidate correctly
+// across deploys even though defaultStaticMTime never changes. Without it,
+// browsers keep serving a stale /ambience.wasm after the content changes.
+func staticETag(data []byte) string {
+	sum := sha256.Sum256(data)
+	return `"` + hex.EncodeToString(sum[:]) + `"`
+}
 
 func init() {
 	// Go's built-in MIME table has no .ttf entry, and the distroless runtime
@@ -43,6 +55,12 @@ func serveStaticFile(static staticAssets, name string) http.HandlerFunc {
 		if ctype := mime.TypeByExtension(filepath.Ext(name)); ctype != "" {
 			w.Header().Set("Content-Type", ctype)
 		}
+		// no-cache lets browsers cache the bytes but forces a conditional
+		// revalidation on every load; paired with the content ETag the server
+		// answers 304 while content is unchanged and ships fresh bytes the
+		// instant a deploy changes them.
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("ETag", staticETag(data))
 		http.ServeContent(w, req, name, defaultStaticMTime, bytes.NewReader(data))
 	}
 }
