@@ -127,4 +127,74 @@ func TestServeExactStaticFileServesOnlyConfiguredRoute(t *testing.T) {
 	}
 }
 
+func TestServeStaticFileSetsContentETagAndRevalidates(t *testing.T) {
+	static := newStaticAssets(fstest.MapFS{
+		"ambience.wasm": &fstest.MapFile{Data: []byte("wasm-v1")},
+	})
+	handler := serveStaticFile(static, "ambience.wasm")
+
+	// First GET returns the bytes plus a content-derived ETag and a
+	// revalidating Cache-Control.
+	req := httptest.NewRequest(http.MethodGet, "/ambience.wasm", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	etag := rec.Header().Get("ETag")
+	if etag == "" {
+		t.Fatalf("ETag header missing")
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Fatalf("Cache-Control = %q, want %q", cc, "no-cache")
+	}
+	if body := rec.Body.String(); body != "wasm-v1" {
+		t.Fatalf("body = %q, want %q", body, "wasm-v1")
+	}
+
+	// A conditional GET with the matching ETag revalidates to 304 — no body.
+	req = httptest.NewRequest(http.MethodGet, "/ambience.wasm", nil)
+	req.Header.Set("If-None-Match", etag)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotModified {
+		t.Fatalf("conditional status = %d, want %d", rec.Code, http.StatusNotModified)
+	}
+	if body := rec.Body.String(); body != "" {
+		t.Fatalf("304 body = %q, want empty", body)
+	}
+}
+
+func TestServeStaticFileETagChangesWithContent(t *testing.T) {
+	// Simulate a deploy: same path, different bytes. The browser still holds
+	// the old ETag (and only the stale Unix(0) Last-Modified), but the new
+	// content yields a new ETag so the conditional GET must fetch fresh bytes
+	// instead of getting a stale 304.
+	oldStatic := newStaticAssets(fstest.MapFS{
+		"ambience.wasm": &fstest.MapFile{Data: []byte("wasm-v1")},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/ambience.wasm", nil)
+	rec := httptest.NewRecorder()
+	serveStaticFile(oldStatic, "ambience.wasm").ServeHTTP(rec, req)
+	oldETag := rec.Header().Get("ETag")
+
+	newStatic := newStaticAssets(fstest.MapFS{
+		"ambience.wasm": &fstest.MapFile{Data: []byte("wasm-v2-changed")},
+	})
+	req = httptest.NewRequest(http.MethodGet, "/ambience.wasm", nil)
+	req.Header.Set("If-None-Match", oldETag)
+	rec = httptest.NewRecorder()
+	serveStaticFile(newStatic, "ambience.wasm").ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (stale ETag must not 304)", rec.Code, http.StatusOK)
+	}
+	if newETag := rec.Header().Get("ETag"); newETag == oldETag {
+		t.Fatalf("ETag unchanged across content change: %q", newETag)
+	}
+	if body := rec.Body.String(); body != "wasm-v2-changed" {
+		t.Fatalf("body = %q, want fresh content", body)
+	}
+}
+
 var _ fs.FS = fstest.MapFS{}
