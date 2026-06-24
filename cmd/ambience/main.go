@@ -275,6 +275,9 @@ func registerStaticRoutes(mux *http.ServeMux, static staticAssets, lookup effect
 	mux.HandleFunc("/wasm_runtime.js", serveStaticFile(static, "wasm_runtime.js"))
 	mux.HandleFunc("/wasm_exec.js", serveStaticFile(static, "wasm_exec.js"))
 	mux.HandleFunc("/ambience.wasm", cors(serveStaticFile(static, "ambience.wasm")))
+	// Rain-scoped client artifact for single-effect consumers to vendor (e.g.
+	// the chess /chess world). CORS-enabled so a consumer's build can fetch it.
+	mux.HandleFunc("/ambience-rain.wasm", cors(serveStaticFile(static, "ambience-rain.wasm")))
 	// Glimmung's UI testing pilot requires every frontend project to
 	// expose /_styleguide on its live env so reviewers + the screenshot
 	// pass have a stable catalog to scan. The leading underscore marks

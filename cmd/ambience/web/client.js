@@ -11,7 +11,10 @@
 // per-consumer JS required.
 //
 // Configuration, via attributes on the <canvas>:
-//   data-ambience-url="https://ambience.romaine.life"   — server override
+//   data-ambience-url="https://ambience.romaine.life"   — stream/server override
+//   data-ambience-wasm-url / -wasm-exec-url / -runtime-url — load the runtime
+//     from a vendored, version-pinned copy instead of the stream origin. Lets a
+//     consumer bundle its own (effect-scoped) WASM while subscribing to a world.
 //   data-ambience-grid-w="320" / data-ambience-grid-h="180" — sim grid size
 //   data-ambience-transparent="false"  — paint solid bg (default: true)
 //   data-ambience-entropy="off"        — disable keystroke entropy upload
@@ -135,6 +138,18 @@
 		canvas.dataset.ambienceUrl ||
 		window.AMBIENCE_URL ||
 		(isLocalhost ? 'http://127.0.0.1:8080' : 'https://ambience.romaine.life');
+	const trimSlashes = (s) => s.replace(/\/+$/, '');
+	// Asset URLs default to SERVER (load the runtime from the same origin as the
+	// stream). A vendoring consumer overrides them so the WASM/runtime load from
+	// its OWN bundled, version-pinned copy while the stream still points at the
+	// world. This is what lets the chess menu ship a vendored rain-only WASM yet
+	// subscribe to ambience's /chess world.
+	const WASM_URL =
+		canvas.dataset.ambienceWasmUrl || trimSlashes(SERVER) + '/ambience.wasm';
+	const WASM_EXEC_URL =
+		canvas.dataset.ambienceWasmExecUrl || trimSlashes(SERVER) + '/wasm_exec.js';
+	const RUNTIME_URL =
+		canvas.dataset.ambienceRuntimeUrl || trimSlashes(SERVER) + '/wasm_runtime.js';
 	const GRID_W = parseInt(canvas.dataset.ambienceGridW || '320', 10);
 	const GRID_H = parseInt(canvas.dataset.ambienceGridH || '180', 10);
 	const TRANSPARENT = canvas.dataset.ambienceTransparent !== 'false';
@@ -418,14 +433,14 @@
 
 	async function start() {
 		if (!AmbienceSim.wasm) {
-			await loadScript(SERVER.replace(/\/+$/, '') + '/wasm_runtime.js');
+			await loadScript(RUNTIME_URL);
 		}
 		if (!AmbienceSim.wasm || !AmbienceSim.wasm.ready) {
 			throw new Error('ambience-client: Go WASM runtime missing');
 		}
 		await AmbienceSim.wasm.ready({
-			wasmExecURL: SERVER.replace(/\/+$/, '') + '/wasm_exec.js',
-			wasmURL: SERVER.replace(/\/+$/, '') + '/ambience.wasm',
+			wasmExecURL: WASM_EXEC_URL,
+			wasmURL: WASM_URL,
 		});
 
 		// Patch the subscribe snapshot handler so we can detect effect-type

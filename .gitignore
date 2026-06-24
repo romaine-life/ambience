@@ -9,6 +9,7 @@
 /.claude/settings.local.json
 node_modules/
 cmd/ambience/web/ambience.wasm
+cmd/ambience/web/ambience-rain.wasm
 cmd/ambience/web/wasm_exec.js
 .terraform/
 **/.terraform/
