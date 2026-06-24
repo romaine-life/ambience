@@ -173,6 +173,12 @@
 	let initialFadePending = false;
 	let initialFadeStarted = false;
 	let lastError = null;
+	// Capability handshake: on the first snapshot we verify this client's
+	// runtime supports every effect the world advertises in servedEffects. If
+	// one is missing, the client was not built for this world — fail loudly
+	// (log + refuse to render) instead of silently mis-rendering.
+	let handshakeChecked = false;
+	let handshakeOK = true;
 	const sceneState = {
 		currentName: null,
 		nextName: null,
@@ -325,9 +331,30 @@
 		}
 	}
 
+	// runHandshake verifies the client supports every effect the world may
+	// broadcast. Returns false (and logs) when an advertised effect is missing
+	// from this build. An older authority that advertises nothing passes.
+	function runHandshake(served) {
+		if (!Array.isArray(served) || served.length === 0) return true;
+		const missing = served.filter((name) => !AmbienceSim.effects[name]);
+		if (missing.length === 0) return true;
+		lastError = `client missing world effects: ${missing.join(', ')}`;
+		console.error(
+			'[ambience] handshake failed — this client was not built to render ' +
+			`effect(s) [${missing.join(', ')}] served by ${SERVER}. Update the ` +
+			'ambience client to a version that includes them.',
+		);
+		return false;
+	}
+
 	function applyCommandNow(cmd, data) {
 		switch (cmd.kind) {
 			case 'snapshot': {
+				if (!handshakeChecked) {
+					handshakeChecked = true;
+					handshakeOK = runHandshake(data && data.servedEffects);
+				}
+				if (!handshakeOK) break;
 				const newType = (data && data.type) || 'rain';
 				const ctor = AmbienceSim.effects[newType];
 				if (!ctor) {
