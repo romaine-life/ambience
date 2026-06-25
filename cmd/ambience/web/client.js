@@ -21,6 +21,11 @@
 //   data-ambience-delay-ticks="300"    — render this many authority ticks behind authority
 //   data-ambience-initial-fade-ms="1200" — fade in after the first authority snapshot
 //   data-ambience-initial-fade-color="#050505" — startup cover color
+//   data-ambience-intro-on-join="off" — disable the join intro. By default a
+//     freshly-connected client does NOT drop into the world mid-storm: it plays
+//     the effect's "intro" beat so the scene eases in (rain starts spawning from
+//     a near-empty grid) instead of the full atmosphere jolting on at once. Set
+//     to "off" to restore instant mid-simulation replication for this consumer.
 //
 // Effect agnostic: the server's snapshot broadcasts the effect type; this
 // file looks it up in AmbienceSim.effects[type]. Adding a new effect means
@@ -158,6 +163,7 @@
 	const HAS_DELAY_ATTR = canvas.dataset.ambienceDelayTicks != null;
 	const PLAYBACK_DELAY_TICKS = Math.max(0, parseInt(canvas.dataset.ambienceDelayTicks || '300', 10) || 0);
 	const INITIAL_FADE_MS = Math.max(0, parseInt(canvas.dataset.ambienceInitialFadeMs || '1200', 10) || 0);
+	const INTRO_ON_JOIN = canvas.dataset.ambienceIntroOnJoin !== 'off';
 	const MAX_CATCHUP_STEPS = 5;
 	const SOFT_CATCHUP_DRIFT = 20;
 	const HARD_CATCHUP_DRIFT = 100;
@@ -381,6 +387,16 @@
 				if (!sim) {
 					sim = new ctor(GRID_W, GRID_H, {});
 					try { sim.restoreSnapshot(data); } catch (err) { console.error('bad snapshot', err); }
+					// Restoring the snapshot replicates the world mid-storm, which
+					// makes the rain jolt on the instant we connect. Instead, play
+					// the effect's intro so it eases in — the restore still gave us
+					// the aligned tick + event timers + config, but the intro clears
+					// the in-flight particles and starts spawning fresh, so it reads
+					// as "it just started raining". Effects without an intro beat
+					// ignore the trigger and keep the mid-storm join.
+					if (INTRO_ON_JOIN && sim.triggerEvent) {
+						try { sim.triggerEvent('intro'); } catch (err) { console.error('join intro failed', err); }
+					}
 					effectType = newType;
 					initialFadePending = true;
 				} else if (newType !== effectType) {

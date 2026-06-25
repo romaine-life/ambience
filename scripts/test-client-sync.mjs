@@ -271,7 +271,7 @@ assertAligned(a, b, 'steady buffered playback');
 assert.ok(Math.abs(a.state().driftTicks) <= 1, 'clients converge to the delayed authority tick');
 assert.equal(a.state().queuedCommands, 0, 'queued authority commands were applied');
 assert.equal(a.state().sim.configVersion, 2, 'config command applied at playback tick');
-assert.deepEqual(plain(a.state().sim.triggers), ['gust@11'], 'trigger command applied before stepping into command tick');
+assert.deepEqual(plain(a.state().sim.triggers), ['intro@0', 'gust@11'], 'join plays the intro beat, then the queued trigger applies at its tick');
 assert.deepEqual(plain(a.state().scene), {
 	currentName: 'scene-c',
 	nextName: 'scene-d',
