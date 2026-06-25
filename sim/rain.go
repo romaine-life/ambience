@@ -815,6 +815,12 @@ func (r *Rain) TriggerEvent(name string) bool {
 	switch name {
 	case "intro":
 		r.startIntroductionLocked()
+		// Repaint now so the new (near-empty) intro frame is visible on the very
+		// next render even if Step() won't run for a while. A just-joined client
+		// sits behind its playback-delay buffer and does not step immediately;
+		// without this it would keep showing the stale full-storm grid the
+		// snapshot restore painted, then jump — the opposite of easing in.
+		r.repaintLocked()
 		r.appendLog("intro", fmt.Sprintf("started (%s, dur=%d)", introStyleName(r.cfg.IntroStyle), r.introTotal))
 	case "ending":
 		r.startEndingLocked()
