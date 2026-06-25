@@ -815,12 +815,6 @@ func (r *Rain) TriggerEvent(name string) bool {
 	switch name {
 	case "intro":
 		r.startIntroductionLocked()
-		// Repaint now so the new (near-empty) intro frame is visible on the very
-		// next render even if Step() won't run for a while. A just-joined client
-		// sits behind its playback-delay buffer and does not step immediately;
-		// without this it would keep showing the stale full-storm grid the
-		// snapshot restore painted, then jump — the opposite of easing in.
-		r.repaintLocked()
 		r.appendLog("intro", fmt.Sprintf("started (%s, dur=%d)", introStyleName(r.cfg.IntroStyle), r.introTotal))
 	case "ending":
 		r.startEndingLocked()
@@ -1015,33 +1009,6 @@ func (r *Rain) currentWind() float64 {
 	}
 	w += r.gustWind
 	return w
-}
-
-// layerIntensity scales the procedural rain layers (sheet + front plane) during
-// the intro/ending lifecycle beats so the WHOLE field ramps, not just the
-// foreground drops. The procedural layers are tick-driven and would otherwise
-// render at full density the instant a client joins — defeating the "it just
-// started raining" entrance. Returns 1 in steady state (no change).
-func (r *Rain) layerIntensity() float64 {
-	switch {
-	case r.introTicks > 0:
-		// 0 at the first intro tick, ramping to 1 as the intro completes —
-		// matches the foreground spawn ramp in stepIntroduction.
-		return phaseProgress(r.introTotal, r.introTicks)
-	case r.endingTicks > 0:
-		// Fade the procedural field out across the ending's fade window; gone
-		// through the trailing linger so the last drops resolve over bare grid.
-		if r.endingFade <= 1 {
-			return 0
-		}
-		elapsed := r.endingTotal - r.endingTicks
-		if elapsed >= r.endingFade {
-			return 0
-		}
-		return clamp01(1 - float64(elapsed)/float64(r.endingFade-1))
-	default:
-		return 1
-	}
 }
 
 func introStyle(style int) int {
@@ -1391,13 +1358,9 @@ func (r *Rain) paintSheet() {
 	if speed <= 0 {
 		speed = 1
 	}
-	intensity := r.layerIntensity()
-	if intensity <= 0 {
-		return
-	}
-	streams := int(math.Round(clamp01(r.cfg.SheetDensity) * float64(r.W) * 0.85 * intensity))
+	streams := int(math.Round(clamp01(r.cfg.SheetDensity) * float64(r.W) * 0.85))
 	if streams < 1 {
-		return
+		streams = 1
 	}
 	span := float64(r.H + length*2)
 	wind := r.currentWind()
@@ -1459,7 +1422,7 @@ func (r *Rain) paintFrontPlane() {
 	if life > 18 {
 		life = 18
 	}
-	eventsPerTick := clamp01(r.cfg.FrontDensity) * float64(r.W) * 0.038 * r.layerIntensity()
+	eventsPerTick := clamp01(r.cfg.FrontDensity) * float64(r.W) * 0.038
 	for age := 0; age <= life; age++ {
 		birthTick := r.tick - age
 		if birthTick < 0 {

@@ -14,9 +14,6 @@ func init() {
 		NewRuntime:   newRainRuntime,
 		NewScene:     generateRainScene,
 		NewNearScene: generateRainSceneNear,
-		// Rain is pure steady-state — independent transient drops, no coupling to
-		// a past. Start it fresh on join so it reads as "it began raining".
-		FreshJoin: true,
 	})
 }
 

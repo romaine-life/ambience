@@ -1,7 +1,3 @@
-# Shell scripts must stay LF — autocrlf would otherwise hand Git Bash CRLF
-# files, which fail to parse (`$'\r': command not found`).
-*.sh text eol=lf
-
 .github/** text eol=lf
 chart/** text eol=lf
 docs/agentic-issue-flow.md text eol=lf

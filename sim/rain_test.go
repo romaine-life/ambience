@@ -248,47 +248,6 @@ func TestHslToRGBBasicAnchors(t *testing.T) {
 	}
 }
 
-// TestIntroRampsProceduralLayers guards the "it just started raining" entrance:
-// the procedural sheet + front plane are tick-driven and used to render at full
-// density the instant a client joined, so triggering an intro only thinned the
-// foreground drops while the bulk of the field popped in fully formed. The intro
-// must ramp the WHOLE field from near-empty.
-func TestIntroRampsProceduralLayers(t *testing.T) {
-	r := NewRain(80, 45, 11, Config{
-		SheetDensity:  0.8,
-		SheetStrength: 0.6,
-		FrontDensity:  0.4,
-		FrontStrength: 0.6,
-		SpawnEvery:    100000, // suppress foreground drops so we measure the procedural layers
-		IntroDur:      60,
-	})
-
-	if !r.TriggerEvent("intro") {
-		t.Fatal("expected intro trigger to be recognized")
-	}
-	// Right after the trigger the field must be (near) empty, not a full storm.
-	atTrigger := countFilledPixels(r.Grid)
-
-	// A few ticks in: still early in the ramp, sparse.
-	for i := 0; i < 5; i++ {
-		r.Step()
-	}
-	early := countFilledPixels(r.Grid)
-
-	// Near the end of the intro: the field should be substantially fuller.
-	for r.CurrentTick() < 58 {
-		r.Step()
-	}
-	late := countFilledPixels(r.Grid)
-
-	if atTrigger > 40 {
-		t.Fatalf("field not near-empty at intro trigger: %d filled pixels", atTrigger)
-	}
-	if late <= early*3 {
-		t.Fatalf("procedural field did not ramp: early=%d late=%d (want late >> early)", early, late)
-	}
-}
-
 func countFilledPixels(grid [][]Pixel) int {
 	filled := 0
 	for y := range grid {

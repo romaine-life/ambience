@@ -18,18 +18,9 @@
 //   data-ambience-grid-w="320" / data-ambience-grid-h="180" — sim grid size
 //   data-ambience-transparent="false"  — paint solid bg (default: true)
 //   data-ambience-entropy="off"        — disable keystroke entropy upload
-//   data-ambience-delay-ticks="0"      — pin how many authority ticks behind the
-//     replica renders. Omit it to follow the world's per-effect suggestion: 0
-//     (live edge, no join freeze) for "fresh" effects like rain, a small delay
-//     for "restore" effects so their broadcast events line up across clients.
-//     Set a value only to override that.
+//   data-ambience-delay-ticks="300"    — render this many authority ticks behind authority
 //   data-ambience-initial-fade-ms="1200" — fade in after the first authority snapshot
 //   data-ambience-initial-fade-color="#050505" — startup cover color
-//   data-ambience-intro-on-join="off" — disable the join intro. By default a
-//     freshly-connected client does NOT drop into the world mid-storm: it plays
-//     the effect's "intro" beat so the scene eases in (rain starts spawning from
-//     a near-empty grid) instead of the full atmosphere jolting on at once. Set
-//     to "off" to restore instant mid-simulation replication for this consumer.
 //
 // Effect agnostic: the server's snapshot broadcasts the effect type; this
 // file looks it up in AmbienceSim.effects[type]. Adding a new effect means
@@ -165,13 +156,8 @@
 	const ENTROPY_ENABLED = canvas.dataset.ambienceEntropy !== 'off';
 	const TICK_MS = 1000 / 60;
 	const HAS_DELAY_ATTR = canvas.dataset.ambienceDelayTicks != null;
-	// Fallback delay until the first clock command (or a fresh snapshot) sets the
-	// real one. 0 = live edge, so nothing freezes before we know the effect's
-	// joinMode; the server then suggests per-effect (0 fresh / a delay restore),
-	// or a consumer pins it explicitly via the attr.
-	const PLAYBACK_DELAY_TICKS = Math.max(0, parseInt(canvas.dataset.ambienceDelayTicks || '0', 10) || 0);
+	const PLAYBACK_DELAY_TICKS = Math.max(0, parseInt(canvas.dataset.ambienceDelayTicks || '300', 10) || 0);
 	const INITIAL_FADE_MS = Math.max(0, parseInt(canvas.dataset.ambienceInitialFadeMs || '1200', 10) || 0);
-	const INTRO_ON_JOIN = canvas.dataset.ambienceIntroOnJoin !== 'off';
 	const MAX_CATCHUP_STEPS = 5;
 	const SOFT_CATCHUP_DRIFT = 20;
 	const HARD_CATCHUP_DRIFT = 100;
@@ -392,29 +378,9 @@
 					break;
 				}
 				lastError = null;
-				// joinMode is the effect's own declaration of whether its current
-				// frame is coupled to a past we missed. "fresh" effects (rain) are
-				// steady-state: start them from their intro at the live edge so they
-				// look like they just began. "restore" effects (the default) carry
-				// persistent state — a structure that's already there — so we replay
-				// the snapshot as-is. Unknown/legacy snapshots default to restore.
-				const fresh = !!(data && data.joinMode === 'fresh');
-				// Fresh effects render at the live edge so they never freeze on join.
-				// The server already suggests delay 0 for them via the clock command;
-				// pin it now too so the window before that command arrives is covered.
-				// A consumer that explicitly set a delay keeps it.
-				if (fresh && !HAS_DELAY_ATTR) clock.configure({ delayTicks: 0 });
 				if (!sim) {
 					sim = new ctor(GRID_W, GRID_H, {});
 					try { sim.restoreSnapshot(data); } catch (err) { console.error('bad snapshot', err); }
-					// For a fresh effect, replace the restored mid-state with its
-					// intro so it eases in (rain clears its in-flight drops and spawns
-					// from near-empty) instead of jolting on. The restore still gave
-					// us the aligned tick + config. Restore effects skip this and keep
-					// the snapshot as-is.
-					if (fresh && INTRO_ON_JOIN && sim.triggerEvent) {
-						try { sim.triggerEvent('intro'); } catch (err) { console.error('join intro failed', err); }
-					}
 					effectType = newType;
 					initialFadePending = true;
 				} else if (newType !== effectType) {
