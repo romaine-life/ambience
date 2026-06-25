@@ -33,7 +33,13 @@ var (
 	transitionBroadcastEvery    = ticksFor(1 * time.Second)
 	metricBroadcastEvery        = ticksFor(5 * time.Second)
 	clockBroadcastEvery         = ticksFor(1 * time.Second)
-	suggestedPlaybackDelayTicks = ticksFor(5 * time.Second)
+	// Clients render this far behind authority so queued config/trigger commands
+	// arrive before their playback tick. It's also how long a freshly-joined
+	// client's replica sits idle before it starts stepping (it restores at the
+	// live tick but plays back delayed), so an over-long value reads as the rain
+	// "freezing" on load. 1.5s keeps ample command headroom (clock is broadcast
+	// every 1s) while keeping that join idle short.
+	suggestedPlaybackDelayTicks = ticksFor(1500 * time.Millisecond)
 )
 
 // Command is a single message sent from server to clients.
