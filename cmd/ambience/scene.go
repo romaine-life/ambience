@@ -150,8 +150,10 @@ func generateRainScene(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
 	lmax := lmin + 0.20 + rng.Float64()*0.16 // lmin + 0.20..0.36
 
 	speed := 1.55 + rng.Float64()*0.75 // 1.55–2.30
-	spawnEvery := 3 + rng.Intn(3)      // 3–5
-	spawnBurst := 3 + rng.Intn(3)      // 3–5
+	// Lighter field: fewer, smaller bursts so the rain reads as ambient drizzle/
+	// rain rather than a dense storm (and so individual drops stay legible).
+	spawnEvery := 4 + rng.Intn(5) // 4–8 (rolls 1-in-N; larger = sparser)
+	spawnBurst := 2 + rng.Intn(2) // 2–3
 	streak := 10 + rng.Intn(5)         // 10–14
 	fade := 0.88 + rng.Float64()*0.08  // 0.88–0.96
 	wind := -0.35 + rng.Float64()*0.7  // -0.35..+0.35
@@ -161,11 +163,13 @@ func generateRainScene(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
 	layers := 2
 	layerBalance := 0.45 + rng.Float64()*0.20 // 0.45–0.65
 
-	sheetDensity := 0.52 + rng.Float64()*0.24
+	// Thinner distant texture so the field stays light and the tracked drops
+	// (the legible foreground) aren't drowned by background sheet streams.
+	sheetDensity := 0.24 + rng.Float64()*0.18
 	sheetStrength := 0.22 + rng.Float64()*0.16
 	sheetLength := 9 + rng.Intn(6)
 	sheetSpeed := 1.35 + rng.Float64()*0.55
-	frontDensity := 0.28 + rng.Float64()*0.22
+	frontDensity := 0.16 + rng.Float64()*0.16
 	frontStrength := 0.4 + rng.Float64()*0.25
 	frontLength := 18 + rng.Intn(13)
 	frontSpeed := 42 + rng.Float64()*28
@@ -281,12 +285,12 @@ func nameForRainConfig(cfg sim.Config) string {
 
 	var densityName string
 	switch {
-	case cfg.SpawnEvery >= 5:
+	case cfg.SpawnEvery >= 7:
 		densityName = "drizzle"
-	case cfg.SpawnEvery >= 4:
+	case cfg.SpawnEvery >= 5:
 		densityName = "rain"
 	default:
-		densityName = "downpour"
+		densityName = "shower"
 	}
 
 	return fmt.Sprintf("%s-%s-%s", hueName, paceName, densityName)

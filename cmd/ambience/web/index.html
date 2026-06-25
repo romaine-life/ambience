@@ -47,7 +47,10 @@
 	// (/control-auth) and stay read-only until an admin signs in and arms them.
 	'use strict';
 
-	const GRID_W = 320, GRID_H = 180;
+	// Pre-snapshot value only; the live monitor resizes to the broadcast's
+	// gridW/gridH (640×360) when the first snapshot lands. Matches the server
+	// constant so there's no resize flash on connect.
+	const GRID_W = 640, GRID_H = 360;
 	const TICK_MS = 1000 / 60;
 	const L = window.AmbienceChrome.effectLabel;
 	const canvas = document.getElementById('c');

@@ -159,8 +159,8 @@
 		canvas.dataset.ambienceWasmExecUrl || trimSlashes(SERVER) + '/wasm_exec.js';
 	const RUNTIME_URL =
 		canvas.dataset.ambienceRuntimeUrl || trimSlashes(SERVER) + '/wasm_runtime.js';
-	const GRID_W = parseInt(canvas.dataset.ambienceGridW || '320', 10);
-	const GRID_H = parseInt(canvas.dataset.ambienceGridH || '180', 10);
+	const GRID_W = parseInt(canvas.dataset.ambienceGridW || '640', 10);
+	const GRID_H = parseInt(canvas.dataset.ambienceGridH || '360', 10);
 	const TRANSPARENT = canvas.dataset.ambienceTransparent !== 'false';
 	const ENTROPY_ENABLED = canvas.dataset.ambienceEntropy !== 'off';
 	const TICK_MS = 1000 / 60;

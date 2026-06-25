@@ -54,8 +54,14 @@ import (
 
 const (
 	targetFPS       = 60
-	gridW           = 320
-	gridH           = 180
+	// Shared-world grid resolution. Clients adopt these via the snapshot
+	// envelope (they Resize to the broadcast's gridW/gridH), so this single
+	// pair governs pixel fineness for every consumer — browser monitor, chess,
+	// homepage — without any client change. 640×360 keeps cells ~2px on a
+	// desktop canvas (finer "smaller pixels" rain) while staying cheap to copy
+	// across the wasm boundary each frame.
+	gridW           = 640
+	gridH           = 360
 	tickRate        = time.Second / targetFPS
 	sseHeartbeat    = 10 * time.Second
 	defaultAddr     = ":8080"

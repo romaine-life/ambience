@@ -6,6 +6,32 @@ that receives config + event broadcasts via SSE. Conceptually independent
 of fzt — the name only matches the domain (`ambience.romaine.life`).
 Read `D:/shell-config/setup/claude/CLAUDE.md` for global Claude config.
 
+## Taking screenshots (read this before trying to screenshot the app)
+
+**The in-editor preview/screenshot tool's *capture* step hangs on this machine —
+every grab times out at ~30s, even on a blank page. The dev server is fine; only
+the pixel grab is broken.** Do NOT retry it, and do not tell the user screenshots
+are impossible. Use `scripts/shot.mjs` (headless Chrome over the DevTools
+Protocol — dependency-free on the installed Node), then Read the PNG:
+
+```
+# 1. server running locally (preview-managed or: AMBIENCE_ADDR=127.0.0.1:8080 go run ./cmd/ambience)
+# 2. capture a deep-linked route, then Read the PNG it writes
+node scripts/shot.mjs "http://127.0.0.1:8080/dev?effect=rain&render=vector" tmp-shots/vec.png 1280x720 5000
+```
+
+Args: `<url> [outPath=tmp-shots/shot.png] [WxH=1280x720] [waitMs=4500]`. `/dev`
+takes effect + knobs as query params (see `docs/dev-endpoints.md`), so any
+effect/config/render-mode is reachable as a deep link — no clicking needed.
+`tmp-shots/` is gitignored. Two ambience-specific reasons the naive
+`chrome --screenshot` / `--virtual-time-budget` approaches fail (and this helper
+handles): the user's normal Chrome is usually already running (a plain launch
+no-ops — the helper uses a throwaway `--user-data-dir`), and ambience pages hold
+a persistent `/events` SSE stream so the page never reaches network-idle
+(`--virtual-time-budget` hangs forever — the helper waits a fixed real-time delay
+instead). `waitMs` is that settle delay: bump it if the sim hasn't accumulated a
+representative frame.
+
 ## Container Build Verification
 
 Agent pods are not expected to have Docker. Do not report missing local Docker

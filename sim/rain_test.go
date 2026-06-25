@@ -8,6 +8,82 @@ import (
 
 var staticRed = color.RGBA{255, 100, 100, 255}
 
+// pearson returns the linear correlation of two equal-length samples in [-1,1].
+func pearson(xs, ys []float64) float64 {
+	n := float64(len(xs))
+	var sx, sy, sxx, syy, sxy float64
+	for i := range xs {
+		sx += xs[i]
+		sy += ys[i]
+		sxx += xs[i] * xs[i]
+		syy += ys[i] * ys[i]
+		sxy += xs[i] * ys[i]
+	}
+	num := n*sxy - sx*sy
+	den := math.Sqrt((n*sxx - sx*sx) * (n*syy - sy*sy))
+	if den == 0 {
+		return 0
+	}
+	return num / den
+}
+
+// TestRainCueCoherence pins the physical relationships between a drop's cues so
+// a regression in any single axis fails here instead of waiting for a human to
+// notice it on screen. Real rain: bigger drops fall faster (Gunn–Kinzer), and
+// "bigger" must show up in EVERY cue together — a fast drop is also thicker,
+// longer-streaked, brighter and nearer. Each of these was, at some point, silently
+// wrong (uniform speed; fast drops rendered thinner; etc.).
+func TestRainCueCoherence(t *testing.T) {
+	r := NewRain(640, 360, 7, Config{Layers: 2})
+	const n = 4000
+	for i := 0; i < n; i++ {
+		r.spawnDropAt(r.rng.Float64() * float64(r.W))
+	}
+	if len(r.drops) != n {
+		t.Fatalf("spawned %d drops, want %d", len(r.drops), n)
+	}
+
+	speed := make([]float64, n)
+	width := make([]float64, n)
+	streak := make([]float64, n)
+	bright := make([]float64, n)
+	depth := make([]float64, n)
+	for i, d := range r.drops {
+		speed[i] = d.vRow
+		width[i] = float64(d.widthCells)
+		streak[i] = float64(d.streakLen)
+		bright[i] = 0.299*float64(d.Color.R) + 0.587*float64(d.Color.G) + 0.114*float64(d.Color.B)
+		depth[i] = d.depth
+	}
+
+	// Speed must genuinely vary (Gunn–Kinzer spread), not sit at one value.
+	lo, hi := speed[0], speed[0]
+	for _, v := range speed {
+		lo, hi = math.Min(lo, v), math.Max(hi, v)
+	}
+	if hi/lo < 2.0 {
+		t.Errorf("fall-speed spread = %.2fx (max %.2f / min %.2f), want >= 2x — drops look uniform", hi/lo, hi, lo)
+	}
+
+	// Every cue must move with apparent size together; signs are the physics.
+	checks := []struct {
+		name string
+		corr float64
+		want float64 // required sign
+		min  float64 // required magnitude
+	}{
+		{"faster drops are thicker", pearson(speed, width), +1, 0.2},
+		{"faster drops have longer streaks", pearson(speed, streak), +1, 0.3},
+		{"faster drops are brighter", pearson(speed, bright), +1, 0.15},
+		{"faster drops are nearer (lower depth)", pearson(speed, depth), -1, 0.2},
+	}
+	for _, c := range checks {
+		if c.corr*c.want <= 0 || math.Abs(c.corr) < c.min {
+			t.Errorf("%s: correlation = %+.2f, want sign %+.0f and |r| >= %.2f", c.name, c.corr, c.want, c.min)
+		}
+	}
+}
+
 func TestNewRainAppliesDefaults(t *testing.T) {
 	r := NewRain(10, 10, 1, Config{})
 	if r.cfg.SpawnEvery == 0 {
