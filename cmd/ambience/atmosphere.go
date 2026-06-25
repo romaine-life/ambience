@@ -33,14 +33,15 @@ var (
 	transitionBroadcastEvery    = ticksFor(1 * time.Second)
 	metricBroadcastEvery        = ticksFor(5 * time.Second)
 	clockBroadcastEvery         = ticksFor(1 * time.Second)
-	// Playback delay for "restore" effects: clients render this far behind
-	// authority so broadcast events line up across clients. The cost is a join
-	// freeze (the client restores the live frame but renders in the past, so it
-	// idles until playback catches down) — acceptable for a persistent effect
-	// whose frame barely moves. "Fresh" effects (rain) override this to 0 and
-	// render at the live edge, so they never freeze on join. See
-	// playbackDelayTicksFor.
-	restorePlaybackDelayTicks = ticksFor(1500 * time.Millisecond)
+	// playbackBufferTicks is the jitter buffer: every client renders this far
+	// behind authority so its local frame clock doesn't beat against the server's
+	// tick-rate jitter. A zero buffer judders — the client sits exactly at the
+	// live edge, so each ~1s clock resample that nudges the estimate backward
+	// makes the replica skip a frame. Fresh effects start their replica already
+	// at this buffered tick (SetTick) so they get the smooth playback WITHOUT a
+	// join freeze; restore effects hold their restored frame for the buffer's
+	// span, which is fine for a persistent scene that's barely moving.
+	playbackBufferTicks = ticksFor(500 * time.Millisecond)
 )
 
 // Command is a single message sent from server to clients.
@@ -91,10 +92,15 @@ type snapshotData struct {
 	// this world (fail loudly rather than render nothing).
 	ServedEffects []string `json:"servedEffects"`
 	// JoinMode is how a freshly-connected client should treat this snapshot:
-	// "fresh" (start from the intro, render at the live edge — for steady-state
-	// effects like rain) or "restore" (replay the snapshot as-is — the default
-	// for effects whose current frame is their accumulated history).
+	// "fresh" (start from the intro, aligned to the buffered playback tick — for
+	// steady-state effects like rain) or "restore" (replay the snapshot as-is —
+	// the default for effects whose current frame is their accumulated history).
 	JoinMode string `json:"joinMode"`
+	// SuggestedDelayTicks is the playback jitter buffer (how far behind authority
+	// a replica should render for smooth playback). Carried in the snapshot too,
+	// not just the clock command, so a fresh client can align its replica to the
+	// buffered tick on its very first frame.
+	SuggestedDelayTicks int `json:"suggestedDelayTicks"`
 }
 
 type clockData struct {
@@ -465,13 +471,10 @@ func (a *atmosphere) rotateToEffect(cur int, effectType string) bool {
 }
 
 func (a *atmosphere) broadcastClock(tick int) {
-	a.mu.Lock()
-	effectType := a.effect.Type()
-	a.mu.Unlock()
 	data, _ := json.Marshal(clockData{
 		Tick:                tick,
 		TickRateMs:          float64(tickRate) / float64(time.Millisecond),
-		SuggestedDelayTicks: playbackDelayTicksFor(effectType),
+		SuggestedDelayTicks: playbackBufferTicks,
 	})
 	a.broadcast(Command{Kind: "clock", Tick: tick, Data: data})
 }
@@ -789,9 +792,10 @@ func (a *atmosphere) snapshot() snapshotData {
 			SceneRemaining: current.Remaining(0),
 			ScenePolicy:    policy.data(),
 			Transition:     transitionData(transitionStart, transitionDur, cur),
-			RotationPolicy: rotationPolicy.data(),
-			ServedEffects:  rotationPolicy.resolvedAllowedEffects(),
-			JoinMode:       effectJoinMode(a.effect.Type()),
+			RotationPolicy:      rotationPolicy.data(),
+			ServedEffects:       rotationPolicy.resolvedAllowedEffects(),
+			JoinMode:            effectJoinMode(a.effect.Type()),
+			SuggestedDelayTicks: playbackBufferTicks,
 		}
 	}
 	return snapshotData{
@@ -808,9 +812,10 @@ func (a *atmosphere) snapshot() snapshotData {
 		SceneRemaining: current.Remaining(effectSnap.Tick),
 		ScenePolicy:    policy.data(),
 		Transition:     transitionData(transitionStart, transitionDur, effectSnap.Tick),
-		RotationPolicy: rotationPolicy.data(),
-		ServedEffects:  rotationPolicy.resolvedAllowedEffects(),
-		JoinMode:       effectJoinMode(a.effect.Type()),
+		RotationPolicy:      rotationPolicy.data(),
+		ServedEffects:       rotationPolicy.resolvedAllowedEffects(),
+		JoinMode:            effectJoinMode(a.effect.Type()),
+		SuggestedDelayTicks: playbackBufferTicks,
 	}
 }
 

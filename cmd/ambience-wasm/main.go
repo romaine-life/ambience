@@ -49,6 +49,7 @@ func main() {
 		"destroy":          js.FuncOf(destroy),
 		"setConfig":        js.FuncOf(setConfig),
 		"restoreSnapshot":  js.FuncOf(restoreSnapshot),
+		"setTick":          js.FuncOf(setTick),
 		"triggerEvent":     js.FuncOf(triggerEvent),
 		"step":             js.FuncOf(step),
 		"tick":             js.FuncOf(tick),
@@ -183,6 +184,26 @@ func triggerEvent(_ js.Value, args []js.Value) any {
 		return false
 	}
 	return rt.effect.TriggerEvent(args[1].String())
+}
+
+// tickSettable is implemented by effects that can reposition their clock (rain).
+// Used by setTick so a fresh-join client can align its replica to the buffered
+// playback tick. Effects that don't implement it leave setTick a no-op.
+type tickSettable interface {
+	SetTick(int)
+}
+
+func setTick(_ js.Value, args []js.Value) any {
+	rt := lookup(args)
+	if rt == nil || len(args) < 2 || args[1].Type() != js.TypeNumber {
+		return false
+	}
+	ts, ok := rt.effect.(tickSettable)
+	if !ok {
+		return false
+	}
+	ts.SetTick(args[1].Int())
+	return true
 }
 
 func step(_ js.Value, args []js.Value) any {

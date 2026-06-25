@@ -81,6 +81,13 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 				return !!window.ambienceWasm.triggerEvent(this.id, name);
 			}
 
+			setTick(tick) {
+				if (!window.ambienceWasm.setTick) return false;
+				const ok = !!window.ambienceWasm.setTick(this.id, tick | 0);
+				this.tick = window.ambienceWasm.tick(this.id) || (tick | 0);
+				return ok;
+			}
+
 			step() {
 				window.ambienceWasm.step(this.id);
 				this.tick = window.ambienceWasm.tick(this.id) || this.tick;

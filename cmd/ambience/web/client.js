@@ -18,11 +18,12 @@
 //   data-ambience-grid-w="320" / data-ambience-grid-h="180" — sim grid size
 //   data-ambience-transparent="false"  — paint solid bg (default: true)
 //   data-ambience-entropy="off"        — disable keystroke entropy upload
-//   data-ambience-delay-ticks="0"      — pin how many authority ticks behind the
-//     replica renders. Omit it to follow the world's per-effect suggestion: 0
-//     (live edge, no join freeze) for "fresh" effects like rain, a small delay
-//     for "restore" effects so their broadcast events line up across clients.
-//     Set a value only to override that.
+//   data-ambience-delay-ticks="30"     — pin how many authority ticks behind the
+//     replica renders (the playback jitter buffer that keeps the local frame
+//     clock from juddering against the server's tick jitter). Omit it to follow
+//     the world's suggestion. Fresh effects (rain) start aligned to this buffer
+//     so they don't freeze on join; restore effects hold their frame for its
+//     span. Set a value only to override the world's buffer.
 //   data-ambience-initial-fade-ms="1200" — fade in after the first authority snapshot
 //   data-ambience-initial-fade-color="#050505" — startup cover color
 //   data-ambience-intro-on-join="off" — disable the join intro. By default a
@@ -165,10 +166,9 @@
 	const ENTROPY_ENABLED = canvas.dataset.ambienceEntropy !== 'off';
 	const TICK_MS = 1000 / 60;
 	const HAS_DELAY_ATTR = canvas.dataset.ambienceDelayTicks != null;
-	// Fallback delay until the first clock command (or a fresh snapshot) sets the
-	// real one. 0 = live edge, so nothing freezes before we know the effect's
-	// joinMode; the server then suggests per-effect (0 fresh / a delay restore),
-	// or a consumer pins it explicitly via the attr.
+	// Fallback buffer until the snapshot/clock supplies the world's value. 0 is
+	// fine: a fresh join aligns its replica to whatever buffer the snapshot
+	// carries, and restore effects pick the same buffer up from that snapshot.
 	const PLAYBACK_DELAY_TICKS = Math.max(0, parseInt(canvas.dataset.ambienceDelayTicks || '0', 10) || 0);
 	const INITIAL_FADE_MS = Math.max(0, parseInt(canvas.dataset.ambienceInitialFadeMs || '1200', 10) || 0);
 	const INTRO_ON_JOIN = canvas.dataset.ambienceIntroOnJoin !== 'off';
@@ -394,38 +394,53 @@
 				lastError = null;
 				// joinMode is the effect's own declaration of whether its current
 				// frame is coupled to a past we missed. "fresh" effects (rain) are
-				// steady-state: start them from their intro at the live edge so they
-				// look like they just began. "restore" effects (the default) carry
-				// persistent state — a structure that's already there — so we replay
-				// the snapshot as-is. Unknown/legacy snapshots default to restore.
+				// steady-state: start them from their intro, aligned to the buffered
+				// playback tick, so they ease in with no freeze. "restore" effects
+				// (the default) carry persistent state — a structure that's already
+				// there — so we replay the snapshot as-is. Unknown/legacy snapshots
+				// default to restore.
 				const fresh = !!(data && data.joinMode === 'fresh');
-				// Fresh effects render at the live edge so they never freeze on join.
-				// The server already suggests delay 0 for them via the clock command;
-				// pin it now too so the window before that command arrives is covered.
-				// A consumer that explicitly set a delay keeps it.
-				if (fresh && !HAS_DELAY_ATTR) clock.configure({ delayTicks: 0 });
+				// Adopt the world's playback jitter buffer immediately (the clock
+				// command also carries it, but the snapshot lets us apply it on the
+				// first frame). Rendering a little behind authority keeps the local
+				// frame clock from juddering against the server's tick jitter. A
+				// consumer that pinned a delay keeps it.
+				if (!HAS_DELAY_ATTR && data && Number.isFinite(data.suggestedDelayTicks)) {
+					clock.configure({ delayTicks: data.suggestedDelayTicks });
+				}
+				// alignFreshReplica starts a fresh effect's replica at the buffered
+				// playback tick so it begins stepping immediately — smooth (buffered)
+				// playback WITHOUT the catch-down freeze of restoring at the live
+				// edge. Safe because the fresh intro restarts drops/events anyway.
+				const alignFreshReplica = (s) => {
+					if (!fresh || !s || typeof s.setTick !== 'function') return;
+					s.setTick(clock.targetPlaybackTick(getSimTick(s)));
+				};
 				if (!sim) {
 					sim = new ctor(GRID_W, GRID_H, {});
 					try { sim.restoreSnapshot(data); } catch (err) { console.error('bad snapshot', err); }
 					// For a fresh effect, replace the restored mid-state with its
 					// intro so it eases in (rain clears its in-flight drops and spawns
 					// from near-empty) instead of jolting on. The restore still gave
-					// us the aligned tick + config. Restore effects skip this and keep
-					// the snapshot as-is.
+					// us the config. Restore effects skip this and keep the snapshot
+					// as-is.
 					if (fresh && INTRO_ON_JOIN && sim.triggerEvent) {
 						try { sim.triggerEvent('intro'); } catch (err) { console.error('join intro failed', err); }
 					}
+					alignFreshReplica(sim);
 					effectType = newType;
 					initialFadePending = true;
 				} else if (newType !== effectType) {
 					const incoming = new ctor(GRID_W, GRID_H, {});
 					try { incoming.restoreSnapshot(data); } catch (err) { console.error('bad snapshot', err); }
+					alignFreshReplica(incoming);
 					sim = AmbienceSim.EffectTransition
 						? new AmbienceSim.EffectTransition(sim, incoming)
 						: incoming;
 					effectType = newType;
 				} else {
 					try { sim.restoreSnapshot(data); } catch (err) { console.error('bad snapshot', err); }
+					alignFreshReplica(sim);
 				}
 				updateSceneFromSnapshot(data);
 				ready = true;

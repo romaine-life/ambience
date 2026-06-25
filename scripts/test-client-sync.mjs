@@ -30,6 +30,9 @@ function makeEffectClass(kind) {
 		triggerEvent(event) {
 			this.triggers.push(`${event}@${this.tick}`);
 		}
+		setTick(tick) {
+			this.tick = tick | 0;
+		}
 		step() {
 			this.tick++;
 		}
@@ -363,16 +366,18 @@ assertAligned(a, b, 'unsupported effect handling');
 assert.equal(a.state().effectType, 'rotated', 'unsupported effect does not replace active effect');
 assert.match(a.state().lastError, /unknown effect type: missing-effect/);
 
-// A "fresh" effect (joinMode: 'fresh', e.g. rain) with no delay attr must NOT
-// freeze on join: it plays its intro, renders at the live edge (delay forced to
-// 0), and starts stepping on the very first tick. Regression guard for the rain
-// freezing on load.
+// A "fresh" effect (joinMode: 'fresh', e.g. rain) keeps the world's jitter
+// buffer for smooth playback, but must NOT freeze on join: it starts its replica
+// already AT the buffered playback tick (snapshotTick - buffer) and steps on the
+// very first frame. Regression guard for both the rain freezing on load AND the
+// stutter from rendering with no buffer at the live edge.
 const live = makeConsumer('consumer-live', effects, { delayTicks: null });
 await new Promise((resolve) => setImmediate(resolve));
 send(live.stream, 'snapshot', 500, {
 	type: 'scripted',
 	tick: 500,
 	joinMode: 'fresh',
+	suggestedDelayTicks: 30,
 	config: { version: 1 },
 	state: { triggers: [] },
 	seed: 7,
@@ -382,8 +387,8 @@ send(live.stream, 'snapshot', 500, {
 	nextScene: { name: 'live-next', durationTicks: 100, startedAtTick: 600 },
 	sceneRemaining: 100,
 });
-assert.equal(live.state().delayTicks, 0, 'fresh consumer renders at the live edge (delay forced to 0)');
-assert.equal(live.state().simTick, 500, 'fresh consumer restores at the live tick');
+assert.equal(live.state().delayTicks, 30, 'fresh consumer adopts the world jitter buffer (not 0 — that would judder)');
+assert.equal(live.state().simTick, 470, 'fresh consumer starts aligned to the buffered tick (500 - 30), not the live edge');
 assert.deepEqual(plain(live.state().sim.triggers), ['intro@500'], 'fresh consumer plays the join intro');
 const before = live.state().simTick;
 live.advance(); // a single tick of wall-clock
@@ -391,15 +396,16 @@ assert.ok(live.state().simTick > before,
 	`fresh consumer must step immediately, not freeze (was ${before}, now ${live.state().simTick})`);
 
 // A "restore" effect (the default — a tree that's already there) must do the
-// opposite: NO intro, and it honors the world's playback delay, so on join it
-// holds the restored frame (the acceptable, intended freeze) rather than
-// re-animating from scratch.
+// opposite: NO intro and NO alignment. It keeps the same jitter buffer, so on
+// join it holds the restored live frame for the buffer's span (the acceptable,
+// intended freeze) rather than re-animating from scratch.
 const persist = makeConsumer('consumer-persist', effects, { delayTicks: null });
 await new Promise((resolve) => setImmediate(resolve));
 send(persist.stream, 'snapshot', 500, {
 	type: 'scripted',
 	tick: 500,
 	joinMode: 'restore',
+	suggestedDelayTicks: 30,
 	config: { version: 1 },
 	state: { triggers: ['planted@500'] },
 	seed: 7,
@@ -409,13 +415,13 @@ send(persist.stream, 'snapshot', 500, {
 	nextScene: { name: 'persist-next', durationTicks: 100, startedAtTick: 600 },
 	sceneRemaining: 100,
 });
-send(persist.stream, 'clock', 500, { tick: 500, tickRateMs: 100, suggestedDelayTicks: 30 });
-assert.equal(persist.state().delayTicks, 30, 'restore consumer honors the world playback delay');
+assert.equal(persist.state().delayTicks, 30, 'restore consumer adopts the same jitter buffer');
+assert.equal(persist.state().simTick, 500, 'restore consumer keeps the live restored tick (no alignment)');
 assert.deepEqual(plain(persist.state().sim.triggers), ['planted@500'],
 	'restore consumer keeps its snapshot as-is and does NOT play an intro');
 const persistBefore = persist.state().simTick;
 persist.advance();
 assert.equal(persist.state().simTick, persistBefore,
-	'restore consumer holds the restored frame while delayed (the intended freeze), does not step yet');
+	'restore consumer holds the restored frame while the buffer drains (the intended freeze), does not step yet');
 
 console.log('browser-client sync harness ok');

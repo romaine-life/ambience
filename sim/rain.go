@@ -615,6 +615,22 @@ func (r *Rain) CurrentTick() int {
 	return r.tick
 }
 
+// SetTick repositions the sim clock. A freshly-joined client uses this to start
+// the replica at its buffered playback tick (a little behind authority) so it
+// begins stepping immediately — keeping a jitter buffer for smooth playback
+// without the idle "catch-down" freeze of restoring at the live edge. The
+// absolute tick only phases the procedural rain layers, so moving it is
+// visually safe; pair it with a fresh intro so drops/events restart cleanly.
+func (r *Rain) SetTick(tick int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if tick < 0 {
+		tick = 0
+	}
+	r.tick = tick
+	r.repaintLocked()
+}
+
 // EffectiveConfig returns the sim's current config with all defaults applied.
 // Used by atmospheres to share the effective values with clients via snapshot.
 func (r *Rain) EffectiveConfig() Config {
