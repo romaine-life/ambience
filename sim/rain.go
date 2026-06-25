@@ -1166,6 +1166,37 @@ func (r *Rain) resScale() float64 {
 // lerpDepth interpolates a perceptual factor from near (t=0) to far (t=1).
 func lerpDepth(near, far, t float64) float64 { return near + (far-near)*t }
 
+// refRainMm is the reference raindrop diameter (mm). ~1.3mm is near the
+// median-volume diameter of moderate rain.
+const refRainMm = 1.3
+
+// Physical scale anchoring. Drop fall speed is derived from real terminal
+// velocity (m/s) projected onto the viewport, instead of an arbitrary
+// rows/tick. worldHeightM is the one genuinely artistic choice: how many metres
+// of falling rain the viewport spans. ~4.5m reads as rain seen across a scene —
+// a reference 1.3mm drop (~4.9 m/s) then crosses in ~0.9s, the biggest drops in
+// ~0.5s, distant drizzle in ~2-3s. Smaller = closer/faster rain. Because the
+// projection multiplies by grid height, fall speed is automatically
+// resolution-independent (a finer grid only thins the pixels). refSpeedKnob is
+// the Speed value that means "nominal intensity" (×1); the scene Speed knob
+// scales around it.
+const (
+	clientFPS    = 60.0
+	worldHeightM = 4.5
+	refSpeedKnob = 1.8
+)
+
+// gunnKinzer returns raindrop terminal velocity (m/s) for diameter d (mm) using
+// the Gunn–Kinzer (1949) empirical fit: ~2 m/s at 0.5mm rising to ~9 m/s near
+// 5mm. This is what makes big drops fall visibly faster than small ones.
+func gunnKinzer(dMm float64) float64 {
+	v := 9.65 - 10.3*math.Exp(-0.6*dMm)
+	if v < 0.5 {
+		v = 0.5
+	}
+	return v
+}
+
 func (r *Rain) spawnDropAt(col float64) {
 	col = math.Max(0, math.Min(float64(r.W)-1, col))
 	rs := r.resScale()
@@ -1180,46 +1211,65 @@ func (r *Rain) spawnDropAt(col float64) {
 	// field (sqrt) so the scene is mostly mid/background rain with a few bold near
 	// streaks rather than an even split.
 	depthOn := r.cfg.Layers >= 2
-	t := 0.0
+
+	// Two independent physical axes drive realistic variety:
+	//   sizeT  — drop diameter. Marshall–Palmer: lots of small drops, few large,
+	//            so the sample is biased small.
+	//   depthT — distance from the viewer.
+	// Terminal velocity climbs steeply with diameter (Gunn–Kinzer), so big drops
+	// genuinely fall faster — that, not just distance, is what gives real rain
+	// its mix of fast bold streaks and slow faint drizzle. Apparent (on-screen)
+	// velocity = terminal velocity / distance; apparent diameter = size / distance.
+	sizeT, depthT := 0.0, 0.0
+	dMm, distFall := refRainMm, 1.0
 	if depthOn {
-		t = math.Sqrt(r.rng.Float64())
+		sizeT = math.Pow(r.rng.Float64(), 1.3)   // Marshall–Palmer: biased small
+		depthT = r.rng.Float64()                 // distance from viewer
+		dMm = lerpDepth(0.5, 4.5, sizeT)         // drop diameter
+		distFall = lerpDepth(1.0, 0.65, depthT)  // apparent angular falloff with distance
 	}
-	sizeF, speedF, brightF := 1.0, 1.0, 1.0
+	vTerm := gunnKinzer(dMm)                              // real terminal velocity, m/s
+	speedMul := (vTerm / gunnKinzer(refRainMm)) * distFall // vs reference drop (for streak)
+	sizeMul := (dMm / refRainMm) * distFall              // apparent diameter on screen
+	brightF := 1.0
 	if depthOn {
-		sizeF = lerpDepth(1.0, 0.35, t)  // streak length + width
-		speedF = lerpDepth(1.0, 0.6, t)  // apparent fall speed
-		brightF = lerpDepth(1.0, 0.5, t) // distance haze
+		brightF = (0.45 + 0.55*distFall) * (0.45 + 0.55*sizeT)
 	}
 
 	// Motion jitter. Wind uses currentWind() so lever drift + gust events apply.
 	sJit := (r.rng.Float64()*2 - 1) * r.cfg.SpeedJitter
 	wJit := (r.rng.Float64()*2 - 1) * r.cfg.WindJitter
-	effSpeed := r.cfg.Speed * (1 + sJit) * rs * speedF
+	// Physical fall speed: apparent m/s (terminal velocity / distance) projected
+	// onto the grid — (m/s) / worldHeight * rows / ticks-per-second. The Speed
+	// knob scales intensity around its nominal value. Multiplying by grid height
+	// makes this resolution-independent without resScale.
+	intensity := r.cfg.Speed / refSpeedKnob
+	effSpeed := (vTerm * distFall) * intensity * (1 + sJit) * (float64(r.H) / (worldHeightM * clientFPS))
 	effWind := r.currentWind() + wJit*r.cfg.Wind // jitter relative to static base magnitude
-	if minSpeed := 0.1 * rs; effSpeed < minSpeed {
-		effSpeed = minSpeed
+	if effSpeed < 0.05 {
+		effSpeed = 0.05
 	}
 
-	// Color: hue base (possibly drifted) + jitter, lightness sampled from [min, max].
+	// Color: hue base + jitter, lightness sampled from [min,max], dimmed by depth+size.
 	hJit := (r.rng.Float64()*2 - 1) * r.cfg.HueSpread
 	hue := math.Mod(r.currentHue()+hJit+360, 360)
 	lt := r.rng.Float64()
 	lightness := (r.cfg.LightnessMin + lt*(r.cfg.LightnessMax-r.cfg.LightnessMin)) * brightF
 	c := hslToRGB(hue, r.cfg.Saturation, lightness)
 
-	// Streak length is screen-relative (scaled by resolution) then shortened
-	// with distance.
-	streak := int(math.Round(float64(r.cfg.StreakLen) * rs * sizeF))
+	// Streak length is motion blur — proportional to apparent velocity, so fast
+	// near drops draw long streaks and slow far ones short ones.
+	streak := int(math.Round(float64(r.cfg.StreakLen) * rs * speedMul))
 	if streak < 1 {
 		streak = 1
 	}
 
-	// Width stays in cells (NOT resolution-scaled) so a finer grid yields
-	// thinner drops — the "smaller pixels" look. DropWidth > 1 fattens near
-	// drops up to that many cells, tapering to 1 with distance.
+	// Width stays in cells (a finer grid = thinner drops). DropWidth > 1 fattens
+	// the largest, nearest drops toward that many cells.
 	width := 1
 	if depthOn && r.cfg.DropWidth > 1 {
-		width = int(math.Round(lerpDepth(r.cfg.DropWidth, 1, t)))
+		wf := clamp01(sizeMul / (4.5 / refRainMm)) // 0..1 against the nearest, biggest drop
+		width = int(math.Round(1 + (r.cfg.DropWidth-1)*wf))
 		if width < 1 {
 			width = 1
 		}
@@ -1232,8 +1282,8 @@ func (r *Rain) spawnDropAt(col float64) {
 		vRow:       effSpeed,
 		vCol:       effWind * effSpeed,
 		streakLen:  streak,
-		background: t >= 0.55,
-		depth:      t,
+		background: depthT >= 0.55,
+		depth:      depthT,
 		widthCells: width,
 	})
 }

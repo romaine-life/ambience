@@ -17,45 +17,60 @@ field.
 - **Sheet rain** is a dense distant weather texture. It fills the atmosphere and
   preserves rain continuity without implying individually trackable drops.
 
-## Resolution independence
+## Physical fall speed (tracked drops)
 
-Fall speed and all streak/sheet/front lengths are expressed in **rows per tick**
-and **cells**, calibrated against a reference grid height of **180** rows
-(`refGridH`). At that reference a tracked-drop speed of ~1.8 rows/tick crosses
-the viewport in ~1.7s, which reads as mid-scene rain; the front plane runs much
-faster (~40–72 rows/tick, crossing 180 rows in ~2.5–4.5 frames).
+Tracked-drop fall speed is **derived from real raindrop physics**, not an
+arbitrary rows/tick, so the rain reads as real rain rather than uniform synthetic
+streaks. Two independent axes are sampled per drop:
 
-Because clients adopt the broadcast grid (currently **640×360**), the sim scales
-every screen-relative quantity by `resScale() = max(1, H/180)`:
+- **size** `dMm` — drop diameter, 0.5–4.5mm, biased small (Marshall–Palmer: real
+  rain is mostly small drops with a few large ones).
+- **distance** `depthT ∈ [0,1]` — how far the drop is from the viewer.
 
-- **scaled with resolution** (so screen-relative motion/proportions are constant
-  at any grid): tracked-drop speed, tracked-drop streak length, sheet speed +
-  length, front speed + length + exposure, splash radius.
-- **NOT scaled** (stays in cells, so a finer grid means *thinner* drops — the
-  "smaller pixels" look): drop width.
+**Terminal velocity** comes from the Gunn–Kinzer (1949) fit
+`v(d) = 9.65 − 10.3·e^(−0.6d)` m/s — ~2 m/s at 0.5mm rising to ~9 m/s near 5mm.
+*This is the dominant source of realistic speed variety:* big drops genuinely
+fall ~4× faster than small ones, which is what gives rain its mix of fast bold
+streaks and slow faint drizzle. (A single-axis distance model misses it and
+reads sluggish — there are no fast streaks at all.)
 
-This is the invariant: **raising the grid only makes the pixels finer. It must
-never slow the rain or shorten the streaks.** (Bumping 180→360 without this made
-every drop fall 2× too slow — a real regression. `resScale` is clamped to ≥1 so
-small grids — tests, the terminal — keep the config's literal values.)
+Apparent (on-screen) velocity = terminal velocity / distance. The projection to
+the grid is physical:
 
-## Depth coherence (why slow ⇒ far)
+```
+effSpeed (rows/tick) = v(dMm) · distFall · (Speed/refSpeedKnob) · H / (worldHeightM · clientFPS)
+```
 
-A tracked drop's speed must be **correlated with its synthetic distance**, or
-slow drops read as arbitrarily slow rather than distant. When layering is on
-(`layers ≥ 2`) each drop draws a distance `t ∈ [0,1]` (0 near, 1 far, `sqrt`-
-biased toward the far field) and all cues derive from it **together**:
+`worldHeightM` (≈4.5m) is the one genuinely artistic choice — how many metres of
+falling rain the viewport spans. Smaller = closer/faster rain. Because the
+projection multiplies by grid height `H`, **fall speed is automatically
+resolution-independent**: a finer grid only makes the pixels thinner, never
+slower (multiply by `H` instead of patching a per-grid scale factor).
 
-| cue        | near (t=0) | far (t=1) | physical basis                                   |
-|------------|-----------|-----------|--------------------------------------------------|
-| fall speed | ×1.0      | ×0.6      | apparent angular velocity ∝ v/distance           |
-| streak len | ×1.0      | ×0.35     | apparent size + motion-blur ∝ 1/distance         |
-| brightness | ×1.0      | ×0.5      | atmospheric haze with distance                   |
-| width      | `drop_width` cells | 1 cell | apparent size ∝ 1/distance (only when `drop_width > 1`) |
+Measured crossing-time distribution (640×360, nominal scene): fastest big near
+drops ~**0.4–0.5s**, on-screen median ~**0.85s**, distant drizzle ~**2.4s** —
+matching real rain (a 4.5mm drop at ~8.9 m/s crosses 4.5m in ~0.5s).
+
+## Coherence of the other cues
+
+Everything else derives from the same size+distance so a slow drop is *visibly*
+a distant/small one, never arbitrarily slow:
+
+| cue        | driver                                   | physical basis                          |
+|------------|------------------------------------------|-----------------------------------------|
+| streak len | ∝ apparent velocity (`v/v_ref · distFall`) | motion blur over the exposure         |
+| brightness | bigger + nearer = brighter               | drop cross-section + atmospheric haze   |
+| width      | `drop_width` cells at the biggest/nearest, tapering to 1 | apparent diameter ∝ size/distance |
 
 `drop_width` defaults to 1, so the default look is thin one-cell rain whose
-*speed, length and brightness* still track distance — a slow drop is visibly a
-small, dim, short drop. Raising `drop_width` additionally fattens near drops.
-The physical drift: near drops are both closer and tend to be the larger,
-faster-falling drops, so they appear big/fast/long/bright; far drops the
-opposite.
+speed, streak and brightness still track size/distance. Raising it fattens the
+largest near drops.
+
+## Resolution independence (lengths)
+
+Streak/sheet/front lengths and splash radius are still in **cells**, calibrated
+at a reference grid height of **180** (`refGridH`) and scaled by
+`resScale() = max(1, H/180)` so they stay screen-proportional at any grid. (Fall
+speed no longer needs this — its projection already includes `H`.) `resScale` is
+clamped to ≥1 so small grids — tests, the terminal — keep literal cell values.
+Drop **width** is deliberately *not* scaled, so a finer grid = thinner drops.
