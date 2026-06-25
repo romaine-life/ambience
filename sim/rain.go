@@ -31,6 +31,7 @@ type drop struct {
 	background bool    // far half of the depth field (kept for any layer-keyed code)
 	depth      float64 // synthetic distance 0=near .. 1=far
 	widthCells int     // brush width in grid cells (>=1); near drops wider
+	dMm        float64 // physical drop diameter (mm) — provenance for audit/introspection
 }
 
 // Config tunes Rain. Every knob is a continuous spectrum so the dev UI can
@@ -1199,6 +1200,66 @@ func gunnKinzer(dMm float64) float64 {
 	return v
 }
 
+// ── Introspection / audit surface ───────────────────────────────────────────
+
+// DropInfo is the full physical provenance of one drop in human-meaningful
+// units, for the rain-audit harness and the /rain/debug endpoint. It exposes the
+// inputs (diameter, distance) and the derived percept (apparent velocity in m/s,
+// seconds to cross the screen) so the physics chain is verifiable end-to-end
+// instead of inferred from raw rows/tick.
+type DropInfo struct {
+	DiameterMm   float64 `json:"diameterMm"`
+	Distance     float64 `json:"distance"`     // 0 near .. 1 far
+	TerminalMS   float64 `json:"terminalMS"`   // free-fall terminal velocity (Gunn–Kinzer)
+	ApparentMS   float64 `json:"apparentMS"`   // on-screen apparent fall speed, m/s
+	RowsPerTick  float64 `json:"rowsPerTick"`  // raw sim velocity
+	SecondsCross float64 `json:"secondsCross"` // time to fall the full viewport
+	WidthCells   int     `json:"widthCells"`
+	StreakCells  int     `json:"streakCells"`
+	Brightness   float64 `json:"brightness"` // luminance 0..255
+}
+
+// DropProvenance returns the physical provenance of every live drop. Read-only.
+func (r *Rain) DropProvenance() []DropInfo {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	h := float64(r.H)
+	out := make([]DropInfo, len(r.drops))
+	for i, d := range r.drops {
+		lum := 0.299*float64(d.Color.R) + 0.587*float64(d.Color.G) + 0.114*float64(d.Color.B)
+		var apparentMS, secCross float64
+		if h > 0 {
+			apparentMS = d.vRow * worldHeightM * clientFPS / h
+		}
+		if d.vRow > 0 {
+			secCross = h / (d.vRow * clientFPS)
+		}
+		out[i] = DropInfo{
+			DiameterMm:   d.dMm,
+			Distance:     d.depth,
+			TerminalMS:   gunnKinzer(d.dMm),
+			ApparentMS:   apparentMS,
+			RowsPerTick:  d.vRow,
+			SecondsCross: secCross,
+			WidthCells:   d.widthCells,
+			StreakCells:  d.streakLen,
+			Brightness:   lum,
+		}
+	}
+	return out
+}
+
+// SpawnDrops spawns n drops immediately (bypassing the spawn-rate roll) so an
+// audit can build a large, density-independent statistical sample without
+// running the clock. Introspection/test surface only.
+func (r *Rain) SpawnDrops(n int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := 0; i < n; i++ {
+		r.spawnDropAt(r.rng.Float64() * float64(r.W))
+	}
+}
+
 func (r *Rain) spawnDropAt(col float64) {
 	col = math.Max(0, math.Min(float64(r.W)-1, col))
 	rs := r.resScale()
@@ -1287,6 +1348,7 @@ func (r *Rain) spawnDropAt(col float64) {
 		background: depthT >= 0.55,
 		depth:      depthT,
 		widthCells: width,
+		dMm:        dMm,
 	})
 }
 
