@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+// Harness for cmd/ambience/web/client.js. The client runs a LOCAL sim replica
+// that free-runs (one step per render frame) and applies the server's
+// broadcasts on arrival — no delayed playback, no jitter buffer, no authority-
+// tick tracking. These tests pin that contract.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -44,21 +48,16 @@ function makeEffectClass(kind) {
 	};
 }
 
-function makeConsumer(name, effects, opts = {}) {
+function makeConsumer(name, effects) {
 	let now = 0;
 	const intervals = [];
 	const streams = [];
-	const dataset = {
-		ambienceGridW: '4',
-		ambienceGridH: '3',
-		ambienceInitialFadeMs: '0',
-	};
-	// Default consumers pin a delay so the alignment assertions below exercise
-	// the delayed-playback machinery. Pass {delayTicks: null} to omit the attr
-	// and exercise the live-edge default (no playback delay, no join freeze).
-	if (opts.delayTicks !== null) dataset.ambienceDelayTicks = opts.delayTicks ?? '5';
 	const canvas = {
-		dataset,
+		dataset: {
+			ambienceGridW: '4',
+			ambienceGridH: '3',
+			ambienceInitialFadeMs: '0',
+		},
 		getContext() {
 			return {
 				clearRect() {},
@@ -183,8 +182,9 @@ function makeConsumer(name, effects, opts = {}) {
 			assert.equal(streams.length, 1, `${name} should create exactly one EventSource`);
 			return streams[0];
 		},
-		advance(ms = 100) {
-			now += ms;
+		// One render frame: steps the local sim once and processes timers.
+		advance() {
+			now += 16;
 			for (const fn of intervals) fn();
 		},
 		state() {
@@ -201,23 +201,6 @@ function plain(value) {
 	return JSON.parse(JSON.stringify(value));
 }
 
-function assertDeepField(left, right, field, label) {
-	assert.deepEqual(plain(left[field]), plain(right[field]), `${label}: ${field}`);
-}
-
-function assertAligned(a, b, label) {
-	const left = a.state();
-	const right = b.state();
-	assert.equal(left.effectType, right.effectType, `${label}: effect type`);
-	assert.equal(left.simTick, right.simTick, `${label}: sim tick`);
-	assert.equal(left.playbackTick, right.playbackTick, `${label}: playback tick`);
-	assert.equal(left.authorityTick, right.authorityTick, `${label}: authority tick`);
-	assert.equal(left.queuedCommands, right.queuedCommands, `${label}: queued commands`);
-	assertDeepField(left, right, 'scene', label);
-	assertDeepField(left, right, 'sim', label);
-	assert.equal(left.lastError, right.lastError, `${label}: last error`);
-}
-
 const effects = {
 	scripted: makeEffectClass('scripted'),
 	rotated: makeEffectClass('rotated'),
@@ -226,196 +209,86 @@ for (const required of ['scripted', 'rotated']) {
 	assert.equal(typeof effects[required], 'function', `test registry missing ${required}`);
 }
 
+// --- Fresh join: play the intro, then free-run (one local step per frame) ---
 const a = makeConsumer('consumer-a', effects);
-const b = makeConsumer('consumer-b', effects);
 await new Promise((resolve) => setImmediate(resolve));
-
-for (const consumer of [a, b]) {
-	send(consumer.stream, 'snapshot', 0, {
-		type: 'scripted',
-		tick: 0,
-		joinMode: 'fresh',
-		config: { version: 1 },
-		state: { triggers: [] },
-		seed: 42,
-		gridW: 4,
-		gridH: 3,
-		currentScene: { name: 'scene-a', durationTicks: 80, startedAtTick: 0 },
-		nextScene: { name: 'scene-b', durationTicks: 90, startedAtTick: 80 },
-		sceneRemaining: 80,
-	});
-	send(consumer.stream, 'clock', 20, { tick: 20, tickRateMs: 100, suggestedDelayTicks: 5 });
-	send(consumer.stream, 'scene', 8, {
-		name: 'scene-c',
-		nextName: 'scene-d',
-		durationTicks: 70,
-		startedAtTick: 8,
-	});
-	send(consumer.stream, 'metric', 9, {
-		currentName: 'scene-c',
-		nextName: 'scene-d',
-		sceneRemaining: 61,
-	});
-	send(consumer.stream, 'config', 10, { version: 2 });
-	send(consumer.stream, 'trigger', 12, {}, { event: 'gust' });
-}
-assert.equal(a.state().queuedCommands, 2, 'future commands are queued before delayed playback reaches them');
-assert.equal(a.state().nextQueuedCommandTick, 10, 'debug exposes next queued command tick');
-assert.equal(a.state().maxQueuedCommandTick, 12, 'debug exposes command horizon');
-assert.equal(
-	a.state().bufferedAheadTicks,
-	Math.max(0, a.state().maxQueuedCommandTick - a.state().playbackTick),
-	'buffered ahead is command horizon minus playback tick',
-);
-
-for (let i = 0; i < 20; i++) {
-	a.advance();
-	b.advance();
-}
-assertAligned(a, b, 'steady buffered playback');
-assert.ok(Math.abs(a.state().driftTicks) <= 1, 'clients converge to the delayed authority tick');
-assert.equal(a.state().queuedCommands, 0, 'queued authority commands were applied');
-assert.equal(a.state().sim.configVersion, 2, 'config command applied at playback tick');
-assert.deepEqual(plain(a.state().sim.triggers), ['intro@0', 'gust@11'], 'join plays the intro beat, then the queued trigger applies at its tick');
-assert.deepEqual(plain(a.state().scene), {
-	currentName: 'scene-c',
-	nextName: 'scene-d',
-	sceneRemaining: 61,
-	durationTicks: 70,
-	startedAtTick: 8,
-}, 'scene and metric commands update observable scene metadata');
-
-// Simulate hidden-tab or scheduling delay. Both clients receive the same later
-// authority sample and converge to the same delayed playback tick.
-for (const consumer of [a, b]) {
-	send(consumer.stream, 'clock', 60, { tick: 60, tickRateMs: 100, suggestedDelayTicks: 5 });
-}
-a.advance(3000);
-b.advance(3000);
-for (let i = 0; i < 20; i++) {
-	a.advance();
-	b.advance();
-}
-assertAligned(a, b, 'resume catch-up');
-assert.ok(a.state().simTick > 15, 'clients catch up after a delayed authority sample');
-
-// Effect rotation arrives as an authority snapshot with a new type. Both
-// clients should instantiate the same incoming effect and converge after the
-// transition wrapper finishes.
-for (const consumer of [a, b]) {
-	send(consumer.stream, 'snapshot', 70, {
-		type: 'rotated',
-		tick: 70,
-		config: { version: 7 },
-		state: { triggers: ['rotate@70'] },
-		seed: 77,
-		gridW: 4,
-		gridH: 3,
-		currentScene: { name: 'rotated-scene', durationTicks: 100, startedAtTick: 70 },
-		nextScene: { name: 'rotated-next', durationTicks: 100, startedAtTick: 170 },
-		sceneRemaining: 100,
-	});
-}
-for (let i = 0; i < 5; i++) {
-	a.advance();
-	b.advance();
-}
-assertAligned(a, b, 'effect rotation');
-assert.equal(a.state().effectType, 'rotated', 'effect rotation changes type');
-assert.equal(a.state().sim.kind, 'rotated', 'debug state follows incoming rotated effect');
-assert.equal(a.state().sim.configVersion, 7, 'rotated snapshot config restored');
-assert.deepEqual(plain(a.state().sim.triggers), ['rotate@70'], 'rotated snapshot state restored');
-
-// A reconnect-style fresh snapshot should bring both clients to the same
-// visible phase immediately, without waiting for the next effect rotation.
-for (const consumer of [a, b]) {
-	send(consumer.stream, 'snapshot', 90, {
-		type: 'rotated',
-		tick: 90,
-		config: { version: 3 },
-		state: { triggers: ['resume@90'] },
-		seed: 42,
-		gridW: 4,
-		gridH: 3,
-		currentScene: { name: 'resume-scene', durationTicks: 40, startedAtTick: 90 },
-		nextScene: { name: 'resume-next', durationTicks: 40, startedAtTick: 130 },
-		sceneRemaining: 40,
-	});
-}
-a.advance();
-b.advance();
-assertAligned(a, b, 'fresh snapshot convergence');
-assert.equal(a.state().simTick, 90, 'fresh snapshot restores the visible phase');
-assert.equal(a.state().sim.configVersion, 3, 'fresh snapshot replaces prior config state');
-assert.deepEqual(plain(a.state().sim.triggers), ['resume@90'], 'fresh snapshot replaces prior trigger history');
-
-// Unsupported live effect types should be visible as registry failures instead
-// of silently switching consumers into different worlds.
-for (const consumer of [a, b]) {
-	send(consumer.stream, 'snapshot', 100, {
-		type: 'missing-effect',
-		tick: 100,
-		config: {},
-		state: {},
-	});
-}
-assertAligned(a, b, 'unsupported effect handling');
-assert.equal(a.state().effectType, 'rotated', 'unsupported effect does not replace active effect');
-assert.match(a.state().lastError, /unknown effect type: missing-effect/);
-
-// A "fresh" effect (joinMode: 'fresh', e.g. rain) with no delay attr must NOT
-// freeze on join: it plays its intro, renders at the live edge (delay forced to
-// 0), and starts stepping on the very first tick. Regression guard for the rain
-// freezing on load.
-const live = makeConsumer('consumer-live', effects, { delayTicks: null });
-await new Promise((resolve) => setImmediate(resolve));
-send(live.stream, 'snapshot', 500, {
+send(a.stream, 'snapshot', 0, {
 	type: 'scripted',
-	tick: 500,
+	tick: 0,
 	joinMode: 'fresh',
 	config: { version: 1 },
 	state: { triggers: [] },
-	seed: 7,
-	gridW: 4,
-	gridH: 3,
-	currentScene: { name: 'live-scene', durationTicks: 100, startedAtTick: 500 },
-	nextScene: { name: 'live-next', durationTicks: 100, startedAtTick: 600 },
-	sceneRemaining: 100,
+	servedEffects: ['scripted'],
+	currentScene: { name: 'scene-a', durationTicks: 80, startedAtTick: 0 },
+	nextScene: { name: 'scene-b', durationTicks: 90, startedAtTick: 80 },
+	sceneRemaining: 80,
 });
-assert.equal(live.state().delayTicks, 0, 'fresh consumer renders at the live edge (delay forced to 0)');
-assert.equal(live.state().simTick, 500, 'fresh consumer restores at the live tick');
-assert.deepEqual(plain(live.state().sim.triggers), ['intro@500'], 'fresh consumer plays the join intro');
-const before = live.state().simTick;
-live.advance(); // a single tick of wall-clock
-assert.ok(live.state().simTick > before,
-	`fresh consumer must step immediately, not freeze (was ${before}, now ${live.state().simTick})`);
+assert.equal(a.state().effectType, 'scripted', 'first snapshot selects the effect');
+assert.equal(a.state().ready, true, 'client is ready after the first snapshot');
+assert.deepEqual(plain(a.state().sim.triggers), ['intro@0'], 'a fresh effect plays its intro on join');
+assert.equal(a.state().simTick, 0, 'replica starts at the snapshot tick');
 
-// A "restore" effect (the default — a tree that's already there) must do the
-// opposite: NO intro, and it honors the world's playback delay, so on join it
-// holds the restored frame (the acceptable, intended freeze) rather than
-// re-animating from scratch.
-const persist = makeConsumer('consumer-persist', effects, { delayTicks: null });
+// Free-run: each frame advances the local sim by exactly one tick — no authority
+// gating, so no skipped/doubled frames.
+for (let i = 0; i < 5; i++) a.advance();
+assert.equal(a.state().simTick, 5, 'replica free-runs one step per frame');
+
+// --- config + trigger apply immediately on arrival (no per-tick queue) ---
+send(a.stream, 'config', 10, { version: 2 });
+assert.equal(a.state().sim.configVersion, 2, 'config applies on arrival');
+send(a.stream, 'trigger', 12, {}, { event: 'gust' });
+assert.deepEqual(plain(a.state().sim.triggers), ['intro@0', 'gust@5'],
+	'trigger applies on arrival at the replica current tick, not a queued authority tick');
+
+// --- scene + metric update observable scene metadata ---
+send(a.stream, 'scene', 8, { name: 'scene-c', nextName: 'scene-d', durationTicks: 70, startedAtTick: 8 });
+send(a.stream, 'metric', 9, { currentName: 'scene-c', nextName: 'scene-d', sceneRemaining: 61 });
+assert.deepEqual(plain(a.state().scene), {
+	currentName: 'scene-c', nextName: 'scene-d', sceneRemaining: 61, durationTicks: 70, startedAtTick: 8,
+}, 'scene + metric update the observable scene metadata');
+
+// --- 'clock' commands are ignored: the replica free-runs regardless ---
+const beforeClock = a.state().simTick;
+send(a.stream, 'clock', 999, { tick: 999, tickRateMs: 16.6, suggestedDelayTicks: 300 });
+a.advance();
+assert.equal(a.state().simTick, beforeClock + 1, 'a clock command does not jump or gate the replica');
+
+// --- Restore join: NO intro, replay the snapshot as-is, then free-run ---
+const r = makeConsumer('consumer-restore', effects);
 await new Promise((resolve) => setImmediate(resolve));
-send(persist.stream, 'snapshot', 500, {
+send(r.stream, 'snapshot', 500, {
 	type: 'scripted',
 	tick: 500,
 	joinMode: 'restore',
 	config: { version: 1 },
 	state: { triggers: ['planted@500'] },
-	seed: 7,
-	gridW: 4,
-	gridH: 3,
-	currentScene: { name: 'persist-scene', durationTicks: 100, startedAtTick: 500 },
-	nextScene: { name: 'persist-next', durationTicks: 100, startedAtTick: 600 },
-	sceneRemaining: 100,
+	servedEffects: ['scripted'],
+	currentScene: { name: 'persist', durationTicks: 100, startedAtTick: 500 },
 });
-send(persist.stream, 'clock', 500, { tick: 500, tickRateMs: 100, suggestedDelayTicks: 30 });
-assert.equal(persist.state().delayTicks, 30, 'restore consumer honors the world playback delay');
-assert.deepEqual(plain(persist.state().sim.triggers), ['planted@500'],
-	'restore consumer keeps its snapshot as-is and does NOT play an intro');
-const persistBefore = persist.state().simTick;
-persist.advance();
-assert.equal(persist.state().simTick, persistBefore,
-	'restore consumer holds the restored frame while delayed (the intended freeze), does not step yet');
+assert.deepEqual(plain(r.state().sim.triggers), ['planted@500'],
+	'a restore effect keeps its snapshot as-is and does NOT play an intro');
+assert.equal(r.state().simTick, 500, 'restore replica starts at the restored tick');
+for (let i = 0; i < 3; i++) r.advance();
+assert.equal(r.state().simTick, 503, 'restore replica also free-runs one step per frame');
 
-console.log('browser-client sync harness ok');
+// --- Effect rotation arrives as a typed snapshot → crossfade to the incoming ---
+send(a.stream, 'snapshot', 70, {
+	type: 'rotated',
+	tick: 70,
+	joinMode: 'restore',
+	config: { version: 7 },
+	state: { triggers: ['rotate@70'] },
+	servedEffects: ['rotated'],
+	currentScene: { name: 'rotated-scene', durationTicks: 100, startedAtTick: 70 },
+});
+assert.equal(a.state().effectType, 'rotated', 'rotation switches the effect type');
+for (let i = 0; i < 6; i++) a.advance(); // step past the crossfade duration
+assert.equal(a.state().sim.kind, 'rotated', 'crossfade unwraps to the incoming effect');
+assert.equal(a.state().sim.configVersion, 7, 'incoming effect carries the rotated config');
+
+// --- Unsupported effect type surfaces as a registry error, not a silent swap ---
+send(a.stream, 'snapshot', 100, { type: 'missing-effect', tick: 100, config: {}, state: {} });
+assert.equal(a.state().effectType, 'rotated', 'unsupported effect does not replace the active effect');
+assert.match(a.state().lastError, /unknown effect type: missing-effect/);
+
+console.log('browser-client free-run harness ok');

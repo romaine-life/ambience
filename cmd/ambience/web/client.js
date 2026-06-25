@@ -10,6 +10,17 @@
 // to the shared atmosphere. client.js loads the Go/WASM runtime itself; no
 // per-consumer JS required.
 //
+// PLAYBACK MODEL: each client runs its OWN local sim replica and steps it once
+// per render frame. The server does not stream frames and the client does not
+// try to lock its tick to the server's — it just advances the local sim and
+// applies the server's broadcast commands (config/trigger/scene) as they
+// arrive. Frame-level sync across clients is intentionally not a goal (each
+// replica's RNG drifts after the initial snapshot); only event timing stays in
+// sync, because every client gets the same broadcasts. This is why there is no
+// playback delay, jitter buffer, or authority-tick estimation here: those frame-
+// lock the replica to the server and produce join freezes / judder. Keep it
+// free-running.
+//
 // Configuration, via attributes on the <canvas>:
 //   data-ambience-url="https://ambience.romaine.life"   — stream/server override
 //   data-ambience-wasm-url / -wasm-exec-url / -runtime-url — load the runtime
@@ -18,18 +29,15 @@
 //   data-ambience-grid-w="320" / data-ambience-grid-h="180" — sim grid size
 //   data-ambience-transparent="false"  — paint solid bg (default: true)
 //   data-ambience-entropy="off"        — disable keystroke entropy upload
-//   data-ambience-delay-ticks="0"      — pin how many authority ticks behind the
-//     replica renders. Omit it to follow the world's per-effect suggestion: 0
-//     (live edge, no join freeze) for "fresh" effects like rain, a small delay
-//     for "restore" effects so their broadcast events line up across clients.
-//     Set a value only to override that.
 //   data-ambience-initial-fade-ms="1200" — fade in after the first authority snapshot
 //   data-ambience-initial-fade-color="#050505" — startup cover color
 //   data-ambience-intro-on-join="off" — disable the join intro. By default a
-//     freshly-connected client does NOT drop into the world mid-storm: it plays
-//     the effect's "intro" beat so the scene eases in (rain starts spawning from
-//     a near-empty grid) instead of the full atmosphere jolting on at once. Set
-//     to "off" to restore instant mid-simulation replication for this consumer.
+//     freshly-connected client does NOT drop into a "fresh" world (e.g. rain)
+//     mid-storm: it plays the effect's "intro" beat so the scene eases in (rain
+//     starts spawning from a near-empty grid) instead of the full atmosphere
+//     jolting on at once. Set to "off" to restore instant mid-simulation
+//     replication. (Effects whose snapshot declares joinMode "restore" — a
+//     persistent scene that's already there — always replay as-is.)
 //
 // Effect agnostic: the server's snapshot broadcasts the effect type; this
 // file looks it up in AmbienceSim.effects[type]. Adding a new effect means
@@ -38,87 +46,6 @@
 
 (function () {
 	'use strict';
-
-	function createPlaybackClock(opts) {
-		opts = opts || {};
-		const now = opts.now || (() => performance.now());
-		let tickMs = Math.max(1, opts.tickMs || 100);
-		let delayTicks = Math.max(0, opts.delayTicks || 0);
-		const softCatchupDrift = Math.max(1, opts.softCatchupDrift || 20);
-		const hardCatchupDrift = Math.max(softCatchupDrift, opts.hardCatchupDrift || 100);
-		const maxCatchupSteps = Math.max(1, opts.maxCatchupSteps || 5);
-		let authoritySampleTick = 0;
-		let authoritySampleAt = now();
-		let haveAuthoritySample = false;
-
-		function noteAuthorityTick(tick, sampleAt) {
-			if (!Number.isFinite(tick)) return;
-			authoritySampleTick = tick;
-			authoritySampleAt = Number.isFinite(sampleAt) ? sampleAt : now();
-			haveAuthoritySample = true;
-		}
-
-		function configure(next) {
-			if (!next) return;
-			if (Number.isFinite(next.tickMs) && next.tickMs > 0) tickMs = Math.max(1, next.tickMs);
-			if (Number.isFinite(next.delayTicks) && next.delayTicks >= 0) delayTicks = Math.max(0, Math.round(next.delayTicks));
-		}
-
-		function estimatedAuthorityTick(fallbackTick) {
-			if (!haveAuthoritySample) return Number.isFinite(fallbackTick) ? fallbackTick : 0;
-			const elapsedTicks = Math.floor((now() - authoritySampleAt) / tickMs);
-			return authoritySampleTick + Math.max(0, elapsedTicks);
-		}
-
-		function targetPlaybackTick(fallbackTick) {
-			return Math.max(0, estimatedAuthorityTick(fallbackTick) - delayTicks);
-		}
-
-		function stepsFor(currentTick) {
-			const current = Number.isFinite(currentTick) ? currentTick : 0;
-			const target = targetPlaybackTick(current);
-			const drift = target - current;
-			if (drift <= 0) return 0;
-			if (drift > hardCatchupDrift) return maxCatchupSteps;
-			if (drift > 1) return Math.min(maxCatchupSteps, 2);
-			return 1;
-		}
-
-		function debugState(currentTick, queueInfo) {
-			const current = Number.isFinite(currentTick) ? currentTick : 0;
-			const authorityTick = estimatedAuthorityTick(current);
-			const playbackTick = targetPlaybackTick(current);
-			const queuedCommands = typeof queueInfo === 'number'
-				? queueInfo
-				: (queueInfo && Number.isFinite(queueInfo.queuedCommands) ? queueInfo.queuedCommands : 0);
-			const nextQueuedCommandTick = queueInfo && Number.isFinite(queueInfo.nextQueuedCommandTick)
-				? queueInfo.nextQueuedCommandTick
-				: null;
-			const maxQueuedCommandTick = queueInfo && Number.isFinite(queueInfo.maxQueuedCommandTick)
-				? queueInfo.maxQueuedCommandTick
-				: null;
-			const bufferedAheadTicks = maxQueuedCommandTick === null
-				? 0
-				: Math.max(0, maxQueuedCommandTick - playbackTick);
-			return {
-				authorityTick,
-				playbackTick,
-				simTick: current,
-				driftTicks: playbackTick - current,
-				delayTicks,
-				bufferedAheadTicks,
-				tickMs,
-				queuedCommands,
-				nextQueuedCommandTick,
-				maxQueuedCommandTick,
-				haveAuthoritySample,
-			};
-		}
-
-		return { noteAuthorityTick, configure, estimatedAuthorityTick, targetPlaybackTick, stepsFor, debugState };
-	}
-
-	window.AmbienceClientClock = window.AmbienceClientClock || { createPlaybackClock };
 
 	function loadScript(src) {
 		return new Promise((resolve, reject) => {
@@ -164,17 +91,8 @@
 	const TRANSPARENT = canvas.dataset.ambienceTransparent !== 'false';
 	const ENTROPY_ENABLED = canvas.dataset.ambienceEntropy !== 'off';
 	const TICK_MS = 1000 / 60;
-	const HAS_DELAY_ATTR = canvas.dataset.ambienceDelayTicks != null;
-	// Fallback delay until the first clock command (or a fresh snapshot) sets the
-	// real one. 0 = live edge, so nothing freezes before we know the effect's
-	// joinMode; the server then suggests per-effect (0 fresh / a delay restore),
-	// or a consumer pins it explicitly via the attr.
-	const PLAYBACK_DELAY_TICKS = Math.max(0, parseInt(canvas.dataset.ambienceDelayTicks || '0', 10) || 0);
 	const INITIAL_FADE_MS = Math.max(0, parseInt(canvas.dataset.ambienceInitialFadeMs || '1200', 10) || 0);
 	const INTRO_ON_JOIN = canvas.dataset.ambienceIntroOnJoin !== 'off';
-	const MAX_CATCHUP_STEPS = 5;
-	const SOFT_CATCHUP_DRIFT = 20;
-	const HARD_CATCHUP_DRIFT = 100;
 
 	const ctx = canvas.getContext('2d');
 	if (canvas.style) canvas.style.imageRendering = canvas.style.imageRendering || 'pixelated';
@@ -215,14 +133,6 @@
 		durationTicks: null,
 		startedAtTick: null,
 	};
-	const pendingCommands = [];
-	const clock = createPlaybackClock({
-		tickMs: TICK_MS,
-		delayTicks: PLAYBACK_DELAY_TICKS,
-		softCatchupDrift: SOFT_CATCHUP_DRIFT,
-		hardCatchupDrift: HARD_CATCHUP_DRIFT,
-		maxCatchupSteps: MAX_CATCHUP_STEPS,
-	});
 
 	function makeInitialFadeCover() {
 		if (INITIAL_FADE_MS <= 0) return null;
@@ -311,55 +221,6 @@
 		if (Number.isFinite(data.sceneRemaining)) sceneState.sceneRemaining = data.sceneRemaining;
 	}
 
-	function stepTowardAuthorityClock() {
-		const current = getSimTick(sim);
-		const steps = clock.stepsFor(current);
-		if (steps <= 0) {
-			applyDueCommands(current);
-			return;
-		}
-		for (let i = 0; i < steps; i++) {
-			applyDueCommands(getSimTick(sim) + 1);
-			sim.step();
-		}
-		applyDueCommands(getSimTick(sim));
-	}
-
-	function queueCommand(cmd, data) {
-		pendingCommands.push({ cmd, data });
-		pendingCommands.sort((a, b) => {
-			const at = Number.isFinite(a.cmd.tick) ? a.cmd.tick : 0;
-			const bt = Number.isFinite(b.cmd.tick) ? b.cmd.tick : 0;
-			return at - bt;
-		});
-	}
-
-	function commandQueueTelemetry() {
-		let nextQueuedCommandTick = null;
-		let maxQueuedCommandTick = null;
-		for (const item of pendingCommands) {
-			const tick = Number.isFinite(item.cmd.tick) ? item.cmd.tick : null;
-			if (tick === null) continue;
-			if (nextQueuedCommandTick === null || tick < nextQueuedCommandTick) nextQueuedCommandTick = tick;
-			if (maxQueuedCommandTick === null || tick > maxQueuedCommandTick) maxQueuedCommandTick = tick;
-		}
-		return {
-			queuedCommands: pendingCommands.length,
-			nextQueuedCommandTick,
-			maxQueuedCommandTick,
-		};
-	}
-
-	function applyDueCommands(playbackTick) {
-		while (pendingCommands.length > 0) {
-			const item = pendingCommands[0];
-			const tick = Number.isFinite(item.cmd.tick) ? item.cmd.tick : playbackTick;
-			if (tick > playbackTick) return;
-			pendingCommands.shift();
-			applyCommandNow(item.cmd, item.data);
-		}
-	}
-
 	// runHandshake verifies the client supports every effect the world may
 	// broadcast. Returns false (and logs) when an advertised effect is missing
 	// from this build. An older authority that advertises nothing passes.
@@ -376,7 +237,11 @@
 		return false;
 	}
 
-	function applyCommandNow(cmd, data) {
+	// applyCommand applies one server broadcast to the local replica immediately
+	// on arrival. There is no per-tick command queue: the replica free-runs and
+	// events land when the SSE message does (network jitter is imperceptible for
+	// downpour/calm/scene beats).
+	function applyCommand(cmd, data) {
 		switch (cmd.kind) {
 			case 'snapshot': {
 				if (!handshakeChecked) {
@@ -394,24 +259,15 @@
 				lastError = null;
 				// joinMode is the effect's own declaration of whether its current
 				// frame is coupled to a past we missed. "fresh" effects (rain) are
-				// steady-state: start them from their intro at the live edge so they
-				// look like they just began. "restore" effects (the default) carry
-				// persistent state — a structure that's already there — so we replay
-				// the snapshot as-is. Unknown/legacy snapshots default to restore.
+				// steady-state, so on first connect we start them from their intro
+				// (ease in from near-empty) instead of replaying the mid-storm
+				// snapshot. "restore" effects (the default) carry persistent state —
+				// a structure that's already there — so we replay the snapshot
+				// as-is. Unknown/legacy snapshots default to restore.
 				const fresh = !!(data && data.joinMode === 'fresh');
-				// Fresh effects render at the live edge so they never freeze on join.
-				// The server already suggests delay 0 for them via the clock command;
-				// pin it now too so the window before that command arrives is covered.
-				// A consumer that explicitly set a delay keeps it.
-				if (fresh && !HAS_DELAY_ATTR) clock.configure({ delayTicks: 0 });
 				if (!sim) {
 					sim = new ctor(GRID_W, GRID_H, {});
 					try { sim.restoreSnapshot(data); } catch (err) { console.error('bad snapshot', err); }
-					// For a fresh effect, replace the restored mid-state with its
-					// intro so it eases in (rain clears its in-flight drops and spawns
-					// from near-empty) instead of jolting on. The restore still gave
-					// us the aligned tick + config. Restore effects skip this and keep
-					// the snapshot as-is.
 					if (fresh && INTRO_ON_JOIN && sim.triggerEvent) {
 						try { sim.triggerEvent('intro'); } catch (err) { console.error('join intro failed', err); }
 					}
@@ -425,16 +281,12 @@
 						: incoming;
 					effectType = newType;
 				} else {
+					// Reconnect / re-snapshot of the same effect: resync to the live
+					// state as-is (no re-intro — the world is already established).
 					try { sim.restoreSnapshot(data); } catch (err) { console.error('bad snapshot', err); }
 				}
 				updateSceneFromSnapshot(data);
 				ready = true;
-				if (Number.isFinite(data && data.tick)) {
-					for (let i = pendingCommands.length - 1; i >= 0; i--) {
-						const queuedTick = Number.isFinite(pendingCommands[i].cmd.tick) ? pendingCommands[i].cmd.tick : data.tick;
-						if (queuedTick <= data.tick) pendingCommands.splice(i, 1);
-					}
-				}
 				break;
 			}
 			case 'config':
@@ -448,21 +300,21 @@
 			case 'metric':
 				applySceneData(data);
 				break;
+			// 'clock' and any unknown kinds are ignored: the replica free-runs and
+			// does not track the authority tick.
 		}
 	}
 
 	window.AmbienceClient = {
-		getDebugState: () => Object.assign(
-			{
-				effectType,
-				ready,
-				initialFadeStarted,
-				scene: Object.assign({}, sceneState),
-				sim: getSimDebug(sim),
-				lastError,
-			},
-			clock.debugState(getSimTick(sim), commandQueueTelemetry()),
-		),
+		getDebugState: () => ({
+			effectType,
+			ready,
+			initialFadeStarted,
+			simTick: getSimTick(sim),
+			scene: Object.assign({}, sceneState),
+			sim: getSimDebug(sim),
+			lastError,
+		}),
 	};
 
 	async function start() {
@@ -477,48 +329,26 @@
 			wasmURL: WASM_URL,
 		});
 
-		// Patch the subscribe snapshot handler so we can detect effect-type
-		// changes. The shared subscribe() swaps config on the existing sim; a
-		// type switch crossfades the outgoing effect into the incoming one.
 		const es = new EventSource(SERVER.replace(/\/+$/, '') + '/events');
 		es.addEventListener('message', (e) => {
 			let cmd;
 			try { cmd = JSON.parse(e.data); } catch (_) { return; }
-			const data = typeof cmd.data === 'string' ? JSON.parse(cmd.data) : cmd.data;
-			if (cmd.kind === 'clock' && data) {
-				clock.configure({
-					tickMs: Number(data.tickRateMs),
-					delayTicks: HAS_DELAY_ATTR ? undefined : Number(data.suggestedDelayTicks),
-				});
-				clock.noteAuthorityTick(Number.isFinite(data.tick) ? data.tick : cmd.tick);
-			} else {
-				clock.noteAuthorityTick(cmd.tick);
+			let data = cmd.data;
+			if (typeof data === 'string') {
+				try { data = JSON.parse(data); } catch (_) { /* leave as string */ }
 			}
-			switch (cmd.kind) {
-				case 'snapshot':
-					applyCommandNow(cmd, data);
-					break;
-				case 'metric':
-				case 'scene':
-					applyCommandNow(cmd, data);
-					break;
-				case 'clock':
-					break;
-				case 'config':
-				case 'trigger':
-					queueCommand(cmd, data);
-					break;
-			}
+			applyCommand(cmd, data);
 		});
 
-		// Step and render on the authority cadence. rAF stays out of the
-		// simulation clock so background-tab throttling cannot silently change
-		// the replica's tick math.
+		// Free-run: step the local sim once per frame and render. rAF stays out of
+		// it so background-tab throttling just slows the local replica (which is
+		// fine — it's decorative and resyncs on the next snapshot), rather than
+		// silently changing any tick math.
 		setInterval(() => {
-			if (ready) stepTowardAuthorityClock();
+			if (ready && sim) sim.step();
+			if (!sim) return;
 			// Unwrap a finished crossfade so we drop the outgoing sim and stop
 			// paying its render cost.
-			if (!sim) return;
 			if (sim.isTransition && sim.done()) {
 				if (sim.outgoing && typeof sim.outgoing.destroy === 'function') sim.outgoing.destroy();
 				sim = sim.incoming;
