@@ -19,7 +19,7 @@ image:
   # so consumers that install this chart with only the default values —
   # notably Glimmung-managed test slots — always default to the same
   # app-<fingerprint> image prod is running.
-  tag: "app-f3d00237a527c08c1651dd7839170da91410af248ece3bfe75ed55edc58ddb3f"
+  tag: "app-22ccb617117b45c126b8669ccda46b6432c038e7d8498273d7f822c594ca0bba"
   pullPolicy: Always
 
 domain:
