@@ -115,9 +115,11 @@ func (c Config) withDefaults() Config {
 		c.StreakLen = 12
 	}
 	if c.DropWidth <= 0 {
-		// 1 = every drop one cell wide (thin "smaller pixels" rain). Depth still
-		// drives speed/streak/brightness; >1 also fattens near drops in cells.
-		c.DropWidth = 1
+		// Width tracks apparent drop diameter: the biggest, nearest drops are
+		// this many cells wide and taper to 1 for distant drizzle. Real rain's
+		// big drops fall faster (Gunn–Kinzer) AND are larger, so fast streaks
+		// should be thick, not thin wisps. Set to 1 for uniform one-cell rain.
+		c.DropWidth = 3
 	}
 	if c.IntroDur <= 0 {
 		c.IntroDur = 360
@@ -295,8 +297,8 @@ func RainSchema() EffectSchema {
 				Description: "Pixels painted behind each drop's head, tracing a visible streak. Applied at paint time."},
 			{Key: "fade", Label: "fade", Slot: SlotLever, Group: "shape", Type: KnobFloat, Min: 0.5, Max: 1, Step: 0.01, Default: 0.91,
 				Description: "Brightness multiplier per position along a streak. 1.0 = uniform, 0.5 = sharp tail fade. Applied at paint time."},
-			{Key: "drop_width", Label: "drop width", Slot: SlotLever, Group: "shape", Type: KnobFloat, Min: 1, Max: 5, Step: 0.5, Default: 1,
-				Description: "Cells wide for the nearest drops (needs layers ≥ 2). 1 = thin one-cell rain; depth still drives speed/streak/brightness. >1 fattens near drops, tapering to 1 with distance. Next drop onward."},
+			{Key: "drop_width", Label: "drop width", Slot: SlotLever, Group: "shape", Type: KnobFloat, Min: 1, Max: 5, Step: 0.5, Default: 3,
+				Description: "Cells wide for the biggest, nearest drops (needs layers ≥ 2), tapering to 1 for distant drizzle — so fast heavy drops read thick and far drops thin. 1 = uniform one-cell rain. Next drop onward."},
 			{Key: "spawn", Label: "spawn 1/", Slot: SlotLever, Group: "density", Type: KnobInt, Min: 1, Max: 30, Step: 1, Default: 3,
 				Description: "Rolls 1 in N per tick for a new drop. Smaller = denser rain."},
 			{Key: "burst", Label: "burst max", Slot: SlotLever, Group: "density", Type: KnobInt, Min: 1, Max: 8, Step: 1, Default: 4,
