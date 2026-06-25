@@ -33,13 +33,14 @@ var (
 	transitionBroadcastEvery    = ticksFor(1 * time.Second)
 	metricBroadcastEvery        = ticksFor(5 * time.Second)
 	clockBroadcastEvery         = ticksFor(1 * time.Second)
-	// Clients render this far behind authority so queued config/trigger commands
-	// arrive before their playback tick. It's also how long a freshly-joined
-	// client's replica sits idle before it starts stepping (it restores at the
-	// live tick but plays back delayed), so an over-long value reads as the rain
-	// "freezing" on load. 1.5s keeps ample command headroom (clock is broadcast
-	// every 1s) while keeping that join idle short.
-	suggestedPlaybackDelayTicks = ticksFor(1500 * time.Millisecond)
+	// Playback delay for "restore" effects: clients render this far behind
+	// authority so broadcast events line up across clients. The cost is a join
+	// freeze (the client restores the live frame but renders in the past, so it
+	// idles until playback catches down) — acceptable for a persistent effect
+	// whose frame barely moves. "Fresh" effects (rain) override this to 0 and
+	// render at the live edge, so they never freeze on join. See
+	// playbackDelayTicksFor.
+	restorePlaybackDelayTicks = ticksFor(1500 * time.Millisecond)
 )
 
 // Command is a single message sent from server to clients.
@@ -89,6 +90,11 @@ type snapshotData struct {
 	// supports every entry; a missing one means the client was not built for
 	// this world (fail loudly rather than render nothing).
 	ServedEffects []string `json:"servedEffects"`
+	// JoinMode is how a freshly-connected client should treat this snapshot:
+	// "fresh" (start from the intro, render at the live edge — for steady-state
+	// effects like rain) or "restore" (replay the snapshot as-is — the default
+	// for effects whose current frame is their accumulated history).
+	JoinMode string `json:"joinMode"`
 }
 
 type clockData struct {
@@ -459,10 +465,13 @@ func (a *atmosphere) rotateToEffect(cur int, effectType string) bool {
 }
 
 func (a *atmosphere) broadcastClock(tick int) {
+	a.mu.Lock()
+	effectType := a.effect.Type()
+	a.mu.Unlock()
 	data, _ := json.Marshal(clockData{
 		Tick:                tick,
 		TickRateMs:          float64(tickRate) / float64(time.Millisecond),
-		SuggestedDelayTicks: suggestedPlaybackDelayTicks,
+		SuggestedDelayTicks: playbackDelayTicksFor(effectType),
 	})
 	a.broadcast(Command{Kind: "clock", Tick: tick, Data: data})
 }
@@ -782,6 +791,7 @@ func (a *atmosphere) snapshot() snapshotData {
 			Transition:     transitionData(transitionStart, transitionDur, cur),
 			RotationPolicy: rotationPolicy.data(),
 			ServedEffects:  rotationPolicy.resolvedAllowedEffects(),
+			JoinMode:       effectJoinMode(a.effect.Type()),
 		}
 	}
 	return snapshotData{
@@ -800,6 +810,7 @@ func (a *atmosphere) snapshot() snapshotData {
 		Transition:     transitionData(transitionStart, transitionDur, effectSnap.Tick),
 		RotationPolicy: rotationPolicy.data(),
 		ServedEffects:  rotationPolicy.resolvedAllowedEffects(),
+		JoinMode:       effectJoinMode(a.effect.Type()),
 	}
 }
 
