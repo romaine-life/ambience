@@ -52,6 +52,36 @@ type effectDefinition struct {
 	NewRuntime   func(w, h int, seed int64, cfg json.RawMessage) (effectRuntime, error)
 	NewScene     func(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
 	NewNearScene func(rng *rngutil.RNG, startedAt int, durationTicks int, previousConfig json.RawMessage, variation float64) Scene
+
+	// FreshJoin declares this effect's visible state has no coupling to a past
+	// the client missed — it's a steady-state any starting point converges to
+	// (rain), not a persistent structure that's "already there" (a tree that
+	// fell). Fresh effects start from their intro and render at the live edge on
+	// join, so they look like they just began instead of jolting on mid-state.
+	// Default false: restore the snapshot as-is, the safe behavior for effects
+	// whose current frame IS their history. See effectJoinMode.
+	FreshJoin bool
+}
+
+// effectJoinMode reports how a freshly-connected client should treat this
+// effect's first snapshot: "fresh" (start from the intro, live edge) or
+// "restore" (replay the snapshot as-is). Surfaced to clients in the snapshot.
+func effectJoinMode(effectType string) string {
+	if def, ok := lookupEffectDefinition(effectType); ok && def.FreshJoin {
+		return "fresh"
+	}
+	return "restore"
+}
+
+// playbackDelayTicksFor is how far behind authority a client should render this
+// effect. Fresh effects render at the live edge (0) so they never freeze on
+// join; restore effects keep a small delay so broadcast events line up across
+// clients.
+func playbackDelayTicksFor(effectType string) int {
+	if def, ok := lookupEffectDefinition(effectType); ok && def.FreshJoin {
+		return 0
+	}
+	return restorePlaybackDelayTicks
 }
 
 // effectRegistry is populated at package init time by each effect_*.go file's
