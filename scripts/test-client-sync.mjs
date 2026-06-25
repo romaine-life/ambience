@@ -390,6 +390,27 @@ live.advance(); // a single tick of wall-clock
 assert.ok(live.state().simTick > before,
 	`fresh consumer must step immediately, not freeze (was ${before}, now ${live.state().simTick})`);
 
+// Free-run regression for the rain stutter: a fresh consumer steps EXACTLY one
+// tick per frame and never freezes, even as authority clock samples jitter
+// around the live edge. Under the old clock-chasing playback, a backward nudge
+// in the estimate made stepsFor() return 0 and the frame froze — the "freezing
+// every few frames" symptom. Free-run is immune by construction.
+let prev = live.state().simTick;
+for (let i = 0; i < 30; i++) {
+	// Jitter the authority sample backward and forward; free-run must ignore it.
+	const jitter = [0, -4, 2, -2, 3][i % 5];
+	send(live.stream, 'clock', 500 + i, {
+		tick: 500 + i + jitter,
+		tickRateMs: 1000 / 60,
+		suggestedDelayTicks: 0,
+	});
+	live.advance(16);
+	const now = live.state().simTick;
+	assert.equal(now, prev + 1,
+		`free-run steps exactly one tick per frame, never freezes (frame ${i}: ${prev} -> ${now})`);
+	prev = now;
+}
+
 // A "restore" effect (the default — a tree that's already there) must do the
 // opposite: NO intro, and it honors the world's playback delay, so on join it
 // holds the restored frame (the acceptable, intended freeze) rather than
