@@ -11,6 +11,9 @@ node_modules/
 cmd/ambience/web/ambience.wasm
 cmd/ambience/web/ambience-rain.wasm
 cmd/ambience/web/wasm_exec.js
+# Headless-screenshot helper output (scripts/shot.mjs) — local artifacts only.
+/tmp-shots/
+.shot-profile/
 .terraform/
 **/.terraform/
 /.github/codex/output/

@@ -3,9 +3,10 @@
   "configurations": [
     {
       "name": "ambience",
-      "runtimeExecutable": "go",
+      "runtimeExecutable": "C:\\Program Files\\Go\\bin\\go.exe",
       "runtimeArgs": ["run", "./cmd/ambience"],
-      "port": 8080
+      "port": 8080,
+      "autoPort": false
     }
   ]
 }
