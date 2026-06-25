@@ -28,7 +28,9 @@ type drop struct {
 	Color      color.RGBA
 	vRow, vCol float64 // movement vector per tick
 	streakLen  int     // trail length (including head) for this drop
-	background bool    // background-layer drop (dimmer, shorter, slower)
+	background bool    // far half of the depth field (kept for any layer-keyed code)
+	depth      float64 // synthetic distance 0=near .. 1=far
+	widthCells int     // brush width in grid cells (>=1); near drops wider
 }
 
 // Config tunes Rain. Every knob is a continuous spectrum so the dev UI can
@@ -54,6 +56,7 @@ type Config struct {
 	// SHAPE
 	StreakLen  int     `json:"streak"`
 	FadeFactor float64 `json:"fade"`
+	DropWidth  float64 `json:"drop_width"`
 	// SPAWN
 	SpawnEvery int `json:"spawn"`
 	SpawnBurst int `json:"burst"`
@@ -110,6 +113,11 @@ func (c Config) withDefaults() Config {
 	}
 	if c.StreakLen <= 0 {
 		c.StreakLen = 12
+	}
+	if c.DropWidth <= 0 {
+		// 1 = every drop one cell wide (thin "smaller pixels" rain). Depth still
+		// drives speed/streak/brightness; >1 also fattens near drops in cells.
+		c.DropWidth = 1
 	}
 	if c.IntroDur <= 0 {
 		c.IntroDur = 360
@@ -287,6 +295,8 @@ func RainSchema() EffectSchema {
 				Description: "Pixels painted behind each drop's head, tracing a visible streak. Applied at paint time."},
 			{Key: "fade", Label: "fade", Slot: SlotLever, Group: "shape", Type: KnobFloat, Min: 0.5, Max: 1, Step: 0.01, Default: 0.91,
 				Description: "Brightness multiplier per position along a streak. 1.0 = uniform, 0.5 = sharp tail fade. Applied at paint time."},
+			{Key: "drop_width", Label: "drop width", Slot: SlotLever, Group: "shape", Type: KnobFloat, Min: 1, Max: 5, Step: 0.5, Default: 1,
+				Description: "Cells wide for the nearest drops (needs layers ≥ 2). 1 = thin one-cell rain; depth still drives speed/streak/brightness. >1 fattens near drops, tapering to 1 with distance. Next drop onward."},
 			{Key: "spawn", Label: "spawn 1/", Slot: SlotLever, Group: "density", Type: KnobInt, Min: 1, Max: 30, Step: 1, Default: 3,
 				Description: "Rolls 1 in N per tick for a new drop. Smaller = denser rain."},
 			{Key: "burst", Label: "burst max", Slot: SlotLever, Group: "density", Type: KnobInt, Min: 1, Max: 8, Step: 1, Default: 4,
@@ -522,6 +532,8 @@ type Drop struct {
 	VCol       float64 `json:"vCol"`
 	StreakLen  int     `json:"streakLen"`
 	Background bool    `json:"background"`
+	Depth      float64 `json:"depth,omitempty"`
+	WidthCells int     `json:"widthCells,omitempty"`
 }
 
 // Splash is the wire form of an active splash ring.
@@ -714,6 +726,8 @@ func (r *Rain) copyDropsLocked() []Drop {
 			VCol:       d.vCol,
 			StreakLen:  d.streakLen,
 			Background: d.background,
+			Depth:      d.depth,
+			WidthCells: d.widthCells,
 		}
 	}
 	return out
@@ -761,6 +775,8 @@ func (r *Rain) restoreParticlesLocked(drops []Drop, splashes []Splash) {
 			vCol:       d.VCol,
 			streakLen:  d.StreakLen,
 			background: d.Background,
+			depth:      d.Depth,
+			widthCells: d.WidthCells,
 		}
 	}
 
@@ -1127,38 +1143,85 @@ func (r *Rain) endingColumnRange(progress float64) (float64, float64) {
 	}
 }
 
+// refGridH is the grid height the rain config was calibrated against (see
+// docs/rain-visual-model.md): at 180 rows a tracked-drop speed of ~1.8
+// rows/tick crosses the viewport in ~1.7s. Fall speed and streak/sheet/front
+// lengths are expressed in that reference and scaled by resScale() so the
+// screen-relative motion and proportions stay constant at any grid resolution.
+// Raising the grid then only makes the pixels finer — it must not slow the rain
+// or shorten the streaks (a regression we hit when the grid went 180→360).
+const refGridH = 180
+
+func (r *Rain) resScale() float64 {
+	// Only scale up for grids taller than the reference. Smaller grids (tests,
+	// the terminal) keep the config's literal cell values, so this never shrinks
+	// or slows rain below what a scene declares — it just stops a finer grid from
+	// making it crawl.
+	if r.H <= refGridH {
+		return 1
+	}
+	return float64(r.H) / refGridH
+}
+
+// lerpDepth interpolates a perceptual factor from near (t=0) to far (t=1).
+func lerpDepth(near, far, t float64) float64 { return near + (far-near)*t }
+
 func (r *Rain) spawnDropAt(col float64) {
 	col = math.Max(0, math.Min(float64(r.W)-1, col))
-	isBG := r.cfg.Layers >= 2 && r.rng.Float64() < r.cfg.LayerBalance
+	rs := r.resScale()
+
+	// Synthetic depth. With layering on, each drop draws a distance t in [0,1]
+	// (0 = nearest, 1 = farthest), and apparent size, fall speed, streak length
+	// and brightness all derive from it together — so a slow drop is *visibly* a
+	// distant drop (smaller, dimmer, shorter), not arbitrarily slow. The physics:
+	// apparent angular size and angular velocity both fall off with distance, and
+	// nearer drops also tend to be the larger, faster-falling ones, so near drops
+	// are big/fast/long/bright and far drops the opposite. Bias toward the far
+	// field (sqrt) so the scene is mostly mid/background rain with a few bold near
+	// streaks rather than an even split.
+	depthOn := r.cfg.Layers >= 2
+	t := 0.0
+	if depthOn {
+		t = math.Sqrt(r.rng.Float64())
+	}
+	sizeF, speedF, brightF := 1.0, 1.0, 1.0
+	if depthOn {
+		sizeF = lerpDepth(1.0, 0.35, t)  // streak length + width
+		speedF = lerpDepth(1.0, 0.6, t)  // apparent fall speed
+		brightF = lerpDepth(1.0, 0.5, t) // distance haze
+	}
 
 	// Motion jitter. Wind uses currentWind() so lever drift + gust events apply.
 	sJit := (r.rng.Float64()*2 - 1) * r.cfg.SpeedJitter
 	wJit := (r.rng.Float64()*2 - 1) * r.cfg.WindJitter
-	effSpeed := r.cfg.Speed * (1 + sJit)
+	effSpeed := r.cfg.Speed * (1 + sJit) * rs * speedF
 	effWind := r.currentWind() + wJit*r.cfg.Wind // jitter relative to static base magnitude
-	if effSpeed < 0.1 {
-		effSpeed = 0.1
-	}
-	// Background layer moves slower (parallax depth illusion).
-	if isBG {
-		effSpeed *= 0.6
+	if minSpeed := 0.1 * rs; effSpeed < minSpeed {
+		effSpeed = minSpeed
 	}
 
 	// Color: hue base (possibly drifted) + jitter, lightness sampled from [min, max].
 	hJit := (r.rng.Float64()*2 - 1) * r.cfg.HueSpread
 	hue := math.Mod(r.currentHue()+hJit+360, 360)
-	t := r.rng.Float64()
-	lightness := r.cfg.LightnessMin + t*(r.cfg.LightnessMax-r.cfg.LightnessMin)
-	if isBG {
-		lightness *= 0.65
-	}
+	lt := r.rng.Float64()
+	lightness := (r.cfg.LightnessMin + lt*(r.cfg.LightnessMax-r.cfg.LightnessMin)) * brightF
 	c := hslToRGB(hue, r.cfg.Saturation, lightness)
 
-	streak := r.cfg.StreakLen
-	if isBG {
-		streak = streak / 2
-		if streak < 2 {
-			streak = 2
+	// Streak length is screen-relative (scaled by resolution) then shortened
+	// with distance.
+	streak := int(math.Round(float64(r.cfg.StreakLen) * rs * sizeF))
+	if streak < 1 {
+		streak = 1
+	}
+
+	// Width stays in cells (NOT resolution-scaled) so a finer grid yields
+	// thinner drops — the "smaller pixels" look. DropWidth > 1 fattens near
+	// drops up to that many cells, tapering to 1 with distance.
+	width := 1
+	if depthOn && r.cfg.DropWidth > 1 {
+		width = int(math.Round(lerpDepth(r.cfg.DropWidth, 1, t)))
+		if width < 1 {
+			width = 1
 		}
 	}
 
@@ -1169,7 +1232,9 @@ func (r *Rain) spawnDropAt(col float64) {
 		vRow:       effSpeed,
 		vCol:       effWind * effSpeed,
 		streakLen:  streak,
-		background: isBG,
+		background: t >= 0.55,
+		depth:      t,
+		widthCells: width,
 	})
 }
 
@@ -1307,7 +1372,11 @@ func (r *Rain) spawnSplash() {
 	if r.cfg.SplashSize <= 0 {
 		return
 	}
-	radius := jitterInt(r.rng, r.cfg.SplashSize, 0.3)
+	baseRadius := int(math.Round(float64(r.cfg.SplashSize) * r.resScale()))
+	if baseRadius < 1 {
+		baseRadius = 1
+	}
+	radius := jitterInt(r.rng, baseRadius, 0.3)
 	hue := math.Mod(r.currentHue()+(r.rng.Float64()*2-1)*r.cfg.HueSpread+360, 360)
 	c := hslToRGB(hue, r.cfg.Saturation, r.cfg.LightnessMax)
 	r.splashes = append(r.splashes, splashInstance{
@@ -1349,12 +1418,16 @@ func (r *Rain) paintSheet() {
 	if r.cfg.SheetDensity <= 0 || r.W <= 0 || r.H <= 0 {
 		return
 	}
-	length := r.cfg.SheetLength
+	rs := r.resScale()
+	length := int(math.Round(float64(r.cfg.SheetLength) * rs))
+	if minL := int(math.Round(2 * rs)); length < minL {
+		length = minL
+	}
+	if maxL := int(math.Round(40 * rs)); length > maxL {
+		length = maxL
+	}
 	if length < 2 {
 		length = 2
-	}
-	if length > 40 {
-		length = 40
 	}
 	strength := clamp01(r.cfg.SheetStrength)
 	if strength <= 0 {
@@ -1364,6 +1437,7 @@ func (r *Rain) paintSheet() {
 	if speed <= 0 {
 		speed = 1
 	}
+	speed *= rs
 	streams := int(math.Round(clamp01(r.cfg.SheetDensity) * float64(r.W) * 0.85))
 	if streams < 1 {
 		streams = 1
@@ -1405,12 +1479,16 @@ func (r *Rain) paintFrontPlane() {
 	if r.cfg.FrontDensity <= 0 || r.W <= 0 || r.H <= 0 {
 		return
 	}
-	length := r.cfg.FrontLength
+	rs := r.resScale()
+	length := int(math.Round(float64(r.cfg.FrontLength) * rs))
+	if minL := int(math.Round(4 * rs)); length < minL {
+		length = minL
+	}
+	if maxL := int(math.Round(64 * rs)); length > maxL {
+		length = maxL
+	}
 	if length < 4 {
 		length = 4
-	}
-	if length > 64 {
-		length = 64
 	}
 	strength := clamp01(r.cfg.FrontStrength)
 	if strength <= 0 {
@@ -1420,6 +1498,7 @@ func (r *Rain) paintFrontPlane() {
 	if speed <= 0 {
 		speed = 54
 	}
+	speed *= rs
 	wind := r.currentWind()
 	life := int(math.Ceil((float64(r.H)+float64(length)*2)/speed)) + 1
 	if life < 3 {
@@ -1457,8 +1536,8 @@ func (r *Rain) paintFrontPlane() {
 			light := r.cfg.LightnessMax + (1-r.cfg.LightnessMax)*0.25
 			base := hslToRGB(hue, r.cfg.Saturation*0.45, light)
 			exposureLen := length + int(math.Round(math.Min(eventSpeed*0.65, float64(length)*1.5)))
-			if exposureLen > 72 {
-				exposureLen = 72
+			if maxExp := int(math.Round(72 * rs)); exposureLen > maxExp {
+				exposureLen = maxExp
 			}
 			for j := 0; j < exposureLen; j++ {
 				row := headRow - float64(j)*rowStep
@@ -1487,20 +1566,31 @@ func (r *Rain) paintFrontPlane() {
 // motion vector. Brightness decays by FadeFactor per position from the head.
 func (r *Rain) paintDrop(d drop) {
 	rowStep, colStep := d.trailStep()
+	// Width is stamped perpendicular to motion (rotate the unit motion vector
+	// 90°). width 1 reduces to the classic single-cell streak.
+	w := d.widthCells
+	if w < 1 {
+		w = 1
+	}
+	perpRow, perpCol := -colStep, rowStep
+	half := float64(w-1) / 2
 	for i := 0; i < d.streakLen; i++ {
 		row := d.Row - float64(i)*rowStep
 		col := d.Col - float64(i)*colStep
-		gr := int(math.Floor(row))
-		gc := int(math.Round(col))
-		if gr < 0 || gr >= r.H || gc < 0 || gc >= r.W {
-			continue
-		}
 		brightness := math.Pow(r.cfg.FadeFactor, float64(i))
 		c := d.Color
 		c.R = uint8(float64(c.R) * brightness)
 		c.G = uint8(float64(c.G) * brightness)
 		c.B = uint8(float64(c.B) * brightness)
-		r.paintPixelMax(gr, gc, c)
+		for k := 0; k < w; k++ {
+			off := float64(k) - half
+			gr := int(math.Floor(row + off*perpRow))
+			gc := int(math.Round(col + off*perpCol))
+			if gr < 0 || gr >= r.H || gc < 0 || gc >= r.W {
+				continue
+			}
+			r.paintPixelMax(gr, gc, c)
+		}
 	}
 }
 
