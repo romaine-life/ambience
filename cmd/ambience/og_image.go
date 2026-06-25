@@ -105,26 +105,26 @@ func renderPixelGridImage(grid [][]sim.Pixel, width, height int) *image.RGBA {
 	if srcW == 0 || srcH == 0 {
 		return img
 	}
-	scaleX := width / srcW
-	scaleY := height / srcH
-	scale := scaleX
-	if scaleY < scale {
-		scale = scaleY
-	}
-	if scale < 1 {
-		scale = 1
-	}
-	drawW := srcW * scale
-	drawH := srcH * scale
-	offX := (width - drawW) / 2
-	offY := (height - drawH) / 2
-	for y, row := range grid {
-		for x, p := range row {
+	// Nearest-neighbor stretch to fill the whole frame, sampled per output
+	// pixel. The old integer cell-scale left big black margins once the shared
+	// grid grew past ~400 wide (e.g. 640×360 only scaled ×1 into a 1200×630
+	// card); driving from the output makes the preview resolution-independent.
+	for y := 0; y < height; y++ {
+		sy := y * srcH / height
+		if sy >= len(grid) {
+			sy = len(grid) - 1
+		}
+		row := grid[sy]
+		for x := 0; x < width; x++ {
+			sx := x * srcW / width
+			if sx >= len(row) {
+				continue
+			}
 			c := color.RGBA{0, 0, 0, 255}
-			if p.Filled {
+			if p := row[sx]; p.Filled {
 				c = color.RGBA{p.C.R, p.C.G, p.C.B, 255}
 			}
-			fillRect(img, offX+x*scale, offY+y*scale, scale, scale, c)
+			img.SetRGBA(x, y, c)
 		}
 	}
 	return img
@@ -134,20 +134,6 @@ func fillImage(img *image.RGBA, c color.RGBA) {
 	for y := img.Rect.Min.Y; y < img.Rect.Max.Y; y++ {
 		for x := img.Rect.Min.X; x < img.Rect.Max.X; x++ {
 			img.SetRGBA(x, y, c)
-		}
-	}
-}
-
-func fillRect(img *image.RGBA, x, y, w, h int, c color.RGBA) {
-	for yy := y; yy < y+h; yy++ {
-		if yy < img.Rect.Min.Y || yy >= img.Rect.Max.Y {
-			continue
-		}
-		for xx := x; xx < x+w; xx++ {
-			if xx < img.Rect.Min.X || xx >= img.Rect.Max.X {
-				continue
-			}
-			img.SetRGBA(xx, yy, c)
 		}
 	}
 }
