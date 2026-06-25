@@ -70,6 +70,12 @@ type Config struct {
 	// DEPTH
 	Layers       int     `json:"layers"`
 	LayerBalance float64 `json:"lbal"`
+	// Overlay is a near-depth cutoff in [0,1]: drops whose synthetic depth is at
+	// or below it are ALSO emitted (unchanged) via OverlayGridCopy, a separate
+	// frame a consumer composites IN FRONT of its own UI so the nearest drops
+	// cross over the page. 0 = none. Those drops still paint into the main grid
+	// exactly as before, so the back field is identical whatever this is set to.
+	Overlay float64 `json:"overlay"`
 	// TEXTURE
 	SheetDensity  float64 `json:"sheet"`
 	SheetStrength float64 `json:"sheet_alpha"`
@@ -177,6 +183,8 @@ func (c Config) withDefaults() Config {
 	if c.LayerBalance <= 0 {
 		c.LayerBalance = 0.55
 	}
+	// Overlay defaults to 0 (off) — a zero value is meaningful, so only bound it.
+	c.Overlay = clamp01(c.Overlay)
 	if c.SheetStrength <= 0 {
 		c.SheetStrength = 0.3
 	}
@@ -318,6 +326,8 @@ func RainSchema() EffectSchema {
 				Description: "1 = single layer. 2 = adds a dimmer/shorter/slower background layer for parallax depth. Next drop onward."},
 			{Key: "lbal", Label: "bg balance", Slot: SlotLever, Group: "depth", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0.55,
 				Description: "Fraction of drops assigned to the background layer. Ignored unless layers=2. Next drop onward."},
+			{Key: "overlay", Label: "overlay", Slot: SlotLever, Group: "depth", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0,
+				Description: "Near-depth cutoff: drops at or nearer than this (by synthetic depth, 0=near..1=far) ALSO render in a front plane a consumer can composite over its own UI, so the nearest drops cross in front of the page. 0 = none. The same drops still render in the main field unchanged."},
 			{Key: "sheet", Label: "sheet", Slot: SlotLever, Group: "texture", Type: KnobFloat, Min: 0, Max: 1, Step: 0.05, Default: 0.6,
 				Description: "Procedural background rain texture density. 0 = only foreground drops; higher = fuller rain field."},
 			{Key: "sheet_alpha", Label: "sheet alpha", Slot: SlotLever, Group: "texture", Type: KnobFloat, Min: 0.1, Max: 1, Step: 0.05, Default: 0.3,
@@ -807,6 +817,30 @@ func (r *Rain) GridCopy() [][]Pixel {
 	for y := range r.Grid {
 		out[y] = make([]Pixel, len(r.Grid[y]))
 		copy(out[y], r.Grid[y])
+	}
+	return out
+}
+
+// OverlayGridCopy returns a fresh transparent grid holding only the drops at or
+// nearer than the Overlay depth cutoff (Config.Overlay). It is computed on
+// demand — Step() and the main grid are untouched — so a consumer can composite
+// this frame ABOVE its own UI while the very same drops still paint into
+// GridCopy's back field. With Overlay 0 nothing qualifies and the grid is empty,
+// so reading it never changes the rain.
+func (r *Rain) OverlayGridCopy() [][]Pixel {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([][]Pixel, r.H)
+	for y := range out {
+		out[y] = make([]Pixel, r.W)
+	}
+	if r.cfg.Overlay <= 0 {
+		return out
+	}
+	for _, d := range r.drops {
+		if d.depth <= r.cfg.Overlay {
+			r.paintDropInto(out, d)
+		}
 	}
 	return out
 }
@@ -1710,6 +1744,13 @@ func (r *Rain) paintFrontPlane() {
 // paintDrop lays down StreakLen cells from the drop's head backward along its
 // motion vector. Brightness decays by FadeFactor per position from the head.
 func (r *Rain) paintDrop(d drop) {
+	r.paintDropInto(r.Grid, d)
+}
+
+// paintDropInto paints a drop's brush-width streak into an arbitrary grid with
+// the same max-blend as the main field. OverlayGridCopy reuses it to build the
+// near-plane frame from the nearest drops alone.
+func (r *Rain) paintDropInto(grid [][]Pixel, d drop) {
 	rowStep, colStep := d.trailStep()
 	// Width is stamped perpendicular to motion (rotate the unit motion vector
 	// 90°). width 1 reduces to the classic single-cell streak.
@@ -1734,7 +1775,7 @@ func (r *Rain) paintDrop(d drop) {
 			if gr < 0 || gr >= r.H || gc < 0 || gc >= r.W {
 				continue
 			}
-			r.paintPixelMax(gr, gc, c)
+			r.paintPixelMaxInto(grid, gr, gc, c)
 		}
 	}
 }
@@ -1776,10 +1817,14 @@ func wrapInt(v, limit int) int {
 }
 
 func (r *Rain) paintPixelMax(row, col int, c color.RGBA) {
+	r.paintPixelMaxInto(r.Grid, row, col, c)
+}
+
+func (r *Rain) paintPixelMaxInto(grid [][]Pixel, row, col int, c color.RGBA) {
 	if row < 0 || row >= r.H || col < 0 || col >= r.W {
 		return
 	}
-	p := &r.Grid[row][col]
+	p := &grid[row][col]
 	if !p.Filled {
 		*p = Pixel{Filled: true, C: c}
 		return

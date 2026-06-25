@@ -8,6 +8,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"time"
@@ -162,6 +163,11 @@ func generateRainScene(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
 
 	layers := 2
 	layerBalance := 0.45 + rng.Float64()*0.20 // 0.45–0.65
+	// Near-depth cutoff: the share of nearest drops that cross in front of a
+	// consumer's UI. Biased low (squared) so most scenes show just a few
+	// foreground streaks and the occasional scene leans heavier — entropy makes
+	// it wander between scenes.
+	overlay := math.Pow(rng.Float64(), 2) * 0.28 // ~0–0.28, mostly small
 
 	// Thinner distant texture so the field stays light and the tracked drops
 	// (the legible foreground) aren't drowned by background sheet streams.
@@ -197,6 +203,7 @@ func generateRainScene(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
 		LightnessMax:   lmax,
 		Layers:         layers,
 		LayerBalance:   layerBalance,
+		Overlay:        overlay,
 		SheetDensity:   sheetDensity,
 		SheetStrength:  sheetStrength,
 		SheetLength:    sheetLength,

@@ -551,6 +551,7 @@ func lerpConfig(a, b sim.Config, t float64) sim.Config {
 		LightnessMax:   lf(a.LightnessMax, b.LightnessMax),
 		Layers:         li(a.Layers, b.Layers),
 		LayerBalance:   lf(a.LayerBalance, b.LayerBalance),
+		Overlay:        lf(a.Overlay, b.Overlay),
 		SheetDensity:   lf(a.SheetDensity, b.SheetDensity),
 		SheetStrength:  lf(a.SheetStrength, b.SheetStrength),
 		SheetLength:    li(a.SheetLength, b.SheetLength),

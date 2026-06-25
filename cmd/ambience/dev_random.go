@@ -75,6 +75,7 @@ func stabilizeRandomizedDevConfig(effect string, cfg map[string]any) {
 	clampFloatMax(cfg, "wind_drift", 0.2)
 	clampIntMin(cfg, "layers", 2)
 	clampFloatMin(cfg, "lbal", 0.45)
+	clampFloatMax(cfg, "overlay", 0.3)
 	clampFloatMin(cfg, "sheet", 0.5)
 	clampIntMin(cfg, "sheet_len", 9)
 	clampFloatMin(cfg, "sheet_alpha", 0.25)

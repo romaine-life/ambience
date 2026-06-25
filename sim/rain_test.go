@@ -84,6 +84,59 @@ func TestRainCueCoherence(t *testing.T) {
 	}
 }
 
+func TestOverlayLayerIsANearDepthSubsetOfTheMainField(t *testing.T) {
+	countLit := func(g [][]Pixel) int {
+		n := 0
+		for _, row := range g {
+			for _, p := range row {
+				if p.Filled {
+					n++
+				}
+			}
+		}
+		return n
+	}
+
+	// Overlay off (the default): nothing qualifies, the overlay frame is empty,
+	// and the main field still rains — the feature is inert when the lever is 0.
+	off := NewRain(80, 45, 7, Config{Overlay: 0, SpawnEvery: 1, SpawnBurst: 4})
+	for i := 0; i < 200; i++ {
+		off.Step()
+	}
+	if lit := countLit(off.OverlayGridCopy()); lit != 0 {
+		t.Fatalf("overlay off: expected an empty overlay frame, got %d lit pixels", lit)
+	}
+	if countLit(off.GridCopy()) == 0 {
+		t.Fatalf("overlay off: expected rain in the main field")
+	}
+
+	// Overlay 1 (every drop is at/nearer than depth 1): the overlay frame is
+	// non-empty, and every lit overlay pixel is also present (and at least as
+	// bright) in the main field. The promoted drops still paint into the main
+	// grid exactly as before, so the back field is unchanged — purely additive.
+	on := NewRain(80, 45, 7, Config{Overlay: 1, SpawnEvery: 1, SpawnBurst: 4})
+	for i := 0; i < 200; i++ {
+		on.Step()
+	}
+	ov := on.OverlayGridCopy()
+	main := on.GridCopy()
+	if countLit(ov) == 0 {
+		t.Fatalf("overlay on: expected a non-empty overlay frame")
+	}
+	for y := range ov {
+		for x := range ov[y] {
+			op := ov[y][x]
+			if !op.Filled {
+				continue
+			}
+			mp := main[y][x]
+			if !mp.Filled || mp.C.R < op.C.R || mp.C.G < op.C.G || mp.C.B < op.C.B {
+				t.Fatalf("overlay pixel (%d,%d)=%v not covered by main field %v", x, y, op.C, mp.C)
+			}
+		}
+	}
+}
+
 func TestNewRainAppliesDefaults(t *testing.T) {
 	r := NewRain(10, 10, 1, Config{})
 	if r.cfg.SpawnEvery == 0 {

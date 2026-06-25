@@ -55,6 +55,7 @@ func main() {
 		"width":            js.FuncOf(width),
 		"height":           js.FuncOf(height),
 		"frame":            js.FuncOf(frame),
+		"overlayFrame":     js.FuncOf(overlayFrame),
 	})
 	select {}
 }
@@ -232,6 +233,28 @@ func frame(_ js.Value, args []js.Value) any {
 		return js.Global().Get("Uint8ClampedArray").New(0)
 	}
 	buf := flattenGrid(rt.effect.GridCopy())
+	out := js.Global().Get("Uint8ClampedArray").New(len(buf))
+	js.CopyBytesToJS(out, buf)
+	return out
+}
+
+// overlayEffect is the optional capability of exposing a near/overlay frame
+// (only rain implements it today). Effects without it return an empty frame, so
+// a consumer asking for the overlay layer of a non-overlay effect draws nothing.
+type overlayEffect interface {
+	OverlayGridCopy() [][]sim.Pixel
+}
+
+func overlayFrame(_ js.Value, args []js.Value) any {
+	rt := lookup(args)
+	if rt == nil {
+		return js.Global().Get("Uint8ClampedArray").New(0)
+	}
+	oe, ok := rt.effect.(overlayEffect)
+	if !ok {
+		return js.Global().Get("Uint8ClampedArray").New(0)
+	}
+	buf := flattenGrid(oe.OverlayGridCopy())
 	out := js.Global().Get("Uint8ClampedArray").New(len(buf))
 	js.CopyBytesToJS(out, buf)
 	return out
