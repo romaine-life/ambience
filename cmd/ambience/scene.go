@@ -153,11 +153,11 @@ func generateRainScene(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
 	speed := 1.55 + rng.Float64()*0.75 // 1.55–2.30
 	// Lighter field: fewer, smaller bursts so the rain reads as ambient drizzle/
 	// rain rather than a dense storm (and so individual drops stay legible).
-	spawnEvery := 4 + rng.Intn(5) // 4–8 (rolls 1-in-N; larger = sparser)
-	spawnBurst := 2 + rng.Intn(2) // 2–3
-	streak := 10 + rng.Intn(5)         // 10–14
-	fade := 0.88 + rng.Float64()*0.08  // 0.88–0.96
-	wind := -0.35 + rng.Float64()*0.7  // -0.35..+0.35
+	spawnEvery := 4 + rng.Intn(5)     // 4–8 (rolls 1-in-N; larger = sparser)
+	spawnBurst := 2 + rng.Intn(2)     // 2–3
+	streak := 10 + rng.Intn(5)        // 10–14
+	fade := 0.88 + rng.Float64()*0.08 // 0.88–0.96
+	wind := -0.35 + rng.Float64()*0.7 // -0.35..+0.35
 	windJit := rng.Float64() * 0.18
 	speedJit := rng.Float64() * 0.18
 
@@ -184,7 +184,13 @@ func generateRainScene(rng *rngutil.RNG, startedAt int, durationTicks int) Scene
 	// field rather than constantly re-shape it.
 	downpourP := 0.00008 + rng.Float64()*0.00017
 	calmP := 0.00008 + rng.Float64()*0.00017
-	gustP := 0.00008 + rng.Float64()*0.00017
+	// Gusts are turned OFF for every world: the gust effect isn't ready yet (its
+	// abrupt onset reads as a flick of wind rather than a real gust). We still
+	// consume the RNG draw so the rest of a scene's randomization is unchanged,
+	// then pin the chance to 0. Re-enable by restoring the draw as the value:
+	// `gustP := 0.00008 + rng.Float64()*0.00017`.
+	rng.Float64()
+	gustP := 0.0
 	splashP := 0.00016 + rng.Float64()*0.00034
 
 	cfg := sim.Config{
