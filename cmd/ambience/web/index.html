@@ -52,6 +52,14 @@
 	// constant so there's no resize flash on connect.
 	const GRID_W = 640, GRID_H = 360;
 	const TICK_MS = 1000 / 60;
+	// Optional world selector: ?world=<name> points this monitor at a named,
+	// read-only broadcast (e.g. ?world=chess inspects the Chess Tactics rain).
+	// Named worlds expose only the stream + entropy — no admin controls — so the
+	// monitor runs as a pure inspector against world-scoped endpoints. Empty =
+	// the default rotating world served at the bare paths.
+	const WORLD = (new URLSearchParams(window.location.search).get('world') || '').trim();
+	const WORLD_BASE = WORLD ? '/' + encodeURIComponent(WORLD) : '';
+	const READ_ONLY = WORLD !== '';
 	const L = window.AmbienceChrome.effectLabel;
 	const canvas = document.getElementById('c');
 	const ctx = canvas.getContext('2d');
@@ -93,11 +101,15 @@
 	const chrome = window.AmbienceChrome.mount({
 		host: document.getElementById('chrome'),
 		hint: document.getElementById('summonHint'),
-		canvas, mode: 'live', gridW: GRID_W, gridH: GRID_H, summoned: monitorDeepLink, locked: true,
-		line: 'the live broadcast — every screen in step. controls mirror the world; intervening is admin-gated.',
-		routeJump: { label: 'dev →', title: 'open the dev tuning sandbox', onClick: () => { window.location.href = '/dev'; } },
-		ctl: { title: 'control surface', modeLabel: 'live · admin', note: '' },
-		feedLabel: 'broadcast track', showAuth: true, showNext: true,
+		canvas, mode: 'live', gridW: GRID_W, gridH: GRID_H, summoned: monitorDeepLink || READ_ONLY, locked: true,
+		line: READ_ONLY
+			? 'inspecting the ' + WORLD + ' broadcast — read-only. scenes drift on the authority clock; what is queued shows up next.'
+			: 'the live broadcast — every screen in step. controls mirror the world; intervening is admin-gated.',
+		routeJump: READ_ONLY
+			? { label: 'live world →', title: 'open the default broadcast monitor', onClick: () => { window.location.href = '/'; } }
+			: { label: 'dev →', title: 'open the dev tuning sandbox', onClick: () => { window.location.href = '/dev'; } },
+		ctl: { title: 'control surface', modeLabel: READ_ONLY ? 'inspector · read-only' : 'live · admin', note: '' },
+		feedLabel: 'broadcast track', showAuth: !READ_ONLY, showNext: true,
 		tele: {
 			header: 'authority clock', badge: { tone: 'muted', label: 'acquiring' },
 			rows: [
@@ -356,7 +368,7 @@
 		debounceT = setTimeout(pushSharedConfig, 150);
 	}
 	async function pushSharedConfig() {
-		if (chrome.isLocked() || !chrome.getSchema() || !effectType) return;
+		if (READ_ONLY || chrome.isLocked() || !chrome.getSchema() || !effectType) return;
 		try {
 			const resp = await fetch('/config?' + currentSharedQuery(), { method: 'POST', credentials: 'same-origin' });
 			if (resp.status === 401) { authed = false; armed = false; setAuthUI(); }
@@ -364,7 +376,7 @@
 		} catch (err) { console.error('shared config push', err); }
 	}
 	async function triggerSharedEvent(eventName) {
-		if (chrome.isLocked()) return;
+		if (READ_ONLY || chrome.isLocked()) return;
 		try {
 			const resp = await fetch('/trigger/' + encodeURIComponent(eventName) + '?effect=' + encodeURIComponent(effectType), { method: 'POST', credentials: 'same-origin' });
 			if (resp.status === 401) { authed = false; armed = false; setAuthUI(); }
@@ -372,7 +384,7 @@
 		} catch (err) { console.error('shared trigger', err); }
 	}
 	async function advanceSharedEffect() {
-		if (chrome.isLocked()) return;
+		if (READ_ONLY || chrome.isLocked()) return;
 		chrome.setNextEnabled(false);
 		try {
 			const resp = await fetch('/next-effect', { method: 'POST', credentials: 'same-origin' });
@@ -460,7 +472,7 @@
 
 	async function startRuntime() {
 		await AmbienceSim.wasm.ready();
-		const es = new EventSource('/events');
+		const es = new EventSource(WORLD_BASE + '/events');
 		es.onmessage = (ev) => {
 			let cmd; try { cmd = JSON.parse(ev.data); } catch (_) { return; }
 			serverTick = cmd.tick || serverTick;
@@ -538,13 +550,20 @@
 	setInterval(() => {
 		if (entropyBuf.length === 0) return;
 		const bytes = entropyBuf.splice(0, entropyBuf.length);
-		try { fetch('/entropy', { method: 'POST', body: new Uint8Array(bytes), keepalive: true }).catch(() => {}); } catch (_) {}
+		try { fetch(WORLD_BASE + '/entropy', { method: 'POST', body: new Uint8Array(bytes), keepalive: true }).catch(() => {}); } catch (_) {}
 	}, 2000);
 
 	// ── boot ─────────────────────────────────────────────────────────────
-	setAuthUI();
-	handleOidcCallback();
-	refreshControlAuth();
+	if (READ_ONLY) {
+		// Named-world inspector: named worlds have no admin endpoints, so stay
+		// locked and skip the control-auth handshake entirely.
+		chrome.setControlsLocked(true);
+		chrome.setNextEnabled(false);
+	} else {
+		setAuthUI();
+		handleOidcCallback();
+		refreshControlAuth();
+	}
 	startRuntime().catch((err) => { console.error(err); chrome.setLine('wasm runtime failed'); });
 })();
 </script>

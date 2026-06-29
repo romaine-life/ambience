@@ -95,6 +95,32 @@ func savePersistedState(ctx context.Context, store persistenceStore, a *atmosphe
 	}
 }
 
+// clearRainGust returns a rain config JSON with gust_p forced to 0. Gusts are
+// disabled for every world (see generateRainScene); this scrubs a leftover gust
+// chance from a snapshot persisted before that change so a restored world is
+// gust-free immediately rather than until its next scene rotation. It edits only
+// the gust_p key (so every other field is preserved byte-for-byte) and returns
+// the input unchanged when gust_p is absent, already zero, or unparseable.
+func clearRainGust(data json.RawMessage) json.RawMessage {
+	if len(data) == 0 {
+		return data
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(data, &m); err != nil {
+		return data
+	}
+	raw, ok := m["gust_p"]
+	if !ok || string(raw) == "0" {
+		return data
+	}
+	m["gust_p"] = json.RawMessage("0")
+	out, err := json.Marshal(m)
+	if err != nil {
+		return data
+	}
+	return out
+}
+
 func restoreSharedAtmosphere(ctx context.Context, store persistenceStore) *atmosphere {
 	return restoreSharedAtmosphereWithPolicy(ctx, store, rotationPolicy{})
 }
@@ -120,6 +146,20 @@ func restoreSharedAtmosphereWithPolicy(ctx context.Context, store persistenceSto
 	}
 	if state.Effect.GridH <= 0 {
 		state.Effect.GridH = gridH
+	}
+
+	// Gusts are off for every world now (generateRainScene). A snapshot persisted
+	// before that change can still carry a nonzero gust_p, which would let the
+	// restored default world gust until its next scene rotation. Scrub it from
+	// every restored rain config so gusts are off the instant the authority
+	// resumes, not hours later.
+	if state.Type == "rain" {
+		state.Config = clearRainGust(state.Config)
+		state.Effect.Config = clearRainGust(state.Effect.Config)
+		state.CurrentScene.Config = clearRainGust(state.CurrentScene.Config)
+		state.NextScene.Config = clearRainGust(state.NextScene.Config)
+		state.Transition.From = clearRainGust(state.Transition.From)
+		state.Transition.To = clearRainGust(state.Transition.To)
 	}
 
 	sceneRNGState := state.SceneRNGState
