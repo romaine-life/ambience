@@ -176,3 +176,44 @@ func TestSharedAtmospherePersistenceRoundTrip(t *testing.T) {
 		t.Fatalf("splashes = %d, want %d", len(gotState.Splashes), len(wantState.Splashes))
 	}
 }
+
+// TestRestoreScrubsLeftoverRainGust pins the "gusts off for all worlds, now"
+// guarantee: a snapshot persisted with a nonzero gust_p (from before gusts were
+// disabled) restores with gusts off in the live config, the running sim, and the
+// scene lookahead — so the resumed world is gust-free immediately, not only after
+// its next scene rotation.
+func TestRestoreScrubsLeftoverRainGust(t *testing.T) {
+	gusty, err := json.Marshal(sim.Config{Speed: 1.8, Wind: 0.2, GustChance: 0.0002})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryStore{saved: &persistedAtmosphere{
+		Version:      1,
+		Type:         "rain",
+		Seed:         7,
+		Config:       gusty,
+		Effect:       persistedEffectState{Config: gusty, GridW: gridW, GridH: gridH},
+		CurrentScene: Scene{Name: "cool-steady-rain", Config: gusty, DurationTicks: 100000},
+		NextScene:    Scene{Name: "blue-slow-drizzle", Config: gusty, DurationTicks: 100000},
+		ScenePolicy:  defaultScenePolicy(),
+	}}
+
+	a := restoreSharedAtmosphere(context.Background(), store)
+
+	gustOf := func(label string, data json.RawMessage) {
+		t.Helper()
+		var c sim.Config
+		if err := json.Unmarshal(data, &c); err != nil {
+			t.Fatalf("decode %s config: %v", label, err)
+		}
+		if c.GustChance != 0 {
+			t.Fatalf("%s gust_p = %v after restore, want 0", label, c.GustChance)
+		}
+	}
+	gustOf("live cfg", a.cfg)
+	gustOf("current scene", a.current.Config)
+	gustOf("next scene", a.next.Config)
+	if got := a.effect.(*rainRuntime).sim.EffectiveConfig().GustChance; got != 0 {
+		t.Fatalf("restored sim gust_p = %v, want 0", got)
+	}
+}
