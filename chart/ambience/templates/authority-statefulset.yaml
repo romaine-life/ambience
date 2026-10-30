@@ -1,4 +1,4 @@
-{{- if and .Values.authority.enabled (eq (include "ambience.renderHot" .) "true") }}
+{{- if .Values.authority.enabled }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -8,7 +8,7 @@ metadata:
     {{- include "ambience.labels" . | nindent 4 }}
 spec:
   serviceName: {{ include "ambience.name" . }}-authority
-  replicas: {{ if .Values.livePreview.enabled }}{{ include "live-preview-edge.replicas" (dict "spec" .Values.livePreview "requested" (include "ambience.authorityReplicas" . | int)) }}{{ else }}{{ include "ambience.authorityReplicas" . }}{{ end }}
+  replicas: {{ .Values.authority.replicas }}
   updateStrategy:
     type: RollingUpdate
   selector:
@@ -30,21 +30,9 @@ spec:
         - name: {{ include "ambience.name" . }}
           image: "{{ include "ambience.authorityImage" . }}"
           imagePullPolicy: {{ include "ambience.authorityImagePullPolicy" . }}
-          {{- if eq (include "ambience.authorityHotSwap" .) "true" }}
-          command:
-            - /ambience-supervisor
-          {{- end }}
           env:
             - name: AMBIENCE_ROLE
               value: authority
-            {{- if eq (include "ambience.authorityHotSwap" .) "true" }}
-            - name: GLIMMUNG_SUPERVISOR_CHILD
-              value: {{ .Values.authority.hotSwapBackend.childCommand | quote }}
-            - name: GLIMMUNG_SUPERVISOR_HOT_ARTIFACT
-              value: {{ .Values.authority.hotSwapBackend.target | quote }}
-            - name: GLIMMUNG_SUPERVISOR_RESTART_ENABLED
-              value: "true"
-            {{- end }}
             {{- if .Values.authority.cosmos.endpoint }}
             - name: AMBIENCE_COSMOS_ENDPOINT
               value: {{ .Values.authority.cosmos.endpoint | quote }}
@@ -103,47 +91,4 @@ spec:
             failureThreshold: {{ .Values.authority.probes.liveness.failureThreshold }}
           resources:
             {{- toYaml .Values.authority.resources | nindent 12 }}
-          {{- if eq (include "ambience.authorityHotSwap" .) "true" }}
-          volumeMounts:
-            - name: hot-backend
-              mountPath: {{ .Values.authority.hotSwapBackend.mountPath | quote }}
-          {{- end }}
-        {{- if eq (include "ambience.authorityHotSwap" .) "true" }}
-        - name: {{ .Values.authority.hotSwapBackend.writerContainerName }}
-          image: {{ .Values.authority.hotSwapBackend.writerImage | quote }}
-          imagePullPolicy: {{ .Values.authority.hotSwapBackend.writerImagePullPolicy }}
-          command:
-            - sh
-            - -c
-            - |
-              mkdir -p {{ .Values.authority.hotSwapBackend.mountPath | quote }}
-              while true; do sleep 3600; done
-          volumeMounts:
-            - name: hot-backend
-              mountPath: {{ .Values.authority.hotSwapBackend.mountPath | quote }}
-        {{- end }}
-        {{- /*
-        Live-preview lane (live-preview-plan.md, Stage 4b): the generic
-        glimmung-live-preview-edge, co-located in the STABLE authority pod and
-        fronting it on loopback (upstream 127.0.0.1:8080). Self-gates on
-        livePreview.enabled (off by default -> renders nothing), so a normal /
-        prod / validation install is byte-identical. When enabled it becomes the
-        pod's served port (the public Service flips to it) and serves the pushed
-        frontend override-first / backend-prefix + fresh-passthrough to the
-        authority. Mutually exclusive with the hot-swap lane above
-        (ambience.authorityHotSwap is false whenever livePreview is enabled).
-        */}}
-        {{- if .Values.livePreview.enabled }}
-        {{- include "live-preview-edge.container" .Values.livePreview | nindent 8 }}
-        {{- end }}
-      {{- if or (eq (include "ambience.authorityHotSwap" .) "true") .Values.livePreview.enabled }}
-      volumes:
-        {{- if eq (include "ambience.authorityHotSwap" .) "true" }}
-        - name: hot-backend
-          emptyDir: {}
-        {{- end }}
-        {{- if .Values.livePreview.enabled }}
-        {{- include "live-preview-edge.volume" .Values.livePreview | nindent 8 }}
-        {{- end }}
-      {{- end }}
 {{- end }}

@@ -1,4 +1,3 @@
-{{- if eq (include "ambience.renderHot" .) "true" }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -8,9 +7,8 @@ metadata:
     {{- include "ambience.labels" . | nindent 4 }}
 spec:
   selector:
-    {{- include "ambience.servedSelectorLabels" . | nindent 4 }}
+    {{- include "ambience.edgeSelectorLabels" . | nindent 4 }}
   ports:
     - name: http
       port: {{ .Values.service.port }}
-      targetPort: {{ if .Values.livePreview.enabled }}{{ include "live-preview-edge.servedPortName" (dict "spec" .Values.livePreview "appPortName" .Values.service.targetPort) }}{{ else }}{{ .Values.service.targetPort }}{{ end }}
-{{- end }}
+      targetPort: {{ .Values.service.targetPort }}

@@ -5,7 +5,7 @@
 // Routes:
 //
 //	GET  /                      — canonical demo page (browser runs Go/WASM sim)
-//	GET  /_styleguide           — visual catalog of UI primitives (glimmung contract)
+//	GET  /_styleguide           — visual catalog of UI primitives
 //	GET  /ambience.js           — shared renderer / SSE helpers
 //	GET  /sim.js                — AmbienceSim browser helpers
 //	GET  /wasm_runtime.js       — Go/WASM sim loader
@@ -284,11 +284,9 @@ func registerStaticRoutes(mux *http.ServeMux, static staticAssets, lookup effect
 	// Rain-scoped client artifact for single-effect consumers to vendor (e.g.
 	// the chess /chess world). CORS-enabled so a consumer's build can fetch it.
 	mux.HandleFunc("/ambience-rain.wasm", cors(serveStaticFile(static, "ambience-rain.wasm")))
-	// Glimmung's UI testing pilot requires every frontend project to
-	// expose /_styleguide on its live env so reviewers + the screenshot
-	// pass have a stable catalog to scan. The leading underscore marks
-	// it as a platform route, kept out of product-route space. Contract:
-	// romaine-life/glimmung/docs/styleguide-contract.md.
+	// /_styleguide is a stable catalog of the UI primitives to scan when
+	// reviewing visual changes. The leading underscore marks it as a
+	// platform route, kept out of product-route space.
 	mux.HandleFunc("/_styleguide", serveExactStaticFile(static, "/_styleguide", "styleguide.html"))
 	index := serveIndexPage(static, socialVersion)
 	mux.HandleFunc("/auth/callback", index)

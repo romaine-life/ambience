@@ -49,7 +49,7 @@ func lifecycleFromState(state json.RawMessage) sim.Lifecycle {
 
 // appliedEvent records a lifecycle/trigger event actually applied to this dev
 // session's sim (drained from the effect log). Surfaced in the dev snapshot so
-// an external observer (the glimmung verifier) can mechanically confirm a fired
+// an external observer (a verifier driving /dev over HTTP) can mechanically confirm a fired
 // trigger reached the session it is screenshotting — rather than inferring it
 // from a single frame, which a pristine, never-triggered sim can coincidentally
 // match (e.g. an "intro" resting look equals an untouched sim's resting look).

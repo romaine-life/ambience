@@ -30,11 +30,6 @@ resource "azurerm_cosmosdb_sql_role_assignment" "ambience_cosmos" {
 }
 
 # Federated to the default ServiceAccount in the prod ambience namespace.
-# Per-slot fed creds (system:serviceaccount:ambience-slot-N:default) are
-# NOT declared here — Glimmung's NativeWorkloadIdentityService reconciles
-# them dynamically from the ambience project's `native_standby_workload_identity`
-# metadata, matched to slot count and slot prefix. See
-# glimmung/internal/server/native_workload_identities.go.
 resource "azurerm_federated_identity_credential" "ambience" {
   name                = "aks-ambience"
   resource_group_name = azurerm_resource_group.ambience.name

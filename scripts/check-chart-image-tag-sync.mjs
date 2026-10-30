@@ -8,12 +8,10 @@
 // file's pin. Any chart values file that pins the app image must use the
 // canonical app-<fingerprint> tag shape rather than a commit SHA alias.
 //
-// Why this matters: Glimmung-managed warm test slots install
-// chart/ambience with default values only — no `-f values-prod.yaml`
-// override — so the base file's `image.tag` is what they pin to.
-// When the base file lags prod, slots run an older ambience image
-// than prod and can trip bugs already fixed upstream. The lockstep
-// guarantee belongs in CI, not in tribal knowledge.
+// Why this matters: an install of chart/ambience with default values
+// only — no `-f values-prod.yaml` override — pins to the base file's
+// `image.tag`. When the base file lags prod, that install runs an older
+// ambience image than prod and can trip bugs already fixed upstream.
 
 import fs from "node:fs/promises";
 import path from "node:path";

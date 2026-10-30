@@ -16,35 +16,23 @@ that sync, and playback must still look smooth: never frozen, never sped up.
 
 If you only read one section in this file, read this one.
 
-1. Re-open the open Glimmung issues and GitHub PRs at the start of a fresh
-   session, then pick one concrete, bounded slice from the real backlog.
-2. Treat `https://ambience.dev.romaine.life` as the default test target.
-   Do not spin up or rely on localhost unless the user explicitly asks
-   for a local repro.
-3. For browser assets, authority Go, or runtime image inputs, validate with a
-   CI-built image deployed through Glimmung test slots using
-   `deploy_image_to_test_slot`.
-4. For direct dev-environment rollouts outside test slots, use
-   `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component all`
-   by default. Use `edge` or `authority` only when the change is truly
-   one-sided.
-5. Validate the result on the assigned test-slot URL or
-   `ambience.dev.romaine.life`, usually on
-   `/dev/<effect>` for effect work, before treating it as ready.
-6. Only after dev validation should the change move into the manual
-   production promotion flow: build/push the real image, bump the prod
-   Helm values file, commit that desired-state change, and let ArgoCD
-   reconcile it.
+1. Re-open the open work packages in OpenProject's AMBIENCE project and the
+   open GitHub PRs at the start of a fresh session, then pick one concrete,
+   bounded slice from the real backlog.
+2. Test on a local server (`AMBIENCE_ADDR=127.0.0.1:8080 go run ./cmd/ambience`),
+   usually on `/dev/<effect>` for effect work, following
+   `docs/dev-endpoints.md`. The dev environment at `ambience.dev.romaine.life`
+   is not deployed.
+3. Ship through a PR: CI builds the `app-<fingerprint>` image, the merge to
+   `main` commits the chart tag bump, and ArgoCD rolls prod.
 
 ## Container Build Verification
 
-Agent pods are not expected to have Docker. Do not report missing local Docker
-as a blocker. Run available repo checks first, then use PR CI as the normal
+Local Docker is not required. Do not report missing local Docker as a
+blocker. Run available repo checks first, then use PR CI as the normal
 container build gate: `.github/workflows/docker-build-check.yaml` computes
-image fingerprints and reuses or pushes ACR proof images for trusted PRs,
-then creates a run-scoped app-image lookup tag that points at the same
-fingerprint manifest for Glimmung test-slot deploys, falling back to
-`push: false` for fork PRs. If image-packaging feedback is needed before a
+the app image fingerprint and reuses or pushes an ACR proof image for trusted
+PRs, falling back to `push: false` for fork PRs. If image-packaging feedback is needed before a
 PR is ready, manually dispatch that workflow with `git_ref`. Release/deploy
 workflows publish the fingerprint-tagged images used by deploys.
 
@@ -118,10 +106,7 @@ chart/ambience/  Helm chart used by ArgoCD for prod and held in reserve
                  release. The script prefers local Docker when it is
                  available, but can fall back to `az acr build` and
                  verifies the image tag exists before patching, so local
-                 Docker is optional for the dev path. Test-slot validation
-                 should deploy the CI-built image with
-                 `deploy_image_to_test_slot` so browser assets and Go code
-                 are exercised from the same artifact that PR CI proved.
+                 Docker is optional for the dev path.
 ```
 
 ## Pixel-world contract
@@ -161,30 +146,16 @@ infra refactor.
 
 For future Codex sessions, the default loop should be:
 
-1. Re-open the open Glimmung issues and open GitHub PRs at the start of a fresh
-   session so the next slice is chosen from the real backlog, not memory.
+1. Re-open the open work packages in OpenProject's AMBIENCE project and the
+   open GitHub PRs at the start of a fresh session so the next slice is
+   chosen from the real backlog, not memory.
 2. Pick one concrete, bounded feature. Bias toward effect work or
    effect-adjacent enhancements when the existing registry, `/dev`
    switcher, presets, and schema-driven controls already make that cheap.
-3. Treat `ambience.dev.romaine.life` as the default test target. Do not
-   spin up or rely on a local runtime unless the user explicitly asks for
-   a localhost repro.
-4. For browser-only static work in `cmd/ambience/web`, use the image deploy
-   loop; browser assets are baked into the app image.
-5. For effect work that changes authority-side Go together with
-   `cmd/ambience/web`, patch the dev environment with the combined image.
-6. For edge or shared image-backed changes, patch the dev
-   environment with
-   `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component all`.
-   If the change is only edge-side or only authority-side, use `edge` or
-   `authority` respectively.
-7. Validate on `ambience.dev.romaine.life`, usually via
-   `/dev/<effect>` for new or changed dev effects, before treating the
-   slice as ready for promotion.
-8. Only after the dev environment looks right should the change move into
-   the manual production promotion flow: build/push the real image, bump
-   the Helm values file, commit that desired-state change, and let ArgoCD
-   reconcile it.
+3. Test it on a local server, usually via `/dev/<effect>`, following
+   `docs/dev-endpoints.md`.
+4. Ship through a PR; the merge to `main` builds the image, commits the
+   chart tag bump, and ArgoCD rolls prod.
 
 This is the preferred default for future iterations unless the backlog
 item is explicitly infra-only or the current platform work is still
@@ -234,9 +205,7 @@ Transitions between scenes are a config DRIFT — `lerpConfig` over
 angular LERP so the 0/360° seam is crossed along the shortest arc.
 Server applies interpolated configs to its sim each tick and broadcasts
 every 10 ticks during drift (~1 Hz), so client replicas stay near-sync
-without overwhelming the SSE stream. The larger cross-effect transition
-design is tracked in Glimmung; the current work is the within-effect
-half. Vocabulary (Scene vs Effect) is tracked in Glimmung.
+without overwhelming the SSE stream.
 
 For local testing, `AMBIENCE_SCENE_TICKS=60` env var shortens scene
 duration to 6 s so rotations fire visibly without a 90-minute wait.
@@ -248,9 +217,7 @@ Production ignores the var (falls back to 1–4 h random).
 constructors in `AmbienceSim.effects` for every supported effect. The shared
 `client.js` reads `snapshotData.Type` and looks up the constructor there.
 Adding a new active effect means adding the Go `sim` runtime and exposing it
-through `cmd/ambience-wasm`; no per-consumer wiring should be needed. The
-5-slot effect template (spawn / lever / event / event-mod / end) is tracked
-in Glimmung.
+through `cmd/ambience-wasm`; no per-consumer wiring should be needed.
 
 ## Guiding principle
 
@@ -336,8 +303,7 @@ Consumers:
 - Effects plug in via `AmbienceSim.effects` registry; server broadcasts
   `snapshotData.Type` so clients know which constructor to pick. Adding
   Sand/Fire/Tetris requires zero client changes.
-- Repo migration from `nelsong6/` to `romaine-life/` is tracked in
-  Glimmung (May 2026)
+- Repo moved from `nelsong6/` to `romaine-life/` (May 2026)
 
 ## Status
 

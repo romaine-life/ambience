@@ -12,10 +12,9 @@ import (
 	"github.com/romaine-life/ambience/sim"
 )
 
-// schemaConfigPinEpsilon mirrors the float tolerance the verification pin
-// helper (the pin_check curl/jq path the Glimmung verify agent step runs)
-// uses when it compares the live /dev/snapshot config against the pinned
-// schema defaults. Int knobs compare after rounding, exactly like the helper.
+// schemaConfigPinEpsilon is the float tolerance for comparing the live
+// /dev/snapshot config against the pinned schema defaults. Int knobs compare
+// after rounding.
 const schemaConfigPinEpsilon = 1e-6
 
 // schemaConfigGuardTicks is the capture-window stand-in: after the pin lands,
@@ -45,8 +44,7 @@ var reservedDevConfigParams = map[string]bool{
 //
 // That contract is what verification runs against. Dev sessions are created
 // with RANDOMIZED knob values, so before capturing any evidence the verifier
-// pins the session over plain HTTP (the pin_session curl/jq path the Glimmung
-// verify agent step runs): POST /dev/config with every schema knob
+// pins the session over plain HTTP (docs/dev-endpoints.md, step 0): POST /dev/config with every schema knob
 // set to its default, then poll /dev/snapshot until the live config matches,
 // and re-check the pin again after capture. A knob
 // that exists in the schema but never surfaces in the snapshot config makes
@@ -195,8 +193,7 @@ func pinnedKnobDefault(knob sim.Knob) float64 {
 	return knob.Default
 }
 
-// pinnedKnobDefaultMatches mirrors the verification pin comparison
-// (pin_config_mismatches in the Glimmung verify agent step): int knobs
+// pinnedKnobDefaultMatches is the verification pin comparison: int knobs
 // match after rounding, float knobs within schemaConfigPinEpsilon.
 func pinnedKnobDefaultMatches(knob sim.Knob, got float64) bool {
 	if knob.Type == sim.KnobInt {

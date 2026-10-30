@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Local lifecycle self-check for an effect, for the implementation stage.
+# Local lifecycle self-check for an effect.
 #
-# Builds the in-progress code, serves it on localhost (never the shared
-# validation env), and drives a terminal-lifecycle event through plain HTTP
+# Builds the in-progress code, serves it on localhost, and drives a terminal-lifecycle event through plain HTTP
 # via /dev/observe — no browser, no Playwright. /dev/observe triggers the
 # event, waits for the lifecycle contract predicate, holds it for hold-ticks,
 # and returns a JSON trace plus a frozen grid frame. Use this to confirm a
@@ -10,11 +9,6 @@
 # `ending` ("the gate goes dark and stays dark") — before writing a passing
 # implementation JSON. `go build`/`go test` cannot see pixels; /dev/observe
 # reads the grid directly without rendering a page.
-#
-# Browser evidence (video/screenshots against the rebuilt env) is the
-# verification stage's job, captured through Glimmung's central capture tools.
-# The leased slot browser cannot reach this pod-local server, so this self-check
-# is intentionally browserless and stays on localhost HTTP.
 #
 # Usage:
 #   scripts/agent/selfcheck-effect.sh <effect> <lifecycle-event> [lifecycle] [hold-ticks]

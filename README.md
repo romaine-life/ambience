@@ -108,11 +108,6 @@ scripts/dev-deploy.ps1
                   `all`, it updates authority before edge so edge
                   readiness does not wait on a simultaneously replacing
                   authority pod.
-Glimmung test slots
-                  Deploy the CI-built image for the pushed ref with
-                  `deploy_image_to_test_slot`. Browser assets, authority
-                  code, and edge static serving are validated together from
-                  the same image artifact that PR CI proved.
 ```
 
 ## Atmosphere model
@@ -330,39 +325,17 @@ The intended production deploy loop is:
 3. Let ArgoCD reconcile the committed chart change, or manually refresh/sync
    it if you want a faster rollout.
 
-A dev environment under `ambience.dev.romaine.life` shares the wildcard
-listener at `*.ambience.dev.romaine.life` with Glimmung test slots. The
-continuously synced prod release owns that shared listener and certificate
-so slot HTTPS works without per-slot certificate requests. `values-dev.yaml`
-still supports a standalone `ambience-dev` install if continuous dev hosting
-becomes useful again.
+A dev environment under `ambience.dev.romaine.life` is not deployed;
+`values-dev.yaml` still supports a standalone `ambience-dev` install if
+continuous dev hosting becomes useful again. When it is running,
+`scripts/dev-deploy.ps1 -Component edge|authority|all` builds and pushes a
+temporary image tag, then patches the live `ambience-edge` and/or
+`ambience-authority` image fields with `kubectl set image` (falling back to
+`az acr build` when local Docker is unavailable).
 
-Unless a task explicitly calls for localhost, the default test target
-should be a preview slot URL or `https://ambience.dev.romaine.life`,
-not a local runtime.
-
-Use the dev helpers like this:
-
-1. Test-slot validation for browser assets, authority Go, edge static
-   serving, or chart/runtime image inputs:
-   push the ref, wait for CI to prove the `app-<fingerprint>` image and
-   publish its run-scoped lookup tag, then deploy it with Glimmung
-   `deploy_image_to_test_slot`.
-2. Direct dev-environment rollouts that need a new image on edge,
-   authority, or both:
-   run `powershell -ExecutionPolicy Bypass -File scripts/dev-deploy.ps1 -Component edge`
-   or swap `edge` for `authority` / `all`. The script builds and pushes a
-   temporary image tag, then patches the live `ambience-edge` and/or
-   `ambience-authority` image fields with `kubectl set image`.
-3. If local Docker is unavailable, `scripts/dev-deploy.ps1` automatically
-   falls back to `az acr build` and verifies the tag exists in ACR before
-   patching, so the session can stay k8s-first without relying on a local
-   Docker daemon.
-
-Glimmung native test slots are validated by deploying the CI-built image for a
-pushed ref with `deploy_image_to_test_slot`. Browser assets and authority code
-ship together in that image, so the slot runs the same artifact that PR CI
-proved and main will deploy.
+Test changes on a local server (`AMBIENCE_ADDR=127.0.0.1:8080 go run
+./cmd/ambience`); `docs/dev-endpoints.md` has the by-hand verification
+recipe for effects.
 
 Keep image rollout for edge binary changes, dependency changes, chart changes,
 and edits that change runtime image inputs.
@@ -374,13 +347,8 @@ The recommended feature-iteration loop is:
 2. Choose one bounded feature, preferably effect work or an
    effect-adjacent enhancement when the registry and `/dev` tooling
    already support it cleanly.
-3. Validate it on `ambience.dev.romaine.life` first, not localhost, unless
-   the task explicitly needs a local-only repro.
-4. Deploy the pushed ref's CI image with `deploy_image_to_test_slot` for
-   browser assets and authority-side Go. Use `scripts/dev-deploy.ps1
-   -Component all` only for direct dev-environment image rollouts.
-5. Verify the result on `/dev/<effect>` or the relevant dev route before
-   promoting it.
+3. Test it on a local server, on `/dev/<effect>` or the relevant route,
+   before opening the PR.
 
 When a dev image should become declared state again, update
 `chart/ambience/values-dev.yaml` to that image tag and commit the bump.
@@ -412,6 +380,4 @@ terminal), my-homepage (bookmark terminal). Entropy flow wired.
 
 Terminal rain-only sync is implemented in the `terminal` package, but
 fzt-automate rendering integration is still tabled pending platform
-rendering work tracked in Glimmung.
-
-Repo migration `nelsong6/` to `romaine-life/` is tracked in Glimmung.
+rendering work.
