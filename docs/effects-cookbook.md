@@ -58,10 +58,12 @@ evidence; replace them with the issue-owned behavior before publishing.
 
 Every new effect must edit each of these:
 
-- `cmd/ambience-wasm/main.go` — add the effect to the supported-effects
+- `cmd/ambience-wasm/effects_all.go` — add the effect to the supported-effects
   slice and constructor switch so `AmbienceSim.effects` registers it in
   browser clients. The scaffold prints the exact constructor case to add,
-  but does not edit this shared registry for you.
+  but does not edit this shared registry for you. Leave
+  `cmd/ambience-wasm/effects_rainonly.go` alone: it is the rain-only
+  client bundle that single-effect consumers vendor.
 - `cmd/ambience/web/sim.js` — add browser presets only when the effect
   has named presets.
 

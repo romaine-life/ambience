@@ -45,7 +45,7 @@ jq -n '
       "sim/{effect_snake}_test.go",
       "cmd/ambience/effect_{effect_snake}.go"
     ],
-    after_running: "replace the starter rendering/knobs/tests with the issue-owned behavior, then edit cmd/ambience-wasm/main.go"
+    after_running: "replace the starter rendering/knobs/tests with the issue-owned behavior, then edit cmd/ambience-wasm/effects_all.go"
   },
   required_file_templates: [
     "sim/{effect_snake}.go",
@@ -54,7 +54,7 @@ jq -n '
   ],
   required_touchpoints: [
     {
-      path: "cmd/ambience-wasm/main.go",
+      path: "cmd/ambience-wasm/effects_all.go",
       reason: "browser clients register Go-backed constructors through AmbienceSim.effects"
     }
   ],
