@@ -15,6 +15,11 @@ type runtime struct {
 	effect  wasmEffect
 	set     func(json.RawMessage) error
 	restore func(effectEnvelope) error
+	// w and h are the bounds of the last frame() grid, so width() and height()
+	// don't render a whole frame just to measure it. sized is false until a
+	// frame has been rendered since the last restore.
+	w, h  int
+	sized bool
 }
 
 type wasmEffect interface {
@@ -175,6 +180,7 @@ func restoreSnapshot(_ js.Value, args []js.Value) any {
 	if err := rt.restore(env); err != nil {
 		return fail(err.Error())
 	}
+	rt.sized = false
 	return true
 }
 
@@ -214,8 +220,8 @@ func width(_ js.Value, args []js.Value) any {
 	if rt == nil {
 		return 0
 	}
-	_, w := gridBounds(rt.effect.GridCopy())
-	return w
+	rt.measure()
+	return rt.w
 }
 
 func height(_ js.Value, args []js.Value) any {
@@ -223,8 +229,15 @@ func height(_ js.Value, args []js.Value) any {
 	if rt == nil {
 		return 0
 	}
-	h, _ := gridBounds(rt.effect.GridCopy())
-	return h
+	rt.measure()
+	return rt.h
+}
+
+func (rt *runtime) measure() {
+	if !rt.sized {
+		rt.h, rt.w = gridBounds(rt.effect.GridCopy())
+		rt.sized = true
+	}
 }
 
 func frame(_ js.Value, args []js.Value) any {
@@ -232,7 +245,10 @@ func frame(_ js.Value, args []js.Value) any {
 	if rt == nil {
 		return js.Global().Get("Uint8ClampedArray").New(0)
 	}
-	buf := flattenGrid(rt.effect.GridCopy())
+	grid := rt.effect.GridCopy()
+	rt.h, rt.w = gridBounds(grid)
+	rt.sized = true
+	buf := flattenGrid(grid)
 	out := js.Global().Get("Uint8ClampedArray").New(len(buf))
 	js.CopyBytesToJS(out, buf)
 	return out

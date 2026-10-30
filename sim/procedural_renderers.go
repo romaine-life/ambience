@@ -122,8 +122,24 @@ func (r *proceduralRenderState) fillRect(x0, y0, w, h int, c color.RGBA) {
 }
 
 func (r *proceduralRenderState) fillRectAlpha(x0, y0, w, h int, c color.RGBA, alpha float64) {
+	alpha = clamp01(alpha)
+	if alpha <= 0 {
+		return
+	}
+	xa, xb := max(0, x0), min(r.w, x0+w)
+	if xa >= xb {
+		return
+	}
 	for y := max(0, y0); y < min(r.h, y0+h); y++ {
-		for x := max(0, x0); x < min(r.w, x0+w); x++ {
+		if alpha >= 1 {
+			row := r.grid[y][xa:xb]
+			solid := Pixel{Filled: true, C: color.RGBA{R: c.R, G: c.G, B: c.B, A: 255}}
+			for x := range row {
+				row[x] = solid
+			}
+			continue
+		}
+		for x := xa; x < xb; x++ {
 			r.blend(x, y, c, alpha)
 		}
 	}
@@ -159,7 +175,7 @@ func (r *proceduralRenderState) blend(x, y int, c color.RGBA, alpha float64) {
 }
 
 func (r *proceduralRenderState) hsl(hue, sat, light float64) color.RGBA {
-	return hslToRGB(math.Mod(hue+360, 360), clamp01(sat), clamp01(light))
+	return hslToRGB(modSmall(hue+360, 360), clamp01(sat), clamp01(light))
 }
 
 func positiveModFloat(value, mod float64) float64 {
@@ -828,6 +844,12 @@ func (r *proceduralRenderState) renderStarfield() {
 
 func (r *proceduralRenderState) renderBeach() {
 	hue := r.cfgFloat("hue", 198)
+	sat := r.cfgFloat("sat", 0.5)
+	lmin := r.cfgFloat("lmin", 0.28)
+	lmax := r.cfgFloat("lmax", 0.82)
+	foam := r.cfgFloat("foam", 0.36)
+	waveFreq := r.cfgFloat("wave_freq", 0.18)
+	waveAmp := r.cfgFloat("wave_amp", 2.4)
 	r.verticalGradient(color.RGBA{244, 177, 122, 255}, color.RGBA{139, 180, 196, 255})
 	horizon := max(8, int(math.Floor(float64(r.h)*0.34)))
 	tideLevel := r.tideLevelBeach()
@@ -835,13 +857,16 @@ func (r *proceduralRenderState) renderBeach() {
 	foamGain := r.value("foam_gain", 1)
 	tidePhase := float64(r.tick) * r.cfgFloat("speed", 0.1) * 0.08
 	baseShore := float64(r.h)*r.cfgFloat("shoreline", 0.58) + math.Sin(tidePhase)*r.cfgFloat("tide_amp", 6)*tideLevel*0.34 + tideBias*1.6
+	waterShallow := r.hsl(hue-12, sat*0.72, lmax*0.74)
+	waterMid := r.hsl(hue, sat, lmin+(lmax-lmin)*0.44)
+	waterDeep := r.hsl(hue+6, sat*1.06, lmin*0.8)
 	for y := horizon; y < r.h; y++ {
 		depth := float64(y-horizon) / math.Max(1, float64(r.h-horizon))
 		var c color.RGBA
 		if depth < 0.46 {
-			c = mixColor(r.hsl(hue-12, r.cfgFloat("sat", 0.5)*0.72, r.cfgFloat("lmax", 0.82)*0.74), r.hsl(hue, r.cfgFloat("sat", 0.5), r.cfgFloat("lmin", 0.28)+(r.cfgFloat("lmax", 0.82)-r.cfgFloat("lmin", 0.28))*0.44), depth/0.46)
+			c = mixColor(waterShallow, waterMid, depth/0.46)
 		} else {
-			c = mixColor(r.hsl(hue, r.cfgFloat("sat", 0.5), r.cfgFloat("lmin", 0.28)+(r.cfgFloat("lmax", 0.82)-r.cfgFloat("lmin", 0.28))*0.44), r.hsl(hue+6, r.cfgFloat("sat", 0.5)*1.06, r.cfgFloat("lmin", 0.28)*0.8), (depth-0.46)/0.54)
+			c = mixColor(waterMid, waterDeep, (depth-0.46)/0.54)
 		}
 		r.fillRect(0, y, r.w, 1, c)
 	}
@@ -849,10 +874,10 @@ func (r *proceduralRenderState) renderBeach() {
 	for x := 0; x < r.w; x++ {
 		nx := float64(x) / math.Max(1, float64(r.w-1))
 		slopeOffset := (nx - 0.5) * r.cfgFloat("slope", 0.16) * float64(r.h) * 0.34
-		wave := math.Sin(float64(x)*r.cfgFloat("wave_freq", 0.18) + tidePhase*2.2)
-		backwash := math.Sin(float64(x)*r.cfgFloat("wave_freq", 0.18)*0.46 - tidePhase*1.6 + 0.8)
-		chop := math.Sin(float64(x)*r.cfgFloat("wave_freq", 0.18)*1.85 + tidePhase*3.1 + r.hash(24100+x)*3)
-		shore := baseShore + slopeOffset + wave*r.cfgFloat("wave_amp", 2.4)*(0.14+tideLevel*0.1) + backwash*r.cfgFloat("wave_amp", 2.4)*0.08 + chop*r.cfgFloat("wave_amp", 2.4)*0.03
+		wave := math.Sin(float64(x)*waveFreq + tidePhase*2.2)
+		backwash := math.Sin(float64(x)*waveFreq*0.46 - tidePhase*1.6 + 0.8)
+		chop := math.Sin(float64(x)*waveFreq*1.85 + tidePhase*3.1 + r.hash(24100+x)*3)
+		shore := baseShore + slopeOffset + wave*waveAmp*(0.14+tideLevel*0.1) + backwash*waveAmp*0.08 + chop*waveAmp*0.03
 		shoreRows[x] = math.Max(float64(horizon+3), math.Min(float64(r.h-4), shore))
 	}
 	for pass := 0; pass < 2; pass++ {
@@ -860,25 +885,27 @@ func (r *proceduralRenderState) renderBeach() {
 			shoreRows[x] = (shoreRows[x-1] + shoreRows[x]*2 + shoreRows[x+1]) / 4
 		}
 	}
+	sandTop := r.hsl(39, 0.54, 0.8)
+	sandLow := r.hsl(33, 0.42, 0.54)
+	wetBand := max(2, int(math.Round(2+tideLevel*3+math.Max(0, foamGain-1)*1.4)))
+	foamBand := max(1, int(math.Round(1+foam*2.8+math.Max(0, foamGain-1)*1.4)))
+	wetColor := r.hsl(34, 0.34, 0.34+clamp01(0.22+tideLevel*0.36)*0.12)
+	foamColor := r.hsl(hue-8, sat*0.18, lmax*1.02)
+	shimmerColor := r.hsl(hue-12, sat*0.5, lmax*0.96)
 	for x := 0; x < r.w; x++ {
 		shore := shoreRows[x]
 		for y := int(math.Round(shore)); y < r.h; y++ {
 			depth := float64(y-int(shore)) / math.Max(1, float64(r.h-int(shore)))
-			c := mixColor(r.hsl(39, 0.54, 0.8), r.hsl(33, 0.42, 0.54), depth)
-			r.paint(x, y, c)
+			r.paint(x, y, mixColor(sandTop, sandLow, depth))
 		}
 		surfRow := int(math.Round(shore))
-		wetBand := max(2, int(math.Round(2+tideLevel*3+math.Max(0, foamGain-1)*1.4)))
-		foamBand := max(1, int(math.Round(1+r.cfgFloat("foam", 0.36)*2.8+math.Max(0, foamGain-1)*1.4)))
-		wetColor := r.hsl(34, 0.34, 0.34+clamp01(0.22+tideLevel*0.36)*0.12)
 		for row := surfRow; row < min(r.h, surfRow+wetBand); row++ {
 			fade := 1 - float64(row-int(shore))/math.Max(1, float64(wetBand))
 			r.paintAlpha(x, row, wetColor, clamp01(0.14+fade*0.32))
 		}
-		foamColor := r.hsl(hue-8, r.cfgFloat("sat", 0.5)*0.18, r.cfgFloat("lmax", 0.82)*1.02)
 		for i := 0; i < foamBand; i++ {
 			pulse := 0.55 + 0.45*math.Sin(float64(r.tick)*0.05+float64(x)*0.18+float64(i)*0.9)
-			alpha := clamp01((0.12 + r.cfgFloat("foam", 0.36)*0.42) * foamGain * (0.5 + 0.5*pulse))
+			alpha := clamp01((0.12 + foam*0.42) * foamGain * (0.5 + 0.5*pulse))
 			r.paintAlpha(x, surfRow-i, foamColor, alpha)
 		}
 		if (x+r.tick)%2 == 0 {
@@ -886,7 +913,6 @@ func (r *proceduralRenderState) renderBeach() {
 			row := max(horizon+1, int(math.Floor(float64(horizon)+(shore-float64(horizon))*depth)))
 			width := 1 + int(math.Floor(r.hash(24500+x)*3))
 			blink := 0.35 + 0.65*math.Pow(0.5+0.5*math.Sin(float64(r.tick)*0.03+float64(x)*0.12), 2)
-			shimmerColor := r.hsl(hue-12, r.cfgFloat("sat", 0.5)*0.5, r.cfgFloat("lmax", 0.82)*0.96)
 			r.fillRectAlpha(x, row, width, 1, shimmerColor, clamp01((0.08+r.cfgFloat("shimmer", 0.22)*0.34)*blink))
 		}
 	}
@@ -1023,39 +1049,52 @@ func (r *proceduralRenderState) renderAurora() {
 		r.fillRect(center, baseY-1, 1, 2, c)
 	}
 	bands := max(2, int(math.Round(r.cfgFloat("bands", 4))))
+	speed := r.cfgFloat("speed", 0.11)
+	waveAmp := r.cfgFloat("wave_amp", 6)
+	waveFreq := r.cfgFloat("wave_freq", 0.16)
+	thicknessCfg := r.cfgFloat("thickness", 9)
+	curtainCfg := r.cfgFloat("curtain_len", 15)
+	drift := float64(r.tick) * r.cfgFloat("drift", 0.08) * 0.04
+	hueSp := r.cfgFloat("hue_sp", 26)
+	sat := r.cfgFloat("sat", 0.72)
+	lmin := r.cfgFloat("lmin", 0.20)
+	lmax := r.cfgFloat("lmax", 0.74)
 	for band := 0; band < bands; band++ {
 		ratio := 0.5
 		if bands > 1 {
 			ratio = float64(band) / float64(bands-1)
 		}
-		phase := float64(r.tick)*r.cfgFloat("speed", 0.11)*(0.18+ratio*0.12) + float64(band)*1.6 + shiftSeed
-		amp := r.cfgFloat("wave_amp", 6) * (0.8 + ratio*0.35)
-		freq := r.cfgFloat("wave_freq", 0.16) * (0.82 + ratio*0.26)
-		thickness := r.cfgFloat("thickness", 9) * (0.8 + ratio*0.28)
-		curtain := r.cfgFloat("curtain_len", 15) * (0.8 + ratio*0.22)
+		phase := float64(r.tick)*speed*(0.18+ratio*0.12) + float64(band)*1.6 + shiftSeed
+		amp := waveAmp * (0.8 + ratio*0.35)
+		freq := waveFreq * (0.82 + ratio*0.26)
+		thickness := thicknessCfg * (0.8 + ratio*0.28)
+		curtain := curtainCfg * (0.8 + ratio*0.22)
+		coreDen := math.Max(1, thickness*thickness*1.4)
+		tailDen := math.Max(1, curtain)
 		baseY := float64(r.h)*(0.16+ratio*0.08) + math.Sin(float64(r.tick)*0.01+float64(band)*0.8)*1.1
-		hueBase := hue + (ratio-0.5)*r.cfgFloat("hue_sp", 26)*1.15 + shiftPush*5
+		hueBase := hue + (ratio-0.5)*hueSp*1.15 + shiftPush*5
 		for x := 0; x < r.w; x++ {
 			nx := float64(x) / math.Max(1, float64(r.w-1))
 			arch := math.Sin(nx*math.Pi*(1.08+ratio*0.24) + float64(band)*0.75)
-			wave := math.Sin(float64(x)*freq + phase + float64(r.tick)*r.cfgFloat("drift", 0.08)*0.04)
+			wave := math.Sin(float64(x)*freq + phase + drift)
 			sub := math.Sin(float64(x)*freq*0.47 - phase*0.62 + float64(band)*2.1)
 			center := baseY + arch*amp*0.72 + wave*amp*0.52 + sub*amp*0.22 + shiftPush*math.Sin(float64(x)*0.07+phase)*1.05
+			shimmer := 0.76 + 0.24*math.Sin(float64(r.tick)*0.03+float64(x)*0.1+float64(band)*1.7)
+			archGain := 0.58 + 0.42*math.Max(0.2, arch)
 			for y := max(0, int(math.Floor(center-thickness*1.15))); y <= min(ground-2, int(math.Ceil(center+curtain))); y++ {
 				dy := float64(y) - center
-				core := math.Exp(-(dy * dy) / math.Max(1, thickness*thickness*1.4))
+				core := math.Exp(-(dy * dy) / coreDen)
 				tail := 0.0
 				if float64(y) >= center {
-					tail = math.Exp(-(float64(y) - center) / math.Max(1, curtain))
+					tail = math.Exp(-(float64(y) - center) / tailDen)
 				}
-				shimmer := 0.76 + 0.24*math.Sin(float64(r.tick)*0.03+float64(x)*0.1+float64(band)*1.7)
-				strength := (core*0.9 + tail*0.7) * intensity * shimmer * (0.58 + 0.42*math.Max(0.2, arch))
+				strength := (core*0.9 + tail*0.7) * intensity * shimmer * archGain
 				if strength < 0.025 {
 					continue
 				}
-				localHue := hueBase + math.Sin(float64(y)*0.18+float64(x)*0.06+phase)*r.cfgFloat("hue_sp", 26)*0.32 + float64(band)*6
-				s := clamp01(r.cfgFloat("sat", 0.72) * (0.84 + core*0.28))
-				light := clamp01(r.cfgFloat("lmin", 0.20) + (r.cfgFloat("lmax", 0.74)-r.cfgFloat("lmin", 0.20))*math.Min(1, 0.24+strength))
+				localHue := hueBase + math.Sin(float64(y)*0.18+float64(x)*0.06+phase)*hueSp*0.32 + float64(band)*6
+				s := clamp01(sat * (0.84 + core*0.28))
+				light := clamp01(lmin + (lmax-lmin)*math.Min(1, 0.24+strength))
 				alpha := clamp01(strength * (0.34 + core*0.46))
 				r.paintAlpha(x, y, r.hsl(localHue, s, light), alpha)
 			}
@@ -1316,20 +1355,38 @@ func (r *proceduralRenderState) renderLighthouse() {
 	beamSoft := clamp01(r.cfgFloat("beam_softness", 0.42) * (1 + fogLevel*0.35))
 	beamBase := r.hsl(hue-18, sat*0.18, lmax*0.98)
 	beamCore := r.hsl(44, 0.42, lmax*1.02)
+	// Every lit pixel is right of the lamp (dx > 0), so its angle lies in
+	// (-π/2, π/2) and the beam sits at beamAngle ± beamWidth with no wrap. The
+	// slope bounds reject pixels well outside that cone with two multiplies,
+	// leaving the exact angle math for the cone itself.
+	const coneMargin = 1e-6
+	loSlope, hiSlope := math.Inf(-1), math.Inf(1)
+	if lo := beamAngle - beamWidth - coneMargin; lo > -math.Pi/2 {
+		loSlope = math.Tan(lo)
+	}
+	if hi := beamAngle + beamWidth + coneMargin; hi < math.Pi/2 {
+		hiSlope = math.Tan(hi)
+	}
+	coneExp := math.Max(0.6, 1.8-beamSoft)
+	reach := float64(r.w) * 0.92
 	for y := 0; y <= horizon+5; y++ {
+		dy := float64(y - lampY)
 		for x := towerX + 1; x < r.w; x++ {
 			dx := float64(x - towerX)
-			dy := float64(y - lampY)
+			if dy < loSlope*dx || dy > hiSlope*dx {
+				continue
+			}
 			dist := math.Hypot(dx, dy)
 			if dist < 2 {
 				continue
 			}
-			diff := math.Abs(math.Atan2(math.Sin(math.Atan2(dy, dx)-beamAngle), math.Cos(math.Atan2(dy, dx)-beamAngle)))
+			angle := math.Atan2(dy, dx)
+			diff := math.Abs(math.Atan2(math.Sin(angle-beamAngle), math.Cos(angle-beamAngle)))
 			if diff > beamWidth {
 				continue
 			}
 			cone := 1 - diff/beamWidth
-			strength := math.Pow(cone, math.Max(0.6, 1.8-beamSoft)) * math.Pow(clamp01(1-dist/(float64(r.w)*0.92)), 0.72) * beamLevel
+			strength := math.Pow(cone, coneExp) * math.Pow(clamp01(1-dist/reach), 0.72) * beamLevel
 			if strength < 0.02 {
 				continue
 			}
