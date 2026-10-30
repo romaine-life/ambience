@@ -45,7 +45,7 @@
 	const FPS = intParam('fps', 60, 1, 60);
 	const STEP_MS = Math.max(1, Math.round(1000 / FPS));
 	// Honor a caller-supplied session id from the URL so an external driver
-	// (the glimmung verifier, selfcheck-effect.sh) can address the SAME dev
+	// (selfcheck-effect.sh, a curl recipe) can address the SAME dev
 	// session it renders. POSTing /dev/trigger/<session>/<event> only affects
 	// this page when both sides agree on the id; without this, the page picked
 	// a private random id and every external trigger hit an orphan session.

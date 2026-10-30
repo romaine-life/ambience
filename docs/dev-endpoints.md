@@ -19,110 +19,56 @@ shared broadcast.
 
 ## Verification recipe
 
-Browser evidence is captured **only** through Glimmung's central MCP capture
-tools (`capture_video` / `capture_screenshot`), which connect to the leased
-slot browser, record/snapshot the page, upload the artifact, and return a
-`ref`/`url`. There is no per-repo Playwright script and no local capture file.
-Everything that is not a browser capture — pinning, triggering, reading
-lifecycle — is plain `curl` HTTP.
-
-When validating a new effect through the agent flow, the typical sequence is:
+Verify an effect by hand against a local server
+(`AMBIENCE_ADDR=127.0.0.1:8080 go run ./cmd/ambience`). Pinning, triggering
+and reading lifecycle are plain `curl` HTTP; screenshots come from
+`scripts/shot.mjs` (see CLAUDE.md, "Taking screenshots").
 
 ```sh
-# 0. Pin the session to a deterministic config over plain HTTP. Dev sessions
-#    are created with randomized knob values; verification claims are judged
-#    against schema defaults (+ the case's session_config overrides), so pin
-#    BEFORE capturing the page or firing triggers. The verify wrapper re-checks
-#    the pin and fails the case when the session does not match it.
-#
-#    Lifecycle: sessions are reaped after 60s with no listeners
-#    (devSessionIdle) and a later read lazily recreates them RANDOMIZED.
-#    The verify wrapper holds a background SSE listener on the case's
-#    session (/dev/events) from prepare to emit so the pinned session
-#    survives the whole case; ad hoc runs that pause longer than 60s
-#    between pin and capture must hold their own listener.
+BASE=http://127.0.0.1:8080
 SESSION=test1
 EFFECT=<effect>
-# Fetch the schema, set every knob to its default (or session_config override),
-# and POST them to /dev/config. /dev/config creates the session if absent.
-SCHEMA="$(curl -fsS "$VALIDATION_URL/effects/$EFFECT/schema")"
+
+# 0. Pin the session to a deterministic config. Dev sessions are created with
+#    randomized knob values, so set every schema knob to its default before
+#    judging the look. /dev/config creates the session if absent. Sessions are
+#    reaped after 60s with no listeners (devSessionIdle) and a later read
+#    recreates them randomized, so keep the dev page open while you work.
+SCHEMA="$(curl -fsS "$BASE/effects/$EFFECT/schema")"
 QS="$(printf '%s' "$SCHEMA" | jq -r '
   [ (.knobs // [])[]
     | "\(.key)=\(if .type == "int" then (.default | floor) else .default end)" ]
   | join("&")')"
-curl -fsS -X POST "$VALIDATION_URL/dev/config?session=$SESSION&effect=$EFFECT&$QS" >/dev/null
-curl -fsS "$VALIDATION_URL/dev/snapshot?session=$SESSION&effect=$EFFECT" | jq '.config'
+curl -fsS -X POST "$BASE/dev/config?session=$SESSION&effect=$EFFECT&$QS" >/dev/null
+curl -fsS "$BASE/dev/snapshot?session=$SESSION&effect=$EFFECT" | jq '.config'
 
-# 1. Record default behavior (pinned session) — call the capture_video tool:
-#      {"url": "$VALIDATION_URL/dev/<effect>?session=test1",
-#       "wait_ms": 6000, "label": "dev <effect> default"}
-#    It uploads the WebM and returns its ref/url. There is no local file.
+# 1. Screenshot the pinned session.
+node scripts/shot.mjs "$BASE/dev/$EFFECT?session=$SESSION" tmp-shots/default.png
 
-# 2. Trigger a discrete event in the same named session and record it. Pass the
-#    trigger_url to capture_video so the event is POSTed once the page is
-#    visible and recording has started. The trigger URL requires ?effect= —
-#    sessions are keyed by (effect, session), so an effect-less trigger lands on
-#    the default effect and is rejected with `unknown event`:
-#      {"url": "$VALIDATION_URL/dev/<effect>?session=test1",
-#       "wait_ms": 6000, "label": "dev <effect> flash",
-#       "trigger_url": "$VALIDATION_URL/dev/trigger/test1/lightning-flash?effect=<effect>"}
+# 2. Fire a discrete event in the same session. The trigger URL requires
+#    ?effect= — sessions are keyed by (effect, session), so an effect-less
+#    trigger lands on the default effect and is rejected with `unknown event`.
+curl -fsS -X POST "$BASE/dev/trigger/$SESSION/<event>?effect=$EFFECT" >/dev/null
 
-# 3. Override config to a known good preset (plain HTTP)
-curl -s -X POST -H 'Content-Type: application/json' \
-  --data-binary '@preset.json' \
-  "$VALIDATION_URL/dev/config?session=$SESSION"
-
-# 4. Optional still-frame evidence — call the capture_screenshot tool:
-#      {"url": "$VALIDATION_URL/dev/<effect>?session=test1",
-#       "label": "dev <effect>", "full_page": true, "wait_ms": 1000}
-
-# 5. Terminal lifecycle proof over HTTP: trigger, then poll /dev/snapshot for
-#    the lifecycle contract value, then capture the frozen look with the
-#    capture_screenshot tool. Use `ended` only when the effect schema declares
+# 3. Terminal lifecycle proof: trigger `ending`, wait for the lifecycle
+#    contract value, hold it, and get a frozen grid frame — all through
+#    /dev/observe. Use `ended` only when the effect schema declares
 #    ending_terminal: true; non-terminal effects resume, so their post-outro
-#    claim is `running`. (The verify wrapper proves the hold mechanically via
-#    /dev/observe; ad hoc verification confirms it with the snapshot poll.)
-curl -fsS -X POST "$VALIDATION_URL/dev/trigger/$SESSION/ending?effect=$EFFECT" >/dev/null
-for _ in $(seq 1 40); do
-  snap="$(curl -fsS "$VALIDATION_URL/dev/snapshot?session=$SESSION&effect=$EFFECT")"
-  [ "$(printf '%s' "$snap" | jq -r '.lifecycle // ""')" = "ended" ] \
-    && printf '%s' "$snap" | jq -e '[.appliedEvents[]?.event] | index("ending") != null' >/dev/null \
-    && break
-  sleep 0.5
-done
-# Then call capture_screenshot against $VALIDATION_URL/dev/$EFFECT?session=$SESSION.
+#    claim is `running`.
+scripts/agent/selfcheck-effect.sh "$EFFECT" ending
 ```
 
-`/dev/observe` is the wrapper's mechanical proof path for terminal lifecycle
-claims (the verify wrapper drives it over HTTP and enforces
-applied/observed/hold from the trace). A video captured by `capture_video` can
-accompany the run so reviewers see motion, but terminal correctness comes from
-the lifecycle observation: the trigger reached the named session, the lifecycle
+Terminal correctness comes from the lifecycle observation, not from a
+screenshot timestamp: the trigger reached the named session, the lifecycle
 contract value was observed, it held for the requested ticks, and the frozen
-PNG came from that observed state. Do not infer terminal correctness from an
-arbitrary video timestamp when a lifecycle predicate is available.
+PNG came from that observed state.
 
 ## Server readiness
 
-The server takes a few seconds to compile + bind. The current verify
-flow uses `wait-public-preview` (in `mcp/ambience_preview/`) which
-polls until the validation URL responds 200. If you need a local
-readiness signal (running `go run ./cmd/ambience` in-pod), poll
-`/snapshot` until it returns 200; that endpoint is among the first
+The server takes a few seconds to compile + bind. For a local
+readiness signal, poll `/snapshot` until it returns 200; that endpoint is among the first
 the server registers and it has no per-session state requirement.
 
 The server also registers first-class `/healthz` (liveness) and `/readyz`
 (readiness) endpoints — the chart's edge probes use them — so prefer those
 for container/HTTP readiness; `/snapshot` stays a convenient local signal.
-
-## Captured-video integrity
-
-There is no local video-decode step. The central `capture_video` tool connects
-to the leased slot browser and starts recording only after the page has
-rendered — its server-side blank-frame gate owns "did it render" — then uploads
-the WebM and returns a `ref`/`url`. By the time a ref exists, render and upload
-are already proven, so the verifier judges the look of the uploaded artifact
-directly and does not re-decode it locally. The retired per-repo decode gate
-was removed with the other browser scripts rather than reimplemented. Do not
-start a local browser or static server to play evidence videos back through
-`127.0.0.1`; browser evidence comes only from the central capture tools.

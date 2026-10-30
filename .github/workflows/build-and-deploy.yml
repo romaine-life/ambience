@@ -125,10 +125,8 @@ jobs:
         run: |
           set -euo pipefail
           # Bump the fingerprint-pinned image.tag in BOTH the prod values
-          # file and the base values file. The base file is what
-          # Glimmung-managed warm test slots pin to (they install the chart
-          # with default values only); without this sync, slots drift behind
-          # prod and surface bugs already fixed upstream.
+          # file and the base values file, so a default-values install runs
+          # the same image as prod (scripts/check-chart-image-tag-sync.mjs).
           python - <<'PY'
           from pathlib import Path
 

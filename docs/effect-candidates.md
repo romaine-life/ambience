@@ -2,7 +2,7 @@
 
 The canonical, browsable registry of ambience effects: what's **built**, what's
 **queued as issues**, and what's still a **candidate**. The live issues
-themselves live in Glimmung (`project=ambience`, label `ambient-effects`); this
+themselves are work packages in OpenProject's AMBIENCE project; this
 file is the human-readable overview and promotion record.
 
 > The original rolling list (issue #9 in the retired `nelsong6/ambience`) did not

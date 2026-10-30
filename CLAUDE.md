@@ -40,111 +40,21 @@ representative frame.
 
 ## Container Build Verification
 
-Agent pods are not expected to have Docker. Do not report missing local Docker
-as a blocker. Run available repo checks first, then use PR CI as the normal
+Local Docker is not required. Do not report missing local Docker as a
+blocker. Run available repo checks first, then use PR CI as the normal
 container build gate: `.github/workflows/docker-build-check.yaml` computes
-image fingerprints and reuses or pushes ACR proof images for trusted PRs,
-then creates a run-scoped app-image lookup tag that points at the same
-fingerprint manifest for Glimmung test-slot deploys, falling back to
-`push: false` for fork PRs. If image-packaging feedback is needed before a
+the app image fingerprint and reuses or pushes an ACR proof image for trusted
+PRs, falling back to `push: false` for fork PRs. If image-packaging feedback is needed before a
 PR is ready, manually dispatch that workflow with `git_ref`. Release/deploy
 workflows publish the fingerprint-tagged images used by deploys.
 
-## Agent flow
+## Testing
 
-Glimmung dispatches autonomous agent runs for ambience as a native-k8s
-flow (`default` workflow). Per the platform principle in
-`tank-operator/docs/agent-llm-task-splitting.md`, LLM work is split
-across staged phases with one shared target contract:
-
-```
-prepare
-  └─ env-prep
-       ↓
-llm-work
-  ├─ test-plan   (when-skipped for effect-type runs)
-  └─ implement
-       ↓
-verify-case-01..10 or one dynamic verification job (evidence_verification_gate) → env-destroy
-```
-
-- **prepare** runs `env-prep`, which prepares the validation environment.
-- **test-plan** and **implement** run in parallel and do not read each
-  other's artifacts. `test-plan` produces an evidence specification;
-  `implement` produces code changes, declares its public surface
-  (`ui_hint`), and pushes the branch + rebuilds the validation env. The
-  retired issue-contract stage is gone: public names settle by the
-  implementation's declaration (slug from the issue title per cookbook
-  convention, trigger names from the issue body's own event list).
-- **verify** receives the test plan and implementation JSON as phase
-  inputs. Legacy rows use ten bounded jobs named `verify-case-01`
-  through `verify-case-10`; newer Glimmung rows can use one dynamic
-  verification job whose runner expands those same cases sequentially. Each
-  active case selects one `required_evidence` item, runs one verification LLM
-  task against the rebuilt env, and emits a per-case result. Empty slots
-  complete as skipped. Glimmung aggregates the case results into the phase
-  `verification` output consumed by the evidence gate.
-
-The registration also declares a **feature type** (workflow `vars` +
-`AMBIENCE_FEATURE_TYPE` job env) that selects the verification **case
-source**. Types with a repo-versioned standing case
-(`.github/agent/standing-cases/<type>.json`) skip test-plan *generation*
-entirely at the PLATFORM level: the registration puts
-`when: "${{ vars.feature_type }} != 'effect'"` on the `llm-test-plan` job,
-so Glimmung never creates its pod (zero compute) while the run graph still
-renders the declared-but-skipped leg — the skip is honest because the
-toggle has a live second state (generated plans for projects whose world
-exists before the feature). Public names settle by **declaration** (the
-implementation's `ui_hint` + the issue's own event list) instead of
-pre-implementation prediction, and the verify wrapper mechanically checks
-the declared route + schema route serve (`enforce_declared_surface`). With
-the plan leg skipped its `test_plan` output resolves empty, and the verify
-wrapper sources the standing case from its own workflow checkout (never
-the implementation branch) — CI-linted by the contract harness with the
-same claim-vocabulary gates a generated plan must pass.
-
-`ambience.default` is `feature_type=effect`: one standing acceptance case
-(find the new effect in the `/dev` picker, pin schema defaults, record
-video, judge against the issue text). The implementation emits a `ui_hint`
-phase output (`{menu_label, route}`, mandatory on a passing implementation
-for standing types) that the verify wrapper binds into the case — a
-**discovery aid only**: it says where to look, never what success looks
-like. Types without a standing case keep generated plans (correct when the
-world exists before the feature, e.g. a stats-display project). Full
-rationale: [docs/issue-agent-stage-split.md](docs/issue-agent-stage-split.md).
-
-The env-prep, test-plan, implement, and env-destroy phases are the typed Go
-run-harness at `glimmung-harness/`, built on the Glimmung run-harness SDK
-(`github.com/romaine-life/glimmung` v0.2.0). It replaces the retired
-`scripts/glimmung-native/*.sh` shell fork end to end; see
-[docs/glimmung-run-harness.md](docs/glimmung-run-harness.md) for the phase →
-step-slug → `run` invocation mapping the workflow registration binds. The
-verify phase is still the Python inner-Job renderer in
-`mcp/ambience_preview/ops.py`. Planning and
-implementation use Glimmung-managed `type: agent` workflow steps.
-Verification cases use the script-launched inner Job path so the wrapper can
-skip empty slots before invoking an LLM. Both paths take provider/model
-selection from the resolved Glimmung agent runtime snapshot on the Run.
-The Ambience LLM stages use stable runtime slots:
-`test_plan`, `implementation`, and `verification`. The
-script-launched inner Job renderer in `mcp/ambience_preview/ops.py` also
-requires `GLIMMUNG_AGENT_RUNTIME_JSON` and selects the same stage slot before
-rendering Claude or Codex commands, so registered rows cannot silently fall
-back to a hard-coded model. Prompts are in
-`.github/agent/prompt-{test-plan,implementation,verification}.md`. Design and stage contracts live at
-[docs/issue-agent-stage-split.md](docs/issue-agent-stage-split.md).
-
-Verification inner Jobs do not mount raw provider credential Secrets. The
-outer Glimmung verification phase must supply provider API proxy IPs and CA
-material; the wrapper copies that CA into the slot namespace and renders
-host aliases for `api.anthropic.com`, `chatgpt.com`, and `api.openai.com`.
-Codex uses placeholder `managed-by-glimmung` auth inside the pod and the
-central Glimmung proxy injects the real credentials.
-
-Runs are started directly via the glimmung UI/API; there is no
-GitHub-label trigger. The live workflow shape is the Postgres-backed
-`ambience.default` row in Glimmung; dispatch does not read a workflow file from
-this repo.
+There is no autonomous agent pipeline: Glimmung, which ran one for this repo,
+is gone (AMBIENCE-69). Effects are verified by hand on a local server, using
+the `/dev` endpoints, `scripts/shot.mjs` screenshots and
+`scripts/agent/selfcheck-effect.sh` for lifecycle claims; the recipe is in
+[docs/dev-endpoints.md](docs/dev-endpoints.md).
 
 When developing a new effect, the relevant references are
 [docs/effects-cookbook.md](docs/effects-cookbook.md) (file pattern +
@@ -285,9 +195,7 @@ Transitions between scenes are a config DRIFT — `lerpConfig` over
 angular LERP so the 0/360° seam is crossed along the shortest arc.
 Server applies interpolated configs to its sim each tick and broadcasts
 every 10 ticks during drift (~1 Hz), so client replicas stay near-sync
-without overwhelming the SSE stream. The larger cross-effect transition
-design is tracked in Glimmung; the current work is the within-effect
-half. Vocabulary (Scene vs Effect) is tracked in Glimmung.
+without overwhelming the SSE stream.
 
 For local testing, `AMBIENCE_SCENE_TICKS=60` env var shortens scene
 duration to 6 s so rotations fire visibly without a 90-minute wait.
@@ -299,9 +207,7 @@ Production ignores the var (falls back to 1–4 h random).
 constructors in `AmbienceSim.effects` for every supported effect. The shared
 `client.js` reads `snapshotData.Type` and looks up the constructor there.
 Adding a new active effect means adding the Go `sim` runtime and exposing it
-through `cmd/ambience-wasm`; no per-consumer wiring should be needed. The
-5-slot effect template (spawn / lever / event / event-mod / end) is tracked
-in Glimmung.
+through `cmd/ambience-wasm`; no per-consumer wiring should be needed.
 
 ## Guiding principle
 
@@ -384,8 +290,7 @@ Consumers:
 - Effects plug in via `AmbienceSim.effects` registry; server broadcasts
   `snapshotData.Type` so clients know which constructor to pick. Adding
   Sand/Fire/Tetris requires zero client changes.
-- Repo migration from `nelsong6/` to `romaine-life/` is tracked in
-  Glimmung (May 2026)
+- Repo moved from `nelsong6/` to `romaine-life/` (May 2026)
 
 ## Status
 
@@ -399,6 +304,6 @@ across authority restarts via Cosmos DB (database `ambience`, container
 `atmosphere`, document id `shared`) using workload-identity auth — the
 `ambience-identity` user-assigned identity is federated to the prod
 namespace's `default` ServiceAccount with data-plane scope narrowed to
-`dbs/ambience`. Preview slots leave `authority.cosmos.endpoint` unset and
-run without persistence. Future effects are ready to plug in via the
+`dbs/ambience`. Leaving `authority.cosmos.endpoint` unset runs without
+persistence. Future effects are ready to plug in via the
 registry.

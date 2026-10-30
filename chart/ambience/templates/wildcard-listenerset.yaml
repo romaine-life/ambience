@@ -1,4 +1,4 @@
-{{- if and .Values.wildcardCertificate.enabled (not (eq (include "ambience.isTestEnv" .) "true")) }}
+{{- if .Values.wildcardCertificate.enabled }}
 {{- /*
 One XListenerSet that attaches both a wildcard listener and a base-host
 listener (TLS wildcards only match a single label, so the bare

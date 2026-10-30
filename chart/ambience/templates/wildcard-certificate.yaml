@@ -1,4 +1,4 @@
-{{- if and .Values.wildcardCertificate.enabled (not (eq (include "ambience.isTestEnv" .) "true")) }}
+{{- if .Values.wildcardCertificate.enabled }}
 {{- /*
 Wildcard cert covering the dev base host and all per-issue / per-PR
 ephemeral hostnames under *.ambience.dev.romaine.life. Issued via the

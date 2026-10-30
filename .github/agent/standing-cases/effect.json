@@ -1,7 +1,0 @@
-{
-  "id": "effect-acceptance",
-  "kind": "video",
-  "source": "standing",
-  "duration_seconds": 10,
-  "must_show": "a legible ambient effect on the page that plausibly looks like what the issue describes"
-}
