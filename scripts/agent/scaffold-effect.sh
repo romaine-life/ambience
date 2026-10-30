@@ -650,5 +650,5 @@ printf '  %s\n' "${sim_file#${REPO_DIR}/}"
 printf '  %s\n' "${test_file#${REPO_DIR}/}"
 printf '  %s\n' "${runtime_file#${REPO_DIR}/}"
 printf '\nrequired next edit:\n'
-printf '  cmd/ambience-wasm/main.go: add "%s" to supportedEffects and add:\n' "$slug"
+printf '  cmd/ambience-wasm/effects_all.go: add "%s" to supportedEffects and add:\n' "$slug"
 printf '  case "%s": return makeTypedRuntime(kind, w, h, seed, cfg, sim.New%s)\n' "$slug" "$pascal"
