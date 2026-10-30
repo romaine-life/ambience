@@ -18,8 +18,8 @@ func TestGenerateEffectContract(t *testing.T) {
 	if !contains(c.RequiredFileTemplates, "sim/{effect_snake}.go") {
 		t.Errorf("missing required_file_template sim/{effect_snake}.go: %v", c.RequiredFileTemplates)
 	}
-	if !contains(c.RequiredTouchpoints, "cmd/ambience-wasm/main.go") {
-		t.Errorf("missing required touchpoint cmd/ambience-wasm/main.go: %v", c.RequiredTouchpoints)
+	if !contains(c.RequiredTouchpoints, "cmd/ambience-wasm/effects_all.go") {
+		t.Errorf("missing required touchpoint cmd/ambience-wasm/effects_all.go: %v", c.RequiredTouchpoints)
 	}
 	foundForbidden := false
 	for _, fp := range c.ForbiddenPaths {
@@ -70,7 +70,7 @@ func TestValidateImplementation_Pass(t *testing.T) {
 		"sim/paper_lanterns.go",
 		"sim/paper_lanterns_test.go",
 		"cmd/ambience/effect_paper_lanterns.go",
-		"cmd/ambience-wasm/main.go",
+		"cmd/ambience-wasm/effects_all.go",
 	}
 	res := ValidateImplementation(Generate("effect"), passingImpl(t, "/dev/paper-lanterns"), changed)
 	if res.Status != "pass" {
@@ -79,7 +79,7 @@ func TestValidateImplementation_Pass(t *testing.T) {
 	if res.EffectSlug != "paper-lanterns" {
 		t.Errorf("effect_slug=%q", res.EffectSlug)
 	}
-	if !contains(res.ChangedFiles, "cmd/ambience-wasm/main.go") {
+	if !contains(res.ChangedFiles, "cmd/ambience-wasm/effects_all.go") {
 		t.Errorf("changed_files missing touchpoint: %v", res.ChangedFiles)
 	}
 }
@@ -90,7 +90,7 @@ func TestValidateImplementation_MissingTouchpoint(t *testing.T) {
 		"sim/paper_lanterns.go",
 		"sim/paper_lanterns_test.go",
 		"cmd/ambience/effect_paper_lanterns.go",
-		// no cmd/ambience-wasm/main.go
+		// no cmd/ambience-wasm/effects_all.go
 	}
 	res := ValidateImplementation(Generate("effect"), passingImpl(t, "/dev/paper-lanterns"), changed)
 	if res.AbortReason != "missing_required_touchpoints" {
@@ -98,7 +98,7 @@ func TestValidateImplementation_MissingTouchpoint(t *testing.T) {
 	}
 	var detail []string
 	_ = json.Unmarshal([]byte(res.Detail), &detail)
-	if !contains(detail, "cmd/ambience-wasm/main.go") {
+	if !contains(detail, "cmd/ambience-wasm/effects_all.go") {
 		t.Errorf("detail missing touchpoint: %v", detail)
 	}
 }
@@ -109,7 +109,7 @@ func TestValidateImplementation_ForbiddenPath(t *testing.T) {
 		"sim/paper_lanterns.go",
 		"sim/paper_lanterns_test.go",
 		"cmd/ambience/effect_paper_lanterns.go",
-		"cmd/ambience-wasm/main.go",
+		"cmd/ambience-wasm/effects_all.go",
 		"cmd/ambience/web/effects/paper-lanterns.js",
 	}
 	res := ValidateImplementation(Generate("effect"), passingImpl(t, "/dev/paper-lanterns"), changed)
