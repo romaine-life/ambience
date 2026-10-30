@@ -48,9 +48,10 @@ func TestPondStepAdvancesDucksAndPaintsGrid(t *testing.T) {
 		t.Fatal("expected at least one duck's angle to change after 40 ticks")
 	}
 	filled := 0
-	for y := range p.Grid {
-		for x := range p.Grid[y] {
-			if p.Grid[y][x].Filled {
+	grid := p.GridCopy()
+	for y := range grid {
+		for x := range grid[y] {
+			if grid[y][x].Filled {
 				filled++
 			}
 		}

@@ -35,6 +35,10 @@ func (b *Beach) GridCopy() [][]Pixel {
 func (b *Bog) GridCopy() [][]Pixel {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.dirty {
+		b.paintFrameLocked()
+		b.dirty = false
+	}
 	return copyPixelGrid(b.Grid)
 }
 
@@ -53,6 +57,12 @@ func (d *DistantStorm) GridCopy() [][]Pixel {
 func (d *Dust) GridCopy() [][]Pixel {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.dirty {
+		d.clearGridLocked()
+		d.paintHazeLocked()
+		d.paintMotesLocked()
+		d.dirty = false
+	}
 	return copyPixelGrid(d.Grid)
 }
 
@@ -77,6 +87,10 @@ func (m *MysteriousMan) GridCopy() [][]Pixel {
 func (p *Pond) GridCopy() [][]Pixel {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.dirty {
+		p.paintFrameLocked()
+		p.dirty = false
+	}
 	return copyPixelGrid(p.Grid)
 }
 

@@ -307,9 +307,12 @@ type Pond struct {
 
 	W, H int
 	Grid [][]Pixel
-	rng  *rngutil.RNG
-	cfg  PondConfig
-	tick int
+	// dirty marks Grid stale; GridCopy repaints it from state, so steps that
+	// nobody looks at (a catch-up burst, the authority) skip the full-screen paint.
+	dirty bool
+	rng   *rngutil.RNG
+	cfg   PondConfig
+	tick  int
 
 	ducks   []pondDuck
 	ripples []pondRipple
@@ -430,7 +433,7 @@ func (p *Pond) RestoreSnapshot(s PondSnapshot) {
 	}
 	p.restoreDucksLocked(s.Ducks)
 	p.restoreRipplesLocked(s.Ripples)
-	p.paintFrameLocked()
+	p.dirty = true
 }
 
 func (p *Pond) SnapshotPersistedState() PondPersistedState {
@@ -851,7 +854,7 @@ func (p *Pond) Step() {
 	}
 
 	p.stepRipplesLocked()
-	p.paintFrameLocked()
+	p.dirty = true
 }
 
 func (p *Pond) stepRipplesLocked() {
@@ -923,16 +926,20 @@ func (p *Pond) paintWaterLocked(surface int) {
 	sat := clamp01(p.cfg.Saturation)
 	depth := math.Max(1, float64(p.H-1-surface))
 	motion := p.motionLevelLocked()
+	// The wave term depends only on the column, so compute it once per column.
+	waves := make([]float64, p.W)
+	for x := range waves {
+		waves[x] = math.Sin(float64(x)*p.cfg.WaveFreq + float64(p.tick)*0.06)
+	}
 	for y := surface; y < p.H; y++ {
 		d := float64(y-surface) / depth
 		baseLight := p.cfg.LightMin + (p.cfg.LightMax-p.cfg.LightMin)*(0.55-0.35*d)
 		baseLight = clamp01(baseLight)
 		shimmer := math.Sin(float64(y)*0.27 + float64(p.tick)*0.05)
 		for x := 0; x < p.W; x++ {
-			wave := math.Sin(float64(x)*p.cfg.WaveFreq + float64(p.tick)*0.06)
-			light := clamp01(baseLight + (p.cfg.LightMax-p.cfg.LightMin)*0.05*wave*motion + 0.02*shimmer)
+			light := clamp01(baseLight + (p.cfg.LightMax-p.cfg.LightMin)*0.05*waves[x]*motion + 0.02*shimmer)
 			hueShift := math.Sin(float64(x)*0.05+float64(y)*0.04) * p.cfg.HueSpread * 0.15
-			p.Grid[y][x] = Pixel{Filled: true, C: hslToRGB(math.Mod(hue+hueShift+360, 360), sat, light)}
+			p.Grid[y][x] = Pixel{Filled: true, C: hslToRGB(modSmall(hue+hueShift+360, 360), sat, light)}
 		}
 	}
 	// Surface meniscus — a brighter waterline so the seam reads as water,

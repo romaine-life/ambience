@@ -254,6 +254,13 @@ type RainOnWindow struct {
 
 	W, H int
 	Grid [][]Pixel
+	// dirty marks Grid stale; GridCopy repaints it from state, so steps that
+	// nobody looks at (a catch-up burst, the authority) skip the full-screen paint.
+	dirty bool
+	// bg caches the blurred-city backdrop, which only changes with the
+	// light level and the glow/tint config.
+	bg    []color.RGBA
+	bgKey rainWindowBgKey
 
 	rng *rngutil.RNG
 	cfg RainOnWindowConfig
@@ -282,7 +289,7 @@ func NewRainOnWindow(w, h int, seed int64, cfg RainOnWindowConfig) *RainOnWindow
 	r.Resize(w, h)
 	r.mu.Lock()
 	r.seedInitialPaneLocked()
-	r.renderLocked()
+	r.dirty = true
 	r.mu.Unlock()
 	return r
 }
@@ -302,7 +309,7 @@ func (r *RainOnWindow) Resize(w, h int) {
 	for y := range r.Grid {
 		r.Grid[y] = make([]Pixel, w)
 	}
-	r.renderLocked()
+	r.dirty = true
 }
 
 func (r *RainOnWindow) EffectiveConfig() RainOnWindowConfig {
@@ -321,7 +328,7 @@ func (r *RainOnWindow) SetConfig(cfg RainOnWindowConfig) {
 			r.drops[i].VY = r.fallVelocityLocked(r.drops[i].Mass)
 		}
 	}
-	r.renderLocked()
+	r.dirty = true
 }
 
 func (r *RainOnWindow) Snapshot() RainOnWindowSnapshot {
@@ -334,7 +341,7 @@ func (r *RainOnWindow) RestoreSnapshot(snap RainOnWindowSnapshot) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.restoreSnapshotLocked(snap)
-	r.renderLocked()
+	r.dirty = true
 }
 
 func (r *RainOnWindow) SnapshotPersistedState() RainOnWindowPersistedState {
@@ -347,7 +354,7 @@ func (r *RainOnWindow) RestorePersistedState(state RainOnWindowPersistedState) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.restoreSnapshotLocked(state.RainOnWindowSnapshot)
-	r.renderLocked()
+	r.dirty = true
 }
 
 func (r *RainOnWindow) snapshotLocked(includeRNG bool) RainOnWindowSnapshot {
@@ -455,7 +462,7 @@ func (r *RainOnWindow) TriggerEvent(name string) bool {
 	default:
 		return false
 	}
-	r.renderLocked()
+	r.dirty = true
 	return true
 }
 
@@ -466,7 +473,7 @@ func (r *RainOnWindow) Step() {
 	r.tick++
 
 	if r.ended {
-		r.renderLocked()
+		r.dirty = true
 		return
 	}
 
@@ -484,7 +491,7 @@ func (r *RainOnWindow) Step() {
 			r.gustWind = 0
 			r.gustBias = 0
 			r.appendLogLocked("ending", "terminal dim pane")
-			r.renderLocked()
+			r.dirty = true
 			return
 		}
 	}
@@ -505,12 +512,16 @@ func (r *RainOnWindow) Step() {
 	r.rollSpawnLocked()
 	r.rollEventsLocked()
 	r.trimDropsLocked()
-	r.renderLocked()
+	r.dirty = true
 }
 
 func (r *RainOnWindow) GridCopy() [][]Pixel {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.dirty {
+		r.renderLocked()
+		r.dirty = false
+	}
 	return copyPixelGrid(r.Grid)
 }
 
@@ -887,9 +898,21 @@ func (r *RainOnWindow) renderLocked() {
 		return
 	}
 	level := r.backgroundLevelLocked()
+	key := rainWindowBgKey{w: r.W, h: r.H, level: level, light: r.cfg.GlowLight, hue: r.cfg.GlowHue, sat: r.cfg.GlowSat, tint: r.cfg.GlassTint}
+	if key != r.bgKey || len(r.bg) != r.W*r.H {
+		r.bg = make([]color.RGBA, r.W*r.H)
+		f := newRainWindowBgFields(r.W, r.H)
+		for y := 0; y < r.H; y++ {
+			for x := 0; x < r.W; x++ {
+				r.bg[y*r.W+x] = r.backgroundColorLocked(f, x, y, level)
+			}
+		}
+		r.bgKey = key
+	}
 	for y := 0; y < r.H; y++ {
+		row := r.bg[y*r.W : (y+1)*r.W]
 		for x := 0; x < r.W; x++ {
-			r.Grid[y][x] = Pixel{Filled: true, C: r.backgroundColorLocked(x, y, level)}
+			r.Grid[y][x] = Pixel{Filled: true, C: row[x]}
 		}
 	}
 	r.paintFrameLocked()
@@ -899,6 +922,11 @@ func (r *RainOnWindow) renderLocked() {
 	for _, d := range r.drops {
 		r.paintDropLocked(d, level)
 	}
+}
+
+type rainWindowBgKey struct {
+	w, h                         int
+	level, light, hue, sat, tint float64
 }
 
 func (r *RainOnWindow) backgroundLevelLocked() float64 {
@@ -917,18 +945,46 @@ func (r *RainOnWindow) backgroundLevelLocked() float64 {
 	return clamp01(level)
 }
 
-func (r *RainOnWindow) backgroundColorLocked(x, y int, level float64) color.RGBA {
-	nx := 0.0
-	ny := 0.0
-	if r.W > 1 {
-		nx = float64(x) / float64(r.W-1)
+// rainWindowBgFields holds the backdrop's three glow blobs split into their
+// column and row factors: a Gaussian blob exp(-(dx²+dy²)k) is
+// exp(-dx²k)·exp(-dy²k), so a W×H backdrop needs W+H exponentials per blob
+// instead of W·H.
+type rainWindowBgFields struct {
+	nx, ny               []float64
+	centerX, sideX, lowX []float64
+	centerY, sideY, lowY []float64
+}
+
+func newRainWindowBgFields(w, h int) rainWindowBgFields {
+	f := rainWindowBgFields{
+		nx: make([]float64, w), ny: make([]float64, h),
+		centerX: make([]float64, w), sideX: make([]float64, w), lowX: make([]float64, w),
+		centerY: make([]float64, h), sideY: make([]float64, h), lowY: make([]float64, h),
 	}
-	if r.H > 1 {
-		ny = float64(y) / float64(r.H-1)
+	for x := 0; x < w; x++ {
+		if w > 1 {
+			f.nx[x] = float64(x) / float64(w-1)
+		}
+		f.centerX[x] = rainWindowBlobAxis(f.nx[x], 0.38, 0.42)
+		f.sideX[x] = rainWindowBlobAxis(f.nx[x], 0.77, 0.24)
+		f.lowX[x] = rainWindowBlobAxis(f.nx[x], 0.58, 0.52)
 	}
-	center := rainWindowBlob(nx, ny, 0.38, 0.46, 0.42, 0.34)
-	side := rainWindowBlob(nx, ny, 0.77, 0.28, 0.24, 0.18)
-	low := rainWindowBlob(nx, ny, 0.58, 0.76, 0.52, 0.22)
+	for y := 0; y < h; y++ {
+		if h > 1 {
+			f.ny[y] = float64(y) / float64(h-1)
+		}
+		f.centerY[y] = rainWindowBlobAxis(f.ny[y], 0.46, 0.34)
+		f.sideY[y] = rainWindowBlobAxis(f.ny[y], 0.28, 0.18)
+		f.lowY[y] = rainWindowBlobAxis(f.ny[y], 0.76, 0.22)
+	}
+	return f
+}
+
+func (r *RainOnWindow) backgroundColorLocked(f rainWindowBgFields, x, y int, level float64) color.RGBA {
+	nx, ny := f.nx[x], f.ny[y]
+	center := f.centerX[x] * f.centerY[y]
+	side := f.sideX[x] * f.sideY[y]
+	low := f.lowX[x] * f.lowY[y]
 	vignette := 0.65 + 0.35*(1-math.Hypot(nx-0.5, ny-0.5)/0.72)
 	if vignette < 0.45 {
 		vignette = 0.45
@@ -1058,10 +1114,9 @@ func rainWindowMergedDrop(a, b RainOnWindowDrop) RainOnWindowDrop {
 	return out
 }
 
-func rainWindowBlob(x, y, cx, cy, sx, sy float64) float64 {
-	dx := (x - cx) / math.Max(0.001, sx)
-	dy := (y - cy) / math.Max(0.001, sy)
-	return math.Exp(-(dx*dx + dy*dy) * 2.4)
+func rainWindowBlobAxis(v, c, s float64) float64 {
+	d := (v - c) / math.Max(0.001, s)
+	return math.Exp(-d * d * 2.4)
 }
 
 func rainWindowBlend(base, over color.RGBA, alpha float64) color.RGBA {

@@ -29,9 +29,10 @@ func TestDustStepPaintsGrid(t *testing.T) {
 	}
 
 	filled := 0
-	for y := range d.Grid {
-		for x := range d.Grid[y] {
-			if d.Grid[y][x].Filled {
+	grid := d.GridCopy()
+	for y := range grid {
+		for x := range grid[y] {
+			if grid[y][x].Filled {
 				filled++
 			}
 		}

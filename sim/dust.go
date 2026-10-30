@@ -256,8 +256,11 @@ type DustPersistedState struct {
 type Dust struct {
 	mu sync.Mutex
 
-	W, H  int
-	Grid  [][]Pixel
+	W, H int
+	Grid [][]Pixel
+	// dirty marks Grid stale; GridCopy repaints it from state, so steps that
+	// nobody looks at (a catch-up burst, the authority) skip the full-screen paint.
+	dirty bool
 	motes []dustMote
 	rng   *rngutil.RNG
 	cfg   DustConfig
@@ -467,11 +470,9 @@ func (d *Dust) Step() {
 		}
 	}
 
-	d.clearGridLocked()
-	d.paintHazeLocked()
 	d.spawnStepLocked()
 	d.stepMotesLocked()
-	d.paintMotesLocked()
+	d.dirty = true
 
 	if introActive {
 		d.introTicks--
@@ -568,9 +569,7 @@ func (d *Dust) restoreMotesLocked(list []DustMote) {
 }
 
 func (d *Dust) rebuildGridLocked() {
-	d.clearGridLocked()
-	d.paintHazeLocked()
-	d.paintMotesLocked()
+	d.dirty = true
 }
 
 func (d *Dust) startGustLocked(mult float64) {

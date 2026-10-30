@@ -65,6 +65,14 @@ Every new effect must edit each of these:
 - `cmd/ambience/web/sim.js` — add browser presets only when the effect
   has named presets.
 
+Paint the grid in `GridCopy()`, not in `Step()`. Browsers step the sim at
+60 Hz but only ask for a frame when they draw, and they step several ticks
+without drawing to close a gap; the authority never draws. Mark the grid
+stale in `Step()` (and in anything else that changes what is visible) and
+repaint it in `GridCopy()` when stale. A full-screen paint must also fit
+the browser's frame budget: WASM runs about 3× slower than native, so keep
+`Step()` plus `GridCopy()` well under 5 ms natively at 640×360.
+
 Prefer keeping effect-specific methods such as `Frame()` and `GridCopy()`
 next to the effect type or runtime adapter when possible. If an older
 effect requires a shared registry file, keep that edit mechanical and
