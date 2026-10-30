@@ -15,20 +15,13 @@ type proceduralRenderState struct {
 	values map[string]float64
 	seed   uint64
 	grid   [][]Pixel
+	// beam is the lighthouse's per-instance beam geometry; nil renders
+	// without one.
+	beam *lighthouseBeamCache
 }
 
 func renderProceduralGrid(kind string, w, h, tick int, cfg ProceduralConfig, timers map[string]int, values map[string]float64, seed uint64) [][]Pixel {
-	r := proceduralRenderState{
-		kind:   kind,
-		w:      w,
-		h:      h,
-		tick:   tick,
-		cfg:    cfg,
-		timers: timers,
-		values: values,
-		seed:   seed,
-		grid:   newPixelGrid(w, h),
-	}
+	r := newProceduralRenderState(kind, w, h, tick, cfg, timers, values, seed)
 	if w <= 0 || h <= 0 {
 		return r.grid
 	}
@@ -69,6 +62,20 @@ func renderProceduralGrid(kind string, w, h, tick int, cfg ProceduralConfig, tim
 		return proceduralGridCopy(kind, w, h, tick, cfg)
 	}
 	return r.grid
+}
+
+func newProceduralRenderState(kind string, w, h, tick int, cfg ProceduralConfig, timers map[string]int, values map[string]float64, seed uint64) *proceduralRenderState {
+	return &proceduralRenderState{
+		kind:   kind,
+		w:      w,
+		h:      h,
+		tick:   tick,
+		cfg:    cfg,
+		timers: timers,
+		values: values,
+		seed:   seed,
+		grid:   newPixelGrid(w, h),
+	}
 }
 
 func newPixelGrid(w, h int) [][]Pixel {
@@ -1368,25 +1375,29 @@ func (r *proceduralRenderState) renderLighthouse() {
 		hiSlope = math.Tan(hi)
 	}
 	coneExp := math.Max(0.6, 1.8-beamSoft)
-	reach := float64(r.w) * 0.92
-	for y := 0; y <= horizon+5; y++ {
+	beam := r.beam
+	if beam == nil {
+		beam = &lighthouseBeamCache{}
+	}
+	rows := horizon + 6
+	beam.fit(r.w, towerX, lampY, rows)
+	for y := 0; y < rows; y++ {
 		dy := float64(y - lampY)
 		for x := towerX + 1; x < r.w; x++ {
 			dx := float64(x - towerX)
 			if dy < loSlope*dx || dy > hiSlope*dx {
 				continue
 			}
-			dist := math.Hypot(dx, dy)
-			if dist < 2 {
+			angle, falloff := beam.at(x, y, dx, dy, float64(r.w)*0.92)
+			if falloff < 0 {
 				continue
 			}
-			angle := math.Atan2(dy, dx)
 			diff := math.Abs(math.Atan2(math.Sin(angle-beamAngle), math.Cos(angle-beamAngle)))
 			if diff > beamWidth {
 				continue
 			}
 			cone := 1 - diff/beamWidth
-			strength := math.Pow(cone, coneExp) * math.Pow(clamp01(1-dist/reach), 0.72) * beamLevel
+			strength := math.Pow(cone, coneExp) * falloff * beamLevel
 			if strength < 0.02 {
 				continue
 			}
@@ -1399,6 +1410,41 @@ func (r *proceduralRenderState) renderLighthouse() {
 	for y := horizon - 8; y < horizon+10; y++ {
 		r.fillRectAlpha(0, y, r.w, 1, color.RGBA{201, 214, 226, 255}, clamp01((0.02+fogLevel*0.08)*(1-float64(y-(horizon-8))/18)))
 	}
+}
+
+// lighthouseBeamCache holds each beam pixel's angle from the lamp and its
+// distance falloff. Both depend only on the grid width and the lamp's
+// position, so a lighthouse computes them once per pixel, on first use,
+// instead of every frame.
+type lighthouseBeamCache struct {
+	w, towerX, lampY, rows int
+	angle                  []float64 // NaN until computed
+	falloff                []float64 // negative within 2 cells of the lamp
+}
+
+func (c *lighthouseBeamCache) fit(w, towerX, lampY, rows int) {
+	if c.angle != nil && c.w == w && c.towerX == towerX && c.lampY == lampY && c.rows == rows {
+		return
+	}
+	c.w, c.towerX, c.lampY, c.rows = w, towerX, lampY, rows
+	n := rows * max(0, w-towerX-1)
+	c.angle = make([]float64, n)
+	c.falloff = make([]float64, n)
+	for i := range c.angle {
+		c.angle[i] = math.NaN()
+	}
+}
+
+func (c *lighthouseBeamCache) at(x, y int, dx, dy, reach float64) (float64, float64) {
+	i := y*(c.w-c.towerX-1) + x - c.towerX - 1
+	if math.IsNaN(c.angle[i]) {
+		c.angle[i] = math.Atan2(dy, dx)
+		c.falloff[i] = -1
+		if dist := math.Hypot(dx, dy); dist >= 2 {
+			c.falloff[i] = math.Pow(clamp01(1-dist/reach), 0.72)
+		}
+	}
+	return c.angle[i], c.falloff[i]
 }
 
 func (r *proceduralRenderState) renderRowboat() {

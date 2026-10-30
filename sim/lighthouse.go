@@ -44,6 +44,7 @@ type Lighthouse struct {
 	timers map[string]int
 	values map[string]float64
 	log    []LogEntry
+	beam   lighthouseBeamCache
 }
 
 var lighthouseDefaultsLocal = LighthouseConfig{
