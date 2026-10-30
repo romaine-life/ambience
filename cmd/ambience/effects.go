@@ -73,17 +73,6 @@ func effectJoinMode(effectType string) string {
 	return "restore"
 }
 
-// playbackDelayTicksFor is how far behind authority a client should render this
-// effect. Fresh effects render at the live edge (0) so they never freeze on
-// join; restore effects keep a small delay so broadcast events line up across
-// clients.
-func playbackDelayTicksFor(effectType string) int {
-	if def, ok := lookupEffectDefinition(effectType); ok && def.FreshJoin {
-		return 0
-	}
-	return restorePlaybackDelayTicks
-}
-
 // effectRegistry is populated at package init time by each effect_*.go file's
 // init() calling register(). Splitting registration across per-effect files
 // removes the central insertion point that used to make every new-effect PR

@@ -337,6 +337,11 @@ func (m *authorityMirror) stream(w http.ResponseWriter, req *http.Request) {
 		if err := writeSnapshotDataFrame(w, flusher, snap, snapshotID); err != nil {
 			return
 		}
+		for _, cmd := range replay {
+			if err := writeCommand(w, flusher, cmd); err != nil {
+				return
+			}
+		}
 	}
 
 	ctx := req.Context()
@@ -389,7 +394,26 @@ func (m *authorityMirror) beginStream(lastID string) (snapshotData, string, []Co
 	snap := cloneSnapshot(m.snap)
 	snapshotID := m.snapshotID
 	replay, replayable := m.replayAfterLocked(lastID)
+	if !replayable {
+		replay = m.commandsAfterSnapshotLocked(snap.WorldTick)
+	}
 	return snap, snapshotID, replay, replayable, ch, true
+}
+
+// commandsAfterSnapshotLocked returns the relayed commands stamped after the
+// cached snapshot. The cached snapshot is refreshed by polling, so its state
+// can trail the stream by a few seconds; a new subscriber gets that state at
+// its own world tick plus these commands, rather than state labeled with a
+// later tick than it describes. Clock samples are left out: an old sample
+// delivered now would read as the authority running behind.
+func (m *authorityMirror) commandsAfterSnapshotLocked(worldTick int) []Command {
+	var out []Command
+	for _, cmd := range m.replay {
+		if cmd.Tick > worldTick && cmd.Kind != "clock" && cmd.Kind != "snapshot" {
+			out = append(out, cmd)
+		}
+	}
+	return out
 }
 
 func (m *authorityMirror) removeListener(ch chan Command) {
@@ -574,9 +598,6 @@ func (m *authorityMirror) applyCommand(cmd Command) {
 	defer m.mu.Unlock()
 	if !m.hasSnapshot {
 		return
-	}
-	if cmd.Tick > m.snap.Tick {
-		m.snap.Tick = cmd.Tick
 	}
 	switch cmd.Kind {
 	case "config":

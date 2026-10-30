@@ -165,8 +165,10 @@ func TestAuthorityMirrorAppliesMetricAndConfigCommands(t *testing.T) {
 	if !ok {
 		t.Fatal("mirror did not retain snapshot")
 	}
-	if got.Tick != 12 {
-		t.Fatalf("tick = %d, want 12", got.Tick)
+	// The cached state still describes tick 10; relayed commands must not
+	// relabel it with a later tick.
+	if got.Tick != 10 {
+		t.Fatalf("tick = %d, want 10", got.Tick)
 	}
 	var gotCfg sim.Config
 	if err := json.Unmarshal(got.Config, &gotCfg); err != nil {
@@ -433,5 +435,34 @@ func TestRegisterEdgeRoutesProxiesNextEffect(t *testing.T) {
 	}
 	if !sawNextEffect {
 		t.Fatal("authority did not receive /next-effect")
+	}
+}
+
+// TestAuthorityMirrorFreshSubscriberGetsCommandsAfterCachedSnapshot covers a
+// polled snapshot that trails the stream: a new subscriber gets the state at
+// its own world tick, then every relayed command after it except stale clock
+// samples.
+func TestAuthorityMirrorFreshSubscriberGetsCommandsAfterCachedSnapshot(t *testing.T) {
+	m := &authorityMirror{
+		ctx:       context.Background(),
+		client:    &http.Client{},
+		listeners: make(map[chan Command]struct{}),
+	}
+	m.setSnapshot(snapshotData{Type: "rain", Tick: 100, WorldTick: 100}, "1")
+	m.applyCommand(Command{ID: "2", Kind: "trigger", Tick: 90, Event: "old"})
+	m.applyCommand(Command{ID: "3", Kind: "clock", Tick: 105, Data: json.RawMessage(`{}`)})
+	m.applyCommand(Command{ID: "4", Kind: "trigger", Tick: 110, Event: "splash"})
+	m.setSnapshot(snapshotData{Type: "rain", Tick: 104, WorldTick: 104}, "")
+
+	snap, _, replay, replayable, ch, ok := m.beginStream("")
+	if !ok || replayable {
+		t.Fatalf("beginStream ok=%v replayable=%v", ok, replayable)
+	}
+	defer m.removeListener(ch)
+	if snap.WorldTick != 104 {
+		t.Fatalf("snapshot world tick = %d, want 104", snap.WorldTick)
+	}
+	if len(replay) != 1 || replay[0].Event != "splash" {
+		t.Fatalf("commands after snapshot = %+v, want only the splash trigger", replay)
 	}
 }

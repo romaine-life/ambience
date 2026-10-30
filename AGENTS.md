@@ -6,6 +6,12 @@ that receives config + event broadcasts via SSE. Conceptually independent
 of fzt — the name only matches the domain (`ambience.romaine.life`).
 Read `D:/shell-config/setup/codex/AGENTS.md` for global Codex config.
 
+**The goal** (AMBIENCE-1, AMBIENCE-50): one shared world that every open
+screen shows at the same moment, like synchronized displays rather than
+separate animations that receive the same events, without streaming pixels.
+It is a slow background, so clients play a little behind the authority to buy
+that sync, and playback must still look smooth: never frozen, never sped up.
+
 ## Start Here
 
 If you only read one section in this file, read this one.
@@ -206,10 +212,13 @@ and apply five kinds of commands:
 - **`metric`** — entropy bytes + scene-remaining snapshot. Event-driven,
   not periodic — fires on every `AddEntropy` call and on scene rotation.
 
-Clients do NOT roll for discrete events — only the server does. Clients
-advance timers and physics locally. Frame-level sync is not guaranteed
-(each client RNG drifts after initial snapshot), but event timing
-(downpour starts/ends, calm windows, scene changes) stays in sync.
+Clients do NOT roll for discrete events — only the server does. Every
+command is stamped with the world tick, which keeps counting across effect
+rotations; clients play that tick 1.5 s behind the authority so each command
+lands on the same tick on every screen, correcting drift by running a few
+percent fast or slow and closing larger gaps in one undrawn frame (README,
+"Browser playback"). Pixel-identical frames are not the goal; the same
+world at the same moment is.
 
 ## Scene rotation
 
@@ -298,9 +307,9 @@ canvas: `url`, `grid-w`, `grid-h`, `transparent`, `entropy`.
 Consumers:
 
 - **`/`** — live broadcast monitor. Full-screen canvas running the shared
-  replica sim through Go/WASM (via inline EventSource + `wasm_runtime.js`,
-  not `client.js` — the page consumes all five command kinds including
-  `scene`/`metric` which `client.js` doesn't know about). Status-panel overlay shows current scene
+  replica sim through Go/WASM, played by `client.js`'s shared
+  `AmbiencePlayback` engine (loaded with `data-ambience-library`; the page
+  handles `scene`/`metric` itself for its panel). Status-panel overlay shows current scene
   name, remaining time, up-next, tick, entropy counter with togglable
   capture, and a rolling event log. Dev-ish tools here are a
   fallback — `/dev` remains the real knob-tuning surface.
