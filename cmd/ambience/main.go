@@ -443,7 +443,7 @@ func writeCommand(w http.ResponseWriter, flusher http.Flusher, cmd Command) erro
 
 func writeSnapshotDataFrame(w http.ResponseWriter, flusher http.Flusher, snap snapshotData, id string) error {
 	data, _ := json.Marshal(snap)
-	return writeCommand(w, flusher, Command{ID: id, Kind: "snapshot", Tick: snap.Tick, Data: data})
+	return writeCommand(w, flusher, Command{ID: id, Kind: "snapshot", Tick: snap.WorldTick, Data: data})
 }
 
 func writeSSEComment(w http.ResponseWriter, flusher http.Flusher, comment string) error {

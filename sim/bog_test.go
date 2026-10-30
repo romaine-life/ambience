@@ -46,9 +46,10 @@ func TestBogStepSpawnsBubblesAndPaintsGrid(t *testing.T) {
 		t.Fatal("expected at least one bubble to have risen above the floor")
 	}
 	filled := 0
-	for y := range b.Grid {
-		for x := range b.Grid[y] {
-			if b.Grid[y][x].Filled {
+	grid := b.GridCopy()
+	for y := range grid {
+		for x := range grid[y] {
+			if grid[y][x].Filled {
 				filled++
 			}
 		}

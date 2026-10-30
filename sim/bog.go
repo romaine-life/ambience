@@ -235,8 +235,11 @@ type BogPersistedState struct {
 type Bog struct {
 	mu sync.Mutex
 
-	W, H    int
-	Grid    [][]Pixel
+	W, H int
+	Grid [][]Pixel
+	// dirty marks Grid stale; GridCopy repaints it from state, so steps that
+	// nobody looks at (a catch-up burst, the authority) skip the full-screen paint.
+	dirty   bool
 	bubbles []bogBubble
 	ripples []bogRipple
 	rng     *rngutil.RNG
@@ -343,7 +346,7 @@ func (b *Bog) RestoreSnapshot(s BogSnapshot) {
 	}
 	b.restoreBubblesLocked(s.Bubbles)
 	b.restoreRipplesLocked(s.Ripples)
-	b.paintFrameLocked()
+	b.dirty = true
 }
 
 func (b *Bog) SnapshotPersistedState() BogPersistedState {
@@ -492,7 +495,7 @@ func (b *Bog) Step() {
 	b.spawnBubblesLocked()
 	b.stepBubblesLocked()
 	b.stepRipplesLocked()
-	b.paintFrameLocked()
+	b.dirty = true
 }
 
 func (b *Bog) spawnBubblesLocked() {
@@ -667,7 +670,7 @@ func (b *Bog) paintWaterLocked(surface int) {
 			ripple := math.Sin(float64(x)*0.13 + float64(y)*0.09 + float64(b.tick)*0.04)
 			light := clamp01(baseLight + (b.cfg.LightMax-b.cfg.LightMin)*0.04*ripple + 0.015*shimmer)
 			hueShift := math.Sin(float64(x)*0.07+float64(y)*0.05) * 6
-			b.Grid[y][x] = Pixel{Filled: true, C: hslToRGB(math.Mod(hue+hueShift+360, 360), sat, light)}
+			b.Grid[y][x] = Pixel{Filled: true, C: hslToRGB(modSmall(hue+hueShift+360, 360), sat, light)}
 		}
 	}
 	// Surface meniscus — a brighter band that gently undulates so the seam

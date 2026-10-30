@@ -123,19 +123,34 @@ effect, own scene/config transitions, and decide when discrete events
 fire. Clients run their own sims locally and apply five kinds of
 commands:
 
-- **`snapshot`** — state dump on connect. The outer envelope is
-  effect-generic: `{type, tick, config, state, seed, gridW, gridH,
-  currentScene, nextScene, entropyBytes, sceneRemaining}`. `config` and
-  `state` are effect-owned blobs; `type` tells clients which constructor
-  to instantiate.
+- **`snapshot`** — state dump on connect and on effect rotation. The outer
+  envelope is effect-generic: `{type, tick, worldTick, config, state, seed,
+  gridW, gridH, currentScene, nextScene, entropyBytes, sceneRemaining}`.
+  `config` and `state` are effect-owned blobs; `type` tells clients which
+  constructor to instantiate. `tick` is the effect runtime's own tick (it
+  restarts at 0 on every rotation); `worldTick` is the same moment on the
+  world clock.
 - **`config`** — sim config changed; clients apply via `setConfig`.
 - **`trigger`** — a discrete event fired; clients apply its effects.
 - **`scene`** — scene rotation metadata for the live monitor.
 - **`metric`** — entropy and scene-progress heartbeat data.
-- **`clock`** — sparse authority tick samples. Clients use these like a
-  clock signal and render behind the authority by a small delay buffer, so
-  independent consumers can seek the same playback tick without streaming
-  dense per-frame state.
+- **`clock`** — sparse authority tick samples, plus the playback delay
+  clients should keep (`suggestedDelayTicks`).
+
+Every command's `tick` is the **world tick**, which keeps counting across
+effect rotations and restarts (it is persisted with the atmosphere).
+
+Browser playback (`AmbiencePlayback` in `client.js`, shared by embedded
+pages and the `/` monitor) plays the world tick a fixed delay (1.5 s)
+behind the authority, so each command arrives before playback reaches it
+and lands on the same tick on every screen. It steps from display frames
+at the authority's rate and never stops to wait or sprints to catch up: a
+small difference from the target is absorbed by running up to 5% slow or
+8% fast; a gap of more than half a second (a stalled or hidden tab) is
+closed in one frame by simulating the missed ticks without drawing them,
+or, beyond 10 s, by restoring a fresh `/snapshot`. A page joins at the
+moment it receives (the live edge, or an edge's slightly older cached
+snapshot plus the commands since) and eases onto the delay.
 
 Clients do not roll for discrete events — only the server does. The goal
 is for clients to treat the authority stream like a clock signal: restore
@@ -162,7 +177,8 @@ window.AmbienceClient.getDebugState()
 //   playbackTick: 24760,
 //   simTick: 24759,
 //   driftTicks: 1,
-//   delayTicks: 300,
+//   delayTicks: 90,
+//   rate: 1,
 //   bufferedAheadTicks: 8,
 //   queuedCommands: 2,
 //   nextQueuedCommandTick: 24762,
@@ -181,13 +197,20 @@ received by the browser, not future commands that have not arrived.
 `nextQueuedCommandTick` and `maxQueuedCommandTick` are `null` when the
 command queue is empty.
 
-The deterministic client-side sync harness lives at
-`scripts/test-client-sync.mjs`. It runs two isolated browser-client
-instances against the same scripted authority stream and checks that they
-stay aligned through initial connect, buffered playback, scene/metric
-metadata, queued config/trigger commands, effect rotation, a resume-style
-catch-up, a fresh snapshot convergence path, and unsupported effect
-registry handling. It is still a browser-client harness; HTTP
+`rate` is the current playback speed relative to the authority; `jumps`,
+`jumpedTicks`, `resyncs` and `lateCommands` count gap closures, snapshot
+restores and commands that arrived after playback had passed their tick.
+
+`scripts/test-client-playback.mjs` is the playback contract: it drives the
+engine against a simulated authority with network jitter, uneven frames,
+stalls, hidden tabs, effect rotation, a stale edge snapshot and an
+authority restart, and asserts that playback never stalls for more than a
+frame, never runs outside 54–66 ticks/s, and that two pages with very
+different latency apply every command on the same world tick.
+`scripts/test-client-embed.mjs` covers the auto-init wiring and the
+handshake, and runs the client copy chess-tactics has pinned
+(`scripts/fixtures/client-chess-pinned.js`) against the current wire
+format. Both run in CI (`client-checks`). HTTP
 Last-Event-ID replay is covered by server-side direct-authority and edge
 mirror tests. Terminal rain-only authority-clock buffering is covered by
 Go tests in `terminal/`.

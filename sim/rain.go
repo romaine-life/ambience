@@ -225,10 +225,26 @@ func (c Config) withDefaults() Config {
 }
 
 // hslToRGB converts HSL to RGBA (alpha=255). h in degrees [0, 360); s, l in [0, 1].
+// modSmall is math.Mod(v, m) for m > 0, without math.Mod's general-purpose
+// cost in per-pixel loops. For 0 <= v < 3m the subtractions below are exact
+// (Sterbenz), so the result is bit-identical to math.Mod; anything else falls
+// back to it.
+func modSmall(v, m float64) float64 {
+	switch {
+	case v >= 0 && v < m:
+		return v
+	case v >= m && v < 2*m:
+		return v - m
+	case v >= 2*m && v < 3*m:
+		return v - 2*m
+	}
+	return math.Mod(v, m)
+}
+
 func hslToRGB(h, s, l float64) color.RGBA {
 	c := (1 - math.Abs(2*l-1)) * s
 	hp := h / 60
-	x := c * (1 - math.Abs(math.Mod(hp, 2)-1))
+	x := c * (1 - math.Abs(modSmall(hp, 2)-1))
 	var rp, gp, bp float64
 	switch {
 	case hp < 1:

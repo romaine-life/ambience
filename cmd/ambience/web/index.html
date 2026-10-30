@@ -39,6 +39,7 @@
 <script src="/sim.js"></script>
 <script src="/wasm_runtime.js"></script>
 <script src="/chrome.js"></script>
+<script src="/client.js" data-ambience-library></script>
 <script>
 (() => {
 	// ── ambience live broadcast monitor ──────────────────────────────────
@@ -64,23 +65,21 @@
 	const canvas = document.getElementById('c');
 	const ctx = canvas.getContext('2d');
 
+	let needsRender = true;
 	function resize() {
 		const dpr = window.devicePixelRatio || 1;
 		canvas.width = Math.floor(window.innerWidth * dpr);
 		canvas.height = Math.floor(window.innerHeight * dpr);
+		needsRender = true;
 	}
 	resize();
 	window.addEventListener('resize', resize);
 
-	function newEffectInstance(name) {
-		const ctor = AmbienceSim.effects[name];
-		if (!ctor) throw new Error('unknown effect: ' + name);
-		return new ctor(GRID_W, GRID_H, {});
-	}
-
 	// world / scene state
-	let effectType = null, effect = null, latestConfig = null, ready = false;
-	let serverTick = 0, tickRateMs = TICK_MS, lastBeatAt = Date.now(), sceneStartTick = 0, sceneDurationTicks = 0;
+	let effectType = null, latestConfig = null;
+	let serverTick = 0, tickRateMs = TICK_MS, lastBeatAt = Date.now();
+	// Scene time left, as last reported by the authority, and when that was.
+	let sceneRemainingTicks = 0, sceneRemainingAt = Date.now();
 	let currentSceneName = '—', nextSceneName = '—', entropyBytes = 0;
 	let latestScenePolicy = null, latestTransition = null, latestRotationPolicy = null;
 	let connState = 'acquiring';
@@ -155,7 +154,8 @@
 		return Math.round(v) + 'm';
 	}
 	function tickNow() { return serverTick + Math.round((Date.now() - lastBeatAt) / tickRateMs); }
-	function remainingTicks() { return Math.max(0, sceneStartTick + sceneDurationTicks - tickNow()); }
+	function setRemaining(ticks) { sceneRemainingTicks = ticks; sceneRemainingAt = Date.now(); }
+	function remainingTicks() { return Math.max(0, sceneRemainingTicks - Math.round((Date.now() - sceneRemainingAt) / tickRateMs)); }
 
 	// ── auth UI ────────────────────────────────────────────────────────────
 	function authStateName() {
@@ -428,7 +428,7 @@
 
 	// 1 Hz: extrapolate tick/remaining, refresh track duration + connection health
 	setInterval(() => {
-		if (sceneDurationTicks > 0) {
+		if (sceneRemainingTicks > 0) {
 			chrome.setTele('remaining', fmtDuration(remainingTicks()));
 			chrome.setTele('server.tick', tickNow().toLocaleString());
 			renderLiveTrack();
@@ -441,37 +441,54 @@
 
 	function now() { return new Date().toTimeString().slice(0, 8); }
 
-	function applySnapshot(snap) {
+	// onSnapshotApplied runs when playback reaches a snapshot, so the panel
+	// changes effect when the screen does.
+	function onSnapshotApplied(snap, info) {
 		const nextType = (snap && snap.type) || 'rain';
-		const typeChanged = nextType !== effectType;
-		if (!effect) {
-			effect = newEffectInstance(nextType);
-			try { effect.restoreSnapshot(snap); } catch (err) { console.error('restoreSnapshot', err); }
+		if (info.first || info.typeChanged) {
 			setScene(nextType); loadSchema(nextType);
 			chrome.appendLog({ t: now(), kind: 'scene', text: 'effect → ' + nextType });
-		} else if (typeChanged) {
-			const incoming = newEffectInstance(nextType);
-			try { incoming.restoreSnapshot(snap); } catch (err) { console.error('restoreSnapshot', err); }
-			effect = AmbienceSim.EffectTransition ? new AmbienceSim.EffectTransition(effect, incoming) : incoming;
-			setScene(nextType); loadSchema(nextType);
-			chrome.appendLog({ t: now(), kind: 'scene', text: 'effect → ' + nextType });
-		} else {
-			try { effect.restoreSnapshot(snap); } catch (err) { console.error('restoreSnapshot', err); }
 		}
 		latestConfig = snap.config || null;
 		if (snap.scenePolicy) applyScenePolicy(snap.scenePolicy);
 		if (snap.transition) applyTransition(snap.transition);
 		if (snap.rotationPolicy) applyRotationPolicy(snap.rotationPolicy);
-		if (!typeChanged && chrome.getSchema()) chrome.setValues(mergedControlValues());
-		if (snap.currentScene) { currentSceneName = snap.currentScene.name || '—'; sceneDurationTicks = snap.currentScene.durationTicks || 0; sceneStartTick = snap.currentScene.startedAtTick || 0; chrome.setTele('scene', currentSceneName); }
+		if (!info.typeChanged && chrome.getSchema()) chrome.setValues(mergedControlValues());
+		if (snap.currentScene) { currentSceneName = snap.currentScene.name || '—'; chrome.setTele('scene', currentSceneName); }
 		if (snap.nextScene) { nextSceneName = snap.nextScene.name || '—'; chrome.setTele('up.next', L(nextSceneName)); }
 		if (typeof snap.entropyBytes === 'number') { entropyBytes = snap.entropyBytes; chrome.setTele('entropy', fmtBytes(entropyBytes)); }
-		if (typeof snap.sceneRemaining === 'number') chrome.setTele('remaining', fmtDuration(snap.sceneRemaining));
+		if (typeof snap.sceneRemaining === 'number') { setRemaining(snap.sceneRemaining); chrome.setTele('remaining', fmtDuration(snap.sceneRemaining)); }
 		renderLiveTrack();
+	}
+
+	// Config and trigger commands are logged and mirrored when they reach the
+	// screen, not when they arrive.
+	function onCommandApplied(cmd, data) {
+		if (cmd.kind === 'config') {
+			latestConfig = data || null;
+			if (chrome.getSchema()) chrome.setValues(mergedControlValues());
+		} else if (cmd.kind === 'trigger') {
+			chrome.appendLog({ t: now(), kind: 'trigger', text: cmd.event + (cmd.desc ? ' · ' + cmd.desc : '') });
+		}
 	}
 
 	async function startRuntime() {
 		await AmbienceSim.wasm.ready();
+		const playback = window.AmbiencePlayback.createPlayback({
+			effects: AmbienceSim.effects,
+			EffectTransition: AmbienceSim.EffectTransition,
+			gridW: GRID_W,
+			gridH: GRID_H,
+			server: WORLD_BASE || '/',
+			introOnJoin: false,
+			fetchSnapshot: () => fetch(WORLD_BASE + '/snapshot', { cache: 'no-store' }).then((r) => {
+				if (!r.ok) throw new Error('snapshot ' + r.status);
+				return r.json();
+			}),
+			onSnapshot: onSnapshotApplied,
+			onApplied: onCommandApplied,
+		});
+		window.AmbienceClient = { getDebugState: () => Object.assign({ effectType: playback.effectType, ready: playback.ready, lastError: playback.lastError }, playback.debugState()) };
 		const es = new EventSource(WORLD_BASE + '/events');
 		es.onmessage = (ev) => {
 			let cmd; try { cmd = JSON.parse(ev.data); } catch (_) { return; }
@@ -479,22 +496,11 @@
 			lastBeatAt = Date.now();
 			if (connState !== 'live') setConn('live'); else updateConnUI();
 			switch (cmd.kind) {
-				case 'snapshot': applySnapshot(cmd.data); ready = true; break;
-				case 'config':
-					if (!effect) break;
-					try { effect.setConfig(cmd.data); } catch (_) {}
-					latestConfig = cmd.data || null;
-					if (chrome.getSchema()) chrome.setValues(mergedControlValues());
-					break;
-				case 'trigger':
-					if (effect && effect.triggerEvent) effect.triggerEvent(cmd.event);
-					chrome.appendLog({ t: now(), kind: 'trigger', text: cmd.event + (cmd.desc ? ' · ' + cmd.desc : '') });
-					break;
 				case 'scene':
 					try {
 						const sc = cmd.data;
 						currentSceneName = sc.name || '—'; nextSceneName = sc.nextName || '—';
-						sceneDurationTicks = sc.durationTicks || 0; sceneStartTick = sc.startedAtTick || 0;
+						setRemaining(sc.durationTicks || 0);
 						chrome.setTele('scene', currentSceneName); chrome.setTele('up.next', L(nextSceneName));
 						if (sc.scenePolicy) applyScenePolicy(sc.scenePolicy);
 						if (sc.transition) applyTransition(sc.transition);
@@ -506,7 +512,7 @@
 					try {
 						const m = cmd.data;
 						if (typeof m.entropyBytes === 'number') { entropyBytes = m.entropyBytes; chrome.setTele('entropy', fmtBytes(entropyBytes)); }
-						if (typeof m.sceneRemaining === 'number') chrome.setTele('remaining', fmtDuration(m.sceneRemaining));
+						if (typeof m.sceneRemaining === 'number') { setRemaining(m.sceneRemaining); chrome.setTele('remaining', fmtDuration(m.sceneRemaining)); }
 						if (m.currentName) { currentSceneName = m.currentName; chrome.setTele('scene', currentSceneName); }
 						if (m.nextName) { nextSceneName = m.nextName; chrome.setTele('up.next', L(nextSceneName)); }
 						if (m.scenePolicy) applyScenePolicy(m.scenePolicy);
@@ -522,19 +528,14 @@
 					} catch (_) {}
 					break;
 			}
+			playback.onCommand(cmd, cmd.data);
 		};
 		es.onerror = () => { setConn('reconnecting'); };
 
-		setInterval(() => {
-			if (!ready || !effect) return;
-			effect.step();
-			if (effect.isTransition && effect.done()) {
-				if (effect.outgoing && typeof effect.outgoing.destroy === 'function') effect.outgoing.destroy();
-				effect = effect.incoming;
-			}
-		}, Math.max(1, Math.round(TICK_MS)));
+		// Step and draw once per display frame.
 		(function draw() {
-			if (ready && effect) effect.render(ctx, canvas.width, canvas.height);
+			if (playback.frame(performance.now()) > 0) needsRender = true;
+			if (needsRender && playback.sim) { needsRender = false; playback.sim.render(ctx, canvas.width, canvas.height); }
 			requestAnimationFrame(draw);
 		})();
 	}

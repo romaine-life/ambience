@@ -47,6 +47,10 @@ type persistedAtmosphere struct {
 	// restored effect's current tick, preserving the running effect instead
 	// of immediately rotating away from it.
 	RotationStartTick *int `json:"rotationStartTick,omitempty"`
+	// TickBase is the world tick at the effect runtime's tick 0. Blobs saved
+	// before the world tick existed restore as 0: the world tick then equals
+	// the effect tick until the next rotation, which is what clients saw.
+	TickBase int `json:"tickBase"`
 }
 
 func newPersistenceStoreFromEnv() (persistenceStore, time.Duration, error) {
@@ -195,6 +199,7 @@ func restoreSharedAtmosphereWithPolicy(ctx context.Context, store persistenceSto
 		return fresh
 	}
 	a.entropyBytes = state.EntropyBytes
+	a.tickBase = state.TickBase
 	a.transitionFrom = cloneRaw(state.Transition.From)
 	a.transitionTo = cloneRaw(state.Transition.To)
 	a.transitionStart = state.Transition.Start
@@ -262,6 +267,7 @@ func (a *atmosphere) persistedState() persistedAtmosphere {
 	}
 	rotationStartTick := a.rotationStartTick
 	rotationStartTickPtr := &rotationStartTick
+	tickBase := a.tickBase
 	a.mu.Unlock()
 
 	effectState, err := a.effect.Persisted()
@@ -284,5 +290,6 @@ func (a *atmosphere) persistedState() persistedAtmosphere {
 		EntropyBytes:      entropyBytes,
 		Transition:        transition,
 		RotationStartTick: rotationStartTickPtr,
+		TickBase:          tickBase,
 	}
 }

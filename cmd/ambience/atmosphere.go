@@ -30,17 +30,14 @@ const (
 )
 
 var (
-	transitionBroadcastEvery    = ticksFor(1 * time.Second)
-	metricBroadcastEvery        = ticksFor(5 * time.Second)
-	clockBroadcastEvery         = ticksFor(1 * time.Second)
-	// Playback delay for "restore" effects: clients render this far behind
-	// authority so broadcast events line up across clients. The cost is a join
-	// freeze (the client restores the live frame but renders in the past, so it
-	// idles until playback catches down) — acceptable for a persistent effect
-	// whose frame barely moves. "Fresh" effects (rain) override this to 0 and
-	// render at the live edge, so they never freeze on join. See
-	// playbackDelayTicksFor.
-	restorePlaybackDelayTicks = ticksFor(1500 * time.Millisecond)
+	transitionBroadcastEvery = ticksFor(1 * time.Second)
+	metricBroadcastEvery     = ticksFor(5 * time.Second)
+	clockBroadcastEvery      = ticksFor(1 * time.Second)
+	// Clients render this far behind the world tick so every broadcast command
+	// arrives before playback reaches it and lands on the same tick on every
+	// screen. Clients join at the live edge and ease back to this delay, so it
+	// never shows as a freeze.
+	playbackDelayTicks = ticksFor(1500 * time.Millisecond)
 )
 
 // Command is a single message sent from server to clients.
@@ -52,6 +49,9 @@ var (
 //	"scene"     scene rotated; carries new name + duration + next-up name
 //	"metric"    periodic status beat (entropy bytes, scene remaining)
 //	"clock"     sparse authority-clock sample for delayed client playback
+//
+// Tick is the world tick (see atmosphere.tickBase), which keeps counting
+// across effect rotations.
 type Command struct {
 	ID    string          `json:"-"`
 	Kind  string          `json:"kind"`
@@ -69,13 +69,17 @@ type Command struct {
 // AmbienceSim.effects[type] to pick the renderer constructor — so adding a
 // new effect doesn't require any client-side change.
 type snapshotData struct {
-	Type   string          `json:"type"`
-	Tick   int             `json:"tick"`
-	Config json.RawMessage `json:"config"`
-	State  json.RawMessage `json:"state"`
-	Seed   int64           `json:"seed"`
-	GridW  int             `json:"gridW"`
-	GridH  int             `json:"gridH"`
+	Type string `json:"type"`
+	// Tick is the effect runtime's own tick, which restarts at 0 on every
+	// rotation; WorldTick is the same moment on the world clock that commands
+	// are stamped with.
+	Tick      int             `json:"tick"`
+	WorldTick int             `json:"worldTick"`
+	Config    json.RawMessage `json:"config"`
+	State     json.RawMessage `json:"state"`
+	Seed      int64           `json:"seed"`
+	GridW     int             `json:"gridW"`
+	GridH     int             `json:"gridH"`
 	// Scene + entropy status — used by the / live monitor. Panels update
 	// via periodic "metric" commands between full snapshot re-requests.
 	CurrentScene   Scene               `json:"currentScene"`
@@ -160,11 +164,16 @@ type atmosphere struct {
 	// starts ticking from zero.
 	rotation          rotationPolicy
 	rotationStartTick int
-	commandSeq        int64
-	replay            []Command
-	listeners         map[chan Command]struct{}
-	lastSeen          time.Time
-	cancel            context.CancelFunc
+	// tickBase is the world tick at which the current effect runtime's tick 0
+	// sits. The world tick (tickBase + effect tick) never restarts, so it is
+	// what every broadcast is stamped with; scene and rotation bookkeeping
+	// stay in effect ticks.
+	tickBase   int
+	commandSeq int64
+	replay     []Command
+	listeners  map[chan Command]struct{}
+	lastSeen   time.Time
+	cancel     context.CancelFunc
 }
 
 func newAtmosphere(_ sim.Config) *atmosphere {
@@ -442,6 +451,7 @@ func (a *atmosphere) rotateToEffect(cur int, effectType string) bool {
 
 	a.mu.Lock()
 	previousType := a.effect.Type()
+	a.tickBase += cur
 	a.effect = rt
 	a.seed = seed
 	a.cfg = cloneRaw(newScene.Config)
@@ -458,7 +468,7 @@ func (a *atmosphere) rotateToEffect(cur int, effectType string) bool {
 
 	snap := a.snapshot()
 	data, _ := json.Marshal(snap)
-	a.broadcast(Command{Kind: "snapshot", Tick: cur, Data: data})
+	a.broadcast(Command{Kind: "snapshot", Tick: 0, Data: data})
 	a.broadcastMetric(0)
 	log.Printf("rotation: shared effect %s -> %s (tick %d)", previousType, effectType, cur)
 	return true
@@ -466,12 +476,12 @@ func (a *atmosphere) rotateToEffect(cur int, effectType string) bool {
 
 func (a *atmosphere) broadcastClock(tick int) {
 	a.mu.Lock()
-	effectType := a.effect.Type()
+	worldTick := a.tickBase + tick
 	a.mu.Unlock()
 	data, _ := json.Marshal(clockData{
-		Tick:                tick,
+		Tick:                worldTick,
 		TickRateMs:          float64(tickRate) / float64(time.Millisecond),
-		SuggestedDelayTicks: playbackDelayTicksFor(effectType),
+		SuggestedDelayTicks: playbackDelayTicks,
 	})
 	a.broadcast(Command{Kind: "clock", Tick: tick, Data: data})
 }
@@ -745,8 +755,11 @@ func (a *atmosphere) appendReplayLocked(cmd Command) {
 	}
 }
 
+// broadcast stamps cmd (whose Tick is an effect tick) with the world tick and
+// fans it out.
 func (a *atmosphere) broadcast(cmd Command) {
 	a.mu.Lock()
+	cmd.Tick += a.tickBase
 	if cmd.ID == "" {
 		a.commandSeq++
 		cmd.ID = strconv.FormatInt(a.commandSeq, 10)
@@ -777,12 +790,14 @@ func (a *atmosphere) snapshot() snapshotData {
 	transitionStart := a.transitionStart
 	transitionDur := a.transitionDur
 	rotationPolicy := a.rotation
+	tickBase := a.tickBase
 	a.mu.Unlock()
 	effectSnap, err := a.effect.Snapshot()
 	if err != nil {
 		cur := a.effect.CurrentTick()
 		return snapshotData{
 			Type:           a.effect.Type(),
+			WorldTick:      tickBase + cur,
 			Seed:           seed,
 			CurrentScene:   current,
 			NextScene:      next,
@@ -798,6 +813,7 @@ func (a *atmosphere) snapshot() snapshotData {
 	return snapshotData{
 		Type:           a.effect.Type(),
 		Tick:           effectSnap.Tick,
+		WorldTick:      tickBase + effectSnap.Tick,
 		Config:         cloneRaw(effectSnap.Config),
 		State:          cloneRaw(effectSnap.State),
 		Seed:           seed,
