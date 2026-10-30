@@ -76,10 +76,6 @@
       "reason": "legacy shared renderer path; keep effect rendering in the effect-owned pixel grid"
     },
     {
-      "pattern": "scripts/agent/contracts/*",
-      "reason": "contract generation and validation are runner-owned, not effect implementation touchpoints"
-    },
-    {
       "pattern": "scripts/glimmung-native/*",
       "reason": "Glimmung wrapper scripts are runner-owned, not effect implementation touchpoints"
     },
