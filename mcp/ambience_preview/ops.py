@@ -747,15 +747,6 @@ if git diff --quiet origin/main...HEAD; then
   echo "implementation stage produced no branch changes; failing job so the workflow doesn't open an empty PR" >&2
   exit 1
 fi
-if [ -s /workspace/evidence/implementation-contract.json ]; then
-  scripts/agent/contracts/validate.sh \
-    /workspace/evidence/implementation-contract.json \
-    /workspace/evidence/issue-agent-implementation.json \
-    /workspace/repo \
-    origin/main \
-    HEAD
-fi
-
 git push origin "HEAD:${BRANCH_NAME}"
 """ + _AGENT_EVIDENCE_TAIL_BASH
 

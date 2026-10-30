@@ -1,6 +1,5 @@
-// Package contract ports the runner-owned implementation-contract logic from
-// the retired scripts/agent/contracts/{generate,validate,effect}.sh and the
-// implement.sh ui_hint gate. Contract generation declares the repo touchpoints
+// Package contract is the single source of the runner-owned implementation
+// contract and the ui_hint gate. Contract generation declares the repo touchpoints
 // for a feature type; validation checks the implementation's changed files
 // against that contract; the ui_hint gate fails a passing effect implementation
 // that omits its discovery hint BEFORE any verify spend. All three are pure
@@ -21,8 +20,8 @@ var effectContractJSON []byte
 
 var devRouteRe = regexp.MustCompile(`^/dev/[a-z0-9_-]`)
 
-// Generate returns the implementation contract JSON for a feature type,
-// mirroring scripts/agent/contracts/generate.sh. "effect" returns the embedded
+// Generate returns the implementation contract JSON for a feature type.
+// "effect" returns the embedded
 // effect contract; "" and "generic" return the generic contract; any other
 // type returns an explicit "unsupported" contract.
 func Generate(featureType string) []byte {
@@ -108,7 +107,7 @@ func ParseContract(data []byte) (Contract, error) {
 	return c, nil
 }
 
-// ValidationResult is the validate.sh verdict.
+// ValidationResult is the implementation-contract verdict.
 type ValidationResult struct {
 	Status       string   `json:"status"`
 	AbortReason  string   `json:"abort_reason,omitempty"`
@@ -123,7 +122,7 @@ func failResult(reason, detail string) ValidationResult {
 	return ValidationResult{Status: "fail", AbortReason: reason, Detail: detail}
 }
 
-// ValidateImplementation mirrors scripts/agent/contracts/validate.sh against an
+// ValidateImplementation checks an implementation against its contract, given an
 // already-computed changedFiles set (the handler runs the git diff). It returns
 // a pass result with skip metadata when the implementation isn't a passing
 // effect, and a fail result naming the gate otherwise.
@@ -207,8 +206,7 @@ func ValidateImplementation(contractJSON, implementationJSON []byte, changedFile
 }
 
 // globToRegexp converts a shell case-glob (where '*' matches any run including
-// '/', as bash case patterns do) into an anchored regexp, matching the shell's
-// `case "$path" in $pattern)` semantics in validate.sh.
+// '/', as bash case patterns do) into an anchored regexp.
 func globToRegexp(pattern string) *regexp.Regexp {
 	var b strings.Builder
 	b.WriteString("^")

@@ -32,10 +32,12 @@ func TestRetiredHarnessPathsAreGone(t *testing.T) {
 	root := repoRoot(t)
 	// The RUNNER shell harness is retired. scripts/agent/ is a distinct surface
 	// (agent-container tooling invoked inside inner Jobs by the Python venue) and
-	// is intentionally NOT asserted gone here.
+	// is intentionally NOT asserted gone here, except scripts/agent/contracts,
+	// whose contract now lives only in internal/contract.
 	retired := []string{
 		"scripts/glimmung-native",
 		"scripts/test-glimmung-native-contract.sh",
+		"scripts/agent/contracts",
 	}
 	for _, rel := range retired {
 		if _, err := os.Stat(filepath.Join(root, rel)); err == nil {

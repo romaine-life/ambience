@@ -145,7 +145,7 @@ func (g Git) ListRemoteHeads(ctx context.Context, repoSlug, prefix string) ([]st
 	return branches, nil
 }
 
-// ChangedFiles mirrors validate.sh's change set: the union of the base...head
+// ChangedFiles is the contract-validation change set: the union of the base...head
 // diff, the worktree diff, the staged diff, and untracked files, sorted unique.
 func (g Git) ChangedFiles(ctx context.Context, repoDir, baseRef, headRef string) ([]string, error) {
 	seen := map[string]bool{}
