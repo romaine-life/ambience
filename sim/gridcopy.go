@@ -75,7 +75,12 @@ func (f *Fireflies) GridCopy() [][]Pixel {
 func (l *Lighthouse) GridCopy() [][]Pixel {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return renderProceduralGrid("lighthouse", l.W, l.H, l.tick, l.cfg, l.timers, l.values, l.rng.State())
+	r := newProceduralRenderState("lighthouse", l.W, l.H, l.tick, l.cfg, l.timers, l.values, l.rng.State())
+	r.beam = &l.beam
+	if l.W > 0 && l.H > 0 {
+		r.renderLighthouse()
+	}
+	return r.grid
 }
 
 func (m *MysteriousMan) GridCopy() [][]Pixel {

@@ -1,6 +1,9 @@
 package sim
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestLighthouseSchema(t *testing.T) {
 	schema := LighthouseSchema()
@@ -51,4 +54,32 @@ func TestLighthouseSnapshotRestore(t *testing.T) {
 	if again.Values["fog_gain"] != snap.Values["fog_gain"] {
 		t.Fatalf("restored fog gain = %f, want %f", again.Values["fog_gain"], snap.Values["fog_gain"])
 	}
+}
+
+// The beam cache must never change a pixel: after the lamp moves (resize,
+// tower height, horizon) each frame still matches a render without the cache.
+func TestLighthouseBeamCacheMatchesUncachedRender(t *testing.T) {
+	l := NewLighthouse(640, 360, 3, nil)
+	check := func(label string) {
+		for i := 0; i < 40; i++ {
+			l.Step()
+			got := l.GridCopy()
+			l.mu.Lock()
+			want := renderProceduralGrid("lighthouse", l.W, l.H, l.tick, l.cfg, l.timers, l.values, l.rng.State())
+			l.mu.Unlock()
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("%s: tick %d differs from the uncached render", label, l.tick)
+			}
+		}
+	}
+	check("start")
+	l.Resize(320, 200)
+	check("resized")
+	cfg := l.EffectiveConfig()
+	cfg["tower_height"] = 40
+	cfg["horizon"] = 0.6
+	l.SetConfig(cfg)
+	check("reconfigured")
+	l.Resize(640, 360)
+	check("resized back")
 }

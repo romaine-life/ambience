@@ -71,10 +71,9 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 
 			restoreSnapshot(snap) {
 				window.ambienceWasm.restoreSnapshot(this.id, JSON.stringify(snap || {}));
-				this.w = window.ambienceWasm.width(this.id) || this.w;
-				this.h = window.ambienceWasm.height(this.id) || this.h;
+				// The snapshot may resize the grid; render() picks the new size
+				// up from the next frame rather than rendering one here to measure.
 				this.tick = window.ambienceWasm.tick(this.id) || 0;
-				this.grid = new Uint8ClampedArray(this.w * this.h * 3);
 			}
 
 			triggerEvent(name) {
@@ -88,6 +87,8 @@ window.AmbienceSim = window.AmbienceSim || { effects: {}, presets: {} };
 
 			render(ctx, canvasW, canvasH, opts) {
 				this.grid = window.ambienceWasm.frame(this.id);
+				this.w = window.ambienceWasm.width(this.id) || this.w;
+				this.h = window.ambienceWasm.height(this.id) || this.h;
 				api._helpers.renderPixelGridEffect(this, ctx, canvasW, canvasH, opts);
 			}
 
