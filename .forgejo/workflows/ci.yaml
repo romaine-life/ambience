@@ -138,6 +138,8 @@ jobs:
         az acr login --name romainecr
     - name: Set up Buildx
       uses: https://github.com/docker/setup-buildx-action@v3
+      with:
+        driver-opts: network=host
     - name: Compute image fingerprint
       id: fingerprint
       shell: bash
