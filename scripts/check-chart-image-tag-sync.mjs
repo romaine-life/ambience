@@ -24,7 +24,7 @@ const chartDir = path.join(repoRoot, "chart/ambience");
 const allValuesFiles = (await fs.readdir(chartDir))
   .filter((name) => /^values.*\.yaml$/.test(name))
   .sort()
-  .map((name) => path.join("chart/ambience", name));
+  .map((name) => path.posix.join("chart/ambience", name));
 const fingerprintTagPattern = /^app-[0-9a-f]{64}$/;
 
 // Extract the `image.tag` value from a YAML file via a deliberately
@@ -79,7 +79,7 @@ if (tags.size !== 1) {
       detail +
       "\n\nThe build workflow bumps both files atomically on every push.\n" +
       "If you edited one by hand, edit the other to match (or rerun the\n" +
-      "build workflow). See .github/workflows/build-and-deploy.yml.",
+      "build workflow). See .forgejo/workflows/ci.yaml.",
   );
   process.exit(1);
 }
