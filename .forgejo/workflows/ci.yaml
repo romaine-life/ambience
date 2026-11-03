@@ -58,6 +58,10 @@ jobs:
     - uses: actions/setup-node@v4
       with:
         node-version: '24'
+    - name: Isolate Go module downloads
+      run: |
+        $cache=Join-Path $env:RUNNER_TEMP "ambience-gomod-$env:GITHUB_RUN_ID"
+        "GOMODCACHE=$cache" | Add-Content $env:GITHUB_ENV
     - name: Go tests
       run: go test ./...
     - name: Chart image tags
