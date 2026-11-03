@@ -313,16 +313,16 @@ briefly unavailable, then retries forwarding on a short cadence.
 
 `.forgejo/workflows/ci.yaml` publishes the canonical
 `romainecr.azurecr.io/ambience:app-<fingerprint>` image. On pushes to
-main it commits the matching tag into the prod and base Helm values files.
+main it opens a checked PR for the matching tag in the prod and base Helm values files; that PR merges after its required checks pass.
 Manual dispatch can prebuild a requested `git_ref` without changing chart
 desired state.
 
 The intended production deploy loop is:
 
-1. Merge or push the code change to `main`.
-2. Let the build workflow publish the `app-<fingerprint>` image and commit
-   the chart tag bump.
-3. Let ArgoCD reconcile the committed chart change, or manually refresh/sync
+1. Merge the checked code PR into `main`.
+2. Let Forgejo CI publish the `app-<fingerprint>` image and merge its checked
+   chart-tag PR.
+3. Let ArgoCD read the GitHub push mirror and reconcile the chart change, or manually refresh/sync
    it if you want a faster rollout.
 
 A dev environment under `ambience.dev.romaine.life` is not deployed;
