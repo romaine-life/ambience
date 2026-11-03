@@ -24,13 +24,13 @@ If you only read one section in this file, read this one.
    `docs/dev-endpoints.md`. The dev environment at `ambience.dev.romaine.life`
    is not deployed.
 3. Ship through a PR: CI builds the `app-<fingerprint>` image, the merge to
-   `main` commits the chart tag bump, and ArgoCD rolls prod.
+   `main` opens a checked PR for the chart tag bump, and ArgoCD rolls prod.
 
 ## Container Build Verification
 
 Local Docker is not required. Do not report missing local Docker as a
 blocker. Run available repo checks first, then use PR CI as the normal
-container build gate: `.github/workflows/docker-build-check.yaml` computes
+container build gate: `.forgejo/workflows/ci.yaml` computes
 the app image fingerprint and reuses or pushes an ACR proof image for trusted
 PRs, falling back to `push: false` for fork PRs. If image-packaging feedback is needed before a
 PR is ready, manually dispatch that workflow with `git_ref`. Release/deploy
@@ -93,9 +93,9 @@ chart/ambience/  Helm chart used by ArgoCD for prod and held in reserve
                  if continuous dev hosting becomes useful again. The live
                  ArgoCD Application is at
                  `infra-bootstrap/k8s/apps/ambience.yaml`.
-                 `.github/workflows/build-and-deploy.yml` builds + pushes
+                 `.forgejo/workflows/ci.yaml` builds + pushes
                  `romainecr.azurecr.io/ambience:app-<fingerprint>`. On
-                 pushes to main it commits the corresponding fingerprint
+                 pushes to main it opens a checked PR for the corresponding fingerprint
                  tag into the prod and base Helm values files, then ArgoCD
                  picks up that committed chart change and rolls out. Manual
                  dispatch can prebuild a requested `git_ref` without

@@ -311,7 +311,7 @@ briefly unavailable, then retries forwarding on a short cadence.
 
 ## Deploying
 
-`.github/workflows/build-and-deploy.yml` publishes the canonical
+`.forgejo/workflows/ci.yaml` publishes the canonical
 `romainecr.azurecr.io/ambience:app-<fingerprint>` image. On pushes to
 main it commits the matching tag into the prod and base Helm values files.
 Manual dispatch can prebuild a requested `git_ref` without changing chart

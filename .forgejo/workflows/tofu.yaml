@@ -1,0 +1,82 @@
+name: Infrastructure
+'on':
+  pull_request: null
+  push:
+    branches:
+    - main
+  workflow_dispatch: null
+concurrency:
+  group: tofu-ambience
+  cancel-in-progress: false
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    enable-openid-connect: true
+    env:
+      ARM_USE_OIDC: 'true'
+      ARM_CLIENT_ID: ${{ vars.ARM_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.ARM_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.ARM_SUBSCRIPTION_ID }}
+    steps:
+    - name: Resolve Forgejo on the home network
+      env:
+        HOME_FORGEJO_IP: ${{ vars.HOME_FORGEJO_IP }}
+      run: |
+        test -n "$HOME_FORGEJO_IP"
+        printf '%s forgejo.romaine.life\n' "$HOME_FORGEJO_IP" | sudo tee -a /etc/hosts >/dev/null
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Check infrastructure scope
+      id: scope
+      env:
+        BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+      run: |
+        if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" || git diff --name-only "$BASE" HEAD -- tofu .forgejo | grep -q .; then
+          echo 'run=true' >> "$GITHUB_OUTPUT"
+        else
+          echo 'run=false' >> "$GITHUB_OUTPUT"
+        fi
+    - uses: https://github.com/opentofu/setup-opentofu@v2
+      if: steps.scope.outputs.run == 'true'
+      with:
+        tofu_version: 1.11.0
+        tofu_wrapper: false
+    - name: Install Azure CLI
+      if: steps.scope.outputs.run == 'true'
+      run: |
+        if ! command -v az; then
+          sudo mkdir -p /etc/apt/keyrings
+          curl --fail --silent --show-error https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo tee /etc/apt/keyrings/microsoft.gpg >/dev/null
+          echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ noble main' | sudo tee /etc/apt/sources.list.d/azure-cli.list >/dev/null
+          sudo apt-get update -o Dir::Etc::sourcelist=sources.list.d/azure-cli.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
+          sudo apt-get install -y --no-install-recommends azure-cli
+        fi
+    - uses: https://github.com/azure/login@v3
+      if: steps.scope.outputs.run == 'true'
+      with:
+        client-id: ${{ vars.ARM_CLIENT_ID }}
+        tenant-id: ${{ vars.ARM_TENANT_ID }}
+        subscription-id: ${{ vars.ARM_SUBSCRIPTION_ID }}
+    - name: Plan and apply infrastructure
+      if: steps.scope.outputs.run == 'true'
+      working-directory: tofu
+      env:
+        TOKEN: ${{ secrets.PIPELINE_DISPATCH_TOKEN }}
+        EVENT: ${{ github.event_name }}
+        STORAGE: ${{ vars.TFSTATE_STORAGE_ACCOUNT || 'nelsontofu' }}
+      run: |
+        set -euo pipefail
+        for file in shared-providers.tf .terraform.lock.hcl; do
+          printf 'header = "Authorization: token %s"\n' "$TOKEN" | curl --config - --fail --silent --show-error -o "$file" "$GITHUB_SERVER_URL/api/v1/repos/romaine-life/infra-bootstrap/raw/tofu/provider/$file?ref=main"
+        done
+        tofu init -backend-config=resource_group_name=infra -backend-config="storage_account_name=$STORAGE" -backend-config=container_name=tfstate -backend-config=key=ambience.tfstate
+        tofu fmt -check
+        tofu validate
+        tofu plan -out=tfplan
+        if [ "$EVENT" != pull_request ]; then tofu apply tfplan; fi
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
