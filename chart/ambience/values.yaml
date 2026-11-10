@@ -7,7 +7,7 @@ image:
   # `[skip ci]` follow-up commit (see .github/workflows/build-and-deploy.yml),
   # so an install with only the default values runs the same
   # app-<fingerprint> image prod is running.
-  tag: "app-2a33c4f33b9654aa980888e56b66684a895ccd71062424d2da8c20390aa03ae5"
+  tag: "app-6d856d55da30ae3e53887455487942a987fffa87dd221f2721ca0e696cfc86bd"
   pullPolicy: Always
 
 domain:
