@@ -20,16 +20,6 @@ jobs:
       run:
         shell: pwsh
     steps:
-    - name: Use the home Forgejo address for Git
-      shell: pwsh
-      env:
-        HOME_FORGEJO_IP: ${{ vars.HOME_FORGEJO_IP }}
-      run: |
-        if(-not $env:HOME_FORGEJO_IP){throw 'HOME_FORGEJO_IP is not configured'}
-        $count=if($env:GIT_CONFIG_COUNT){[int]$env:GIT_CONFIG_COUNT}else{0}
-        "GIT_CONFIG_KEY_$count=http.curloptResolve" | Add-Content $env:GITHUB_ENV
-        "GIT_CONFIG_VALUE_$count=forgejo.romaine.life:443:$env:HOME_FORGEJO_IP" | Add-Content $env:GITHUB_ENV
-        "GIT_CONFIG_COUNT=$($count+1)" | Add-Content $env:GITHUB_ENV
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
@@ -67,12 +57,6 @@ jobs:
     runs-on: ubuntu-latest
     enable-openid-connect: true
     steps:
-    - name: Resolve Forgejo on the home network
-      env:
-        HOME_FORGEJO_IP: ${{ vars.HOME_FORGEJO_IP }}
-      run: |
-        test -n "$HOME_FORGEJO_IP"
-        printf '%s forgejo.romaine.life\n' "$HOME_FORGEJO_IP" | sudo tee -a /etc/hosts >/dev/null
     - name: Checkout
       uses: actions/checkout@v4
       with:
