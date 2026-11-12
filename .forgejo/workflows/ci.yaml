@@ -63,6 +63,8 @@ jobs:
         fetch-depth: 0
         token: ${{ secrets.PIPELINE_DISPATCH_TOKEN || secrets.GITHUB_TOKEN }}
         ref: ${{ needs.checks.outputs.source-sha }}
+    - uses: romaine-life/pipeline-templates/actions/check-fetches@main
+    - uses: romaine-life/pipeline-templates/actions/home-cache@main
     - name: Resolve requested ref
       env:
         INPUT_REF: ${{ needs.checks.outputs.source-sha }}
@@ -104,14 +106,14 @@ jobs:
       run: |
         if ! command -v az; then
           sudo mkdir -p /etc/apt/keyrings
-          curl --fail --silent --show-error https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo tee /etc/apt/keyrings/microsoft.gpg >/dev/null
-          echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ noble main' | sudo tee /etc/apt/sources.list.d/azure-cli.list >/dev/null
+          curl --fail --silent --show-error https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo tee /etc/apt/keyrings/microsoft.gpg >/dev/null # internet: Azure CLI install source
+          echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ noble main' | sudo tee /etc/apt/sources.list.d/azure-cli.list >/dev/null # internet: Azure CLI install source
           sudo apt-get update -o Dir::Etc::sourcelist=sources.list.d/azure-cli.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
           sudo apt-get install -y --no-install-recommends azure-cli
         fi
     - name: Azure Login (OIDC)
       if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-      uses: https://github.com/azure/login@v3
+      uses: azure/login@v3
       with:
         client-id: ${{ vars.ARM_CLIENT_ID }}
         tenant-id: ${{ vars.ARM_TENANT_ID }}
@@ -121,7 +123,7 @@ jobs:
       run: |
         az acr login --name romainecr
     - name: Set up Buildx
-      uses: https://github.com/docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v3
       with:
         driver-opts: network=host
     - name: Compute image fingerprint
@@ -156,7 +158,7 @@ jobs:
         fi
     - name: Build and push image
       if: steps.image.outputs.exists != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-      uses: https://github.com/docker/build-push-action@v6
+      uses: docker/build-push-action@v6
       with:
         context: .
         file: Dockerfile
@@ -166,7 +168,7 @@ jobs:
         cache-to: type=registry,ref=romainecr.azurecr.io/ambience-build-cache:app,mode=max
     - name: Validate fork image without registry credentials
       if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
-      uses: https://github.com/docker/build-push-action@v6
+      uses: docker/build-push-action@v6
       with:
         context: .
         file: Dockerfile
