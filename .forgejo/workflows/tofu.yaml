@@ -38,16 +38,8 @@ jobs:
       with:
         tofu_version: 1.11.0
         tofu_wrapper: false
-    - name: Install Azure CLI
+    - uses: romaine-life/pipeline-templates/actions/azure-cli@main
       if: steps.scope.outputs.run == 'true'
-      run: |
-        if ! command -v az; then
-          sudo mkdir -p /etc/apt/keyrings
-          curl --fail --silent --show-error https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | sudo tee /etc/apt/keyrings/microsoft.gpg >/dev/null # internet: Azure CLI install source
-          echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ noble main' | sudo tee /etc/apt/sources.list.d/azure-cli.list >/dev/null # internet: Azure CLI install source
-          sudo apt-get update -o Dir::Etc::sourcelist=sources.list.d/azure-cli.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
-          sudo apt-get install -y --no-install-recommends azure-cli
-        fi
     - uses: azure/login@v3
       if: steps.scope.outputs.run == 'true'
       with:
