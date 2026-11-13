@@ -192,7 +192,7 @@ jobs:
     - name: Bump chart image tag
       env:
         TOKEN: ${{ secrets.PIPELINE_DISPATCH_TOKEN }}
-      if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+      if: github.event_name != 'pull_request' && !inputs.git_ref && github.ref == 'refs/heads/main'
       run: |
         set -euo pipefail
         # Bump the fingerprint-pinned image.tag in BOTH the prod values
@@ -238,7 +238,7 @@ jobs:
         jq -n --arg head "$(git rev-parse HEAD)" '{Do:"squash",merge_when_checks_succeed:true,delete_branch_after_merge:true,head_commit_id:$head}' > /tmp/image-merge.json
         printf 'header = "Authorization: token %s"\n' "$TOKEN" | curl --config - --fail-with-body --silent --show-error -X POST -H 'Content-Type: application/json' --data-binary @/tmp/image-merge.json "$GITHUB_SERVER_URL/api/v1/repos/$GITHUB_REPOSITORY/pulls/$pr/merge"
     - name: Release validated source
-      if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+      if: github.event_name != 'pull_request' && !inputs.git_ref && github.ref == 'refs/heads/main'
       env:
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
