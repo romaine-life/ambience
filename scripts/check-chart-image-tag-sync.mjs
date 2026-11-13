@@ -79,7 +79,7 @@ if (tags.size !== 1) {
       detail +
       "\n\nThe build workflow bumps both files atomically on every push.\n" +
       "If you edited one by hand, edit the other to match (or rerun the\n" +
-      "build workflow). See .forgejo/workflows/ci.yaml.",
+      "build workflow). See .forgejo/workflows/ci.yml.",
   );
   process.exit(1);
 }
