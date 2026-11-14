@@ -61,7 +61,7 @@ jobs:
         fi
         echo "sha=$sha" >> "$GITHUB_OUTPUT"
         echo "Checked source $sha"
-    - uses: actions/setup-node@v4
+    - uses: romaine-life/pipeline-templates/actions/setup-node@main
       with:
         node-version: '24'
     - name: Chart image tags
@@ -111,7 +111,7 @@ jobs:
 
         git checkout --detach "${FULL_SHA}"
         echo "Resolved ${TARGET_REF} -> ${FULL_SHA}"
-    - uses: actions/setup-go@v5
+    - uses: actions/setup-go@v6
       with:
         go-version-file: go.mod
         cache: false

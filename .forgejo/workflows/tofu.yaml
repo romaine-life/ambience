@@ -33,11 +33,10 @@ jobs:
         else
           echo 'run=false' >> "$GITHUB_OUTPUT"
         fi
-    - uses: opentofu/setup-opentofu@v2
+    - uses: romaine-life/pipeline-templates/actions/setup-opentofu@main
       if: steps.scope.outputs.run == 'true'
       with:
-        tofu_version: 1.11.0
-        tofu_wrapper: false
+        tofu-version: 1.11.0
     - uses: romaine-life/pipeline-templates/actions/azure-cli@main
       if: steps.scope.outputs.run == 'true'
     - uses: azure/login@v3
