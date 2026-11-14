@@ -233,7 +233,7 @@ jobs:
         branch="FORGEJO-3-image-$GITHUB_RUN_ID"
         git switch -c "$branch"
         git push origin "$branch"
-        jq -n --arg head "$branch" '{head:$head,base:"main",title:"Deploy validated ambience image",body:"https://openproject.romaine.life/wp/FORGEJO-3"}' > /tmp/image-pr.json
+        jq -n --arg head "$branch" '{head:$head,base:"main",title:"Deploy validated ambience image",body:"https://openproject.home.romaine.life/wp/FORGEJO-3"}' > /tmp/image-pr.json
         pr="$(printf 'header = "Authorization: token %s"\n' "$TOKEN" | curl --config - --fail-with-body --silent --show-error -X POST -H 'Content-Type: application/json' --data-binary @/tmp/image-pr.json "$GITHUB_SERVER_URL/api/v1/repos/$GITHUB_REPOSITORY/pulls" | jq -r .number)"
         jq -n --arg head "$(git rev-parse HEAD)" '{Do:"squash",merge_when_checks_succeed:true,delete_branch_after_merge:true,head_commit_id:$head}' > /tmp/image-merge.json
         printf 'header = "Authorization: token %s"\n' "$TOKEN" | curl --config - --fail-with-body --silent --show-error -X POST -H 'Content-Type: application/json' --data-binary @/tmp/image-merge.json "$GITHUB_SERVER_URL/api/v1/repos/$GITHUB_REPOSITORY/pulls/$pr/merge"
