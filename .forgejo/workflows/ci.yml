@@ -111,7 +111,7 @@ jobs:
 
         git checkout --detach "${FULL_SHA}"
         echo "Resolved ${TARGET_REF} -> ${FULL_SHA}"
-    - uses: actions/setup-go@v6
+    - uses: romaine-life/pipeline-templates/actions/setup-go@main
       with:
         go-version-file: go.mod
         cache: false
