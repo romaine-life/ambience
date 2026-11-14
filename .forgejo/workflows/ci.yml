@@ -237,17 +237,25 @@ jobs:
         pr="$(printf 'header = "Authorization: token %s"\n' "$TOKEN" | curl --config - --fail-with-body --silent --show-error -X POST -H 'Content-Type: application/json' --data-binary @/tmp/image-pr.json "$GITHUB_SERVER_URL/api/v1/repos/$GITHUB_REPOSITORY/pulls" | jq -r .number)"
         jq -n --arg head "$(git rev-parse HEAD)" '{Do:"squash",merge_when_checks_succeed:true,delete_branch_after_merge:true,head_commit_id:$head}' > /tmp/image-merge.json
         printf 'header = "Authorization: token %s"\n' "$TOKEN" | curl --config - --fail-with-body --silent --show-error -X POST -H 'Content-Type: application/json' --data-binary @/tmp/image-merge.json "$GITHUB_SERVER_URL/api/v1/repos/$GITHUB_REPOSITORY/pulls/$pr/merge"
+    - id: version
+      uses: romaine-life/pipeline-templates/actions/release-version@main
+      with:
+        prefix: v0.1
+        publish: ${{ github.event_name != 'pull_request' && !inputs.git_ref && github.ref == 'refs/heads/main' }}
     - name: Release validated source
-      if: github.event_name != 'pull_request' && !inputs.git_ref && github.ref == 'refs/heads/main'
+      if: steps.version.outputs.tag != ''
       env:
         TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TAG: ${{ steps.version.outputs.tag }}
       run: |
-        git fetch --tags
-        last=$(git tag -l 'v0.1.*' --sort=-v:refname | head -1)
-        n=${last##*.}
-        tag="v0.1.$((${n:-0} + 1))"
-        jq -n --arg tag "$tag" --arg sha "$GITHUB_SHA" '{tag_name:$tag,target_commitish:$sha,name:$tag,body:("Validated image source at " + $sha)}' > /tmp/release.json
-        printf 'header = "Authorization: token %s"\n' "$TOKEN" | curl --config - --fail-with-body --silent --show-error -X POST -H 'Content-Type: application/json' --data-binary @/tmp/release.json "$GITHUB_SERVER_URL/api/v1/repos/$GITHUB_REPOSITORY/releases"
+        set -euo pipefail
+        api="$GITHUB_SERVER_URL/api/v1/repos/$GITHUB_REPOSITORY"
+        auth() { printf 'header = "Authorization: token %s"\n' "$TOKEN"; }
+        code=$(auth | curl --config - --silent --show-error -o /dev/null -w '%{http_code}' "$api/releases/tags/$TAG")
+        if [ "$code" = 200 ]; then echo "$TAG is already released"; exit 0; fi
+        if [ "$code" != 404 ]; then echo "::error::release lookup for $TAG returned HTTP $code"; exit 1; fi
+        jq -n --arg tag "$TAG" --arg sha "$GITHUB_SHA" '{tag_name:$tag,target_commitish:$sha,name:$tag,body:("Validated image source at " + $sha)}' > /tmp/release.json
+        auth | curl --config - --fail-with-body --silent --show-error -X POST -H 'Content-Type: application/json' --data-binary @/tmp/release.json "$api/releases"
 permissions:
   contents: write
   pull-requests: write

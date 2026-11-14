@@ -158,9 +158,8 @@ function Invoke-WorkloadRollout {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $registryLoginServer = "$RegistryName.azurecr.io"
 
-$head = (git -C $repoRoot rev-parse --short HEAD).Trim()
 $stamp = Get-Date -Format "yyyyMMddHHmmss"
-$tag = "devloop-$head-$stamp"
+$tag = "devloop-$stamp"
 $image = "$registryLoginServer/${ImageRepository}:$tag"
 $buildMode = Resolve-BuildMode -Requested $Builder
 
