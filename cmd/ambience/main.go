@@ -53,7 +53,7 @@ import (
 )
 
 const (
-	targetFPS       = 60
+	targetFPS = 60
 	// Shared-world grid resolution. Clients adopt these via the snapshot
 	// envelope (they Resize to the broadcast's gridW/gridH), so this single
 	// pair governs pixel fineness for every consumer — browser monitor, chess,
@@ -89,9 +89,9 @@ const (
 )
 
 type appConfig struct {
-	role             appRole
-	addr             string
-	authorityURL     string
+	role            appRole
+	addr            string
+	authorityURL    string
 	controlPassword string
 	controlOIDC     oidcControlAuthConfig
 	shutdownDrain   time.Duration
@@ -110,6 +110,13 @@ var shared *atmosphere
 var controlAuth *controlAuthenticator
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--self-test" {
+		if err := selfTest(); err != nil {
+			log.Fatal(err)
+		}
+		log.Print("image self-test passed")
+		return
+	}
 	cfg, err := loadAppConfigFromEnv()
 	if err != nil {
 		log.Fatal(err)

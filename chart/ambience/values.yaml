@@ -1,13 +1,7 @@
 nameOverride: ambience
 
 image:
-  repository: romainecr.azurecr.io/ambience
-  # Fingerprint-pinned, kept in lockstep with chart/ambience/values-prod.yaml.
-  # The build workflow rewrites BOTH files on every push to main via a
-  # `[skip ci]` follow-up commit (see .github/workflows/build-and-deploy.yml),
-  # so an install with only the default values runs the same
-  # app-<fingerprint> image prod is running.
-  tag: "app-c476972bea7c613c36ca292cf2a496a43345f35e2d7654142583cacb018231c8"
+  reference: romainecr.azurecr.io/ambience:app-c476972bea7c613c36ca292cf2a496a43345f35e2d7654142583cacb018231c8@sha256:ab3e90a38eafe5fdb3e9b579ec24a7526943da0c1cbb581d914d6d505bd1c177
   pullPolicy: Always
 
 domain:
@@ -52,8 +46,7 @@ service:
 edge:
   enabled: true
   image:
-    repository: ""
-    tag: ""
+    reference: ""
     pullPolicy: ""
   replicas: 2
   strategy:
@@ -82,8 +75,7 @@ edge:
 authority:
   enabled: true
   image:
-    repository: ""
-    tag: ""
+    reference: ""
     pullPolicy: ""
   replicas: 1
   terminationGracePeriodSeconds: 15

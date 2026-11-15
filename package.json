@@ -1,0 +1,9 @@
+{
+  "name": "ambience",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "lint": "node scripts/lint-web.mjs",
+    "test": "node scripts/test-client-playback.mjs && node scripts/test-client-embed.mjs && node scripts/check-chart-image-tag-sync.mjs"
+  }
+}

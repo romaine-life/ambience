@@ -1363,14 +1363,14 @@ func (r *Rain) spawnDropAt(col float64) {
 	sizeT, depthT := 0.0, 0.0
 	dMm, distFall := refRainMm, 1.0
 	if depthOn {
-		sizeT = math.Pow(r.rng.Float64(), 1.3)   // Marshall–Palmer: biased small
-		depthT = r.rng.Float64()                 // distance from viewer
-		dMm = lerpDepth(0.5, 4.5, sizeT)         // drop diameter
-		distFall = lerpDepth(1.0, 0.65, depthT)  // apparent angular falloff with distance
+		sizeT = math.Pow(r.rng.Float64(), 1.3)  // Marshall–Palmer: biased small
+		depthT = r.rng.Float64()                // distance from viewer
+		dMm = lerpDepth(0.5, 4.5, sizeT)        // drop diameter
+		distFall = lerpDepth(1.0, 0.65, depthT) // apparent angular falloff with distance
 	}
-	vTerm := gunnKinzer(dMm)                              // real terminal velocity, m/s
+	vTerm := gunnKinzer(dMm)                               // real terminal velocity, m/s
 	speedMul := (vTerm / gunnKinzer(refRainMm)) * distFall // vs reference drop (for streak)
-	sizeMul := (dMm / refRainMm) * distFall              // apparent diameter on screen
+	sizeMul := (dMm / refRainMm) * distFall                // apparent diameter on screen
 	brightF := 1.0
 	if depthOn {
 		brightF = (0.45 + 0.55*distFall) * (0.45 + 0.55*sizeT)

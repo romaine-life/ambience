@@ -311,17 +311,21 @@ briefly unavailable, then retries forwarding on a short cadence.
 
 ## Deploying
 
-`.forgejo/workflows/ci.yml` publishes the canonical
-`romainecr.azurecr.io/ambience:app-<fingerprint>` image. On pushes to
-main it opens a checked PR for the matching tag in the prod and base Helm values files; that PR merges after its required checks pass.
-Manual dispatch can prebuild a requested `git_ref` without changing chart
-desired state.
+Forgejo's shared `go`, `web-app`, `tofu` and automatic `default` suites read
+`.ci.json`. PR checks select their inputs independently: Go format/vet/tests,
+browser syntax/playback/embedding/chart contracts, the built image's terminating
+`--self-test`, and OpenTofu format/validate/plan. Builds run in CI.
+Default-branch pushes publish the versioned ACR image and open a queue-labeled
+PR updating the full tag-and-digest reference in `chart/ambience/values.yaml`.
+Prod and dev inherit this one canonical pin; role-specific image overrides use
+`edge.image.reference` or `authority.image.reference`.
+OpenTofu applies only when the push changes its inputs. No checks repeat on merge.
 
 The intended production deploy loop is:
 
 1. Merge the checked code PR into `main`.
-2. Let Forgejo CI publish the `app-<fingerprint>` image and merge its checked
-   chart-tag PR.
+2. Let Forgejo CI publish the image and submit its checked chart-pin PR to
+   merge-queue.
 3. Let ArgoCD read the GitHub push mirror and reconcile the chart change, or manually refresh/sync
    it if you want a faster rollout.
 
@@ -350,10 +354,8 @@ The recommended feature-iteration loop is:
 3. Test it on a local server, on `/dev/<effect>` or the relevant route,
    before opening the PR.
 
-When a dev image should become declared state again, update
-`chart/ambience/values-dev.yaml` to that image tag and commit the bump.
-If/when an `ambience-dev` ArgoCD app is wired up, it will sync from
-`chart/ambience/` using that values file.
+If an `ambience-dev` ArgoCD app is wired up, it will sync from
+`chart/ambience/` using the dev values file and inherit the canonical image pin.
 
 The ArgoCD Application at
 `infra-bootstrap/k8s/apps/ambience.yaml`

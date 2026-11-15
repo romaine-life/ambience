@@ -2,9 +2,6 @@ domain:
   host: ambience.romaine.life
   tlsSecretName: ambience-tls
 
-image:
-  tag: "app-c476972bea7c613c36ca292cf2a496a43345f35e2d7654142583cacb018231c8"
-
 edge:
   replicas: 2
 
