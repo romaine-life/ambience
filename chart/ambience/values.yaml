@@ -1,7 +1,7 @@
 nameOverride: ambience
 
 image:
-  reference: romainecr.azurecr.io/ambience:app-c476972bea7c613c36ca292cf2a496a43345f35e2d7654142583cacb018231c8@sha256:ab3e90a38eafe5fdb3e9b579ec24a7526943da0c1cbb581d914d6d505bd1c177
+  reference: romainecr.azurecr.io/ambience:v0.1.14@sha256:d82294b98428a84a8d737a68fcb97a043a77a420bea2e3c93e428c9190b27e37
   pullPolicy: Always
 
 domain:
