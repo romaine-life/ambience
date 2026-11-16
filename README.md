@@ -312,7 +312,7 @@ briefly unavailable, then retries forwarding on a short cadence.
 ## Deploying
 
 Forgejo's shared `go`, `web-app`, `tofu` and automatic `default` suites read
-`.ci.json`. PR checks select their inputs independently: Go format/vet/tests,
+ambience's entry in [pipeline-templates' `fleet.json`](https://forgejo.romaine.life/romaine-life/pipeline-templates/src/branch/main/fleet.json). PR checks select their inputs independently: Go format/vet/tests,
 browser syntax/playback/embedding/chart contracts, the built image's terminating
 `--self-test`, and OpenTofu format/validate/plan. Builds run in CI.
 Default-branch pushes publish the versioned ACR image and open a queue-labeled
