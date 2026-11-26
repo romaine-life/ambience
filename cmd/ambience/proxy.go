@@ -7,13 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/romaine-life/logline"
 )
 
 const (
@@ -56,7 +57,7 @@ func newAuthorityProxy(ctx context.Context, rawURL string) (*authorityProxy, err
 		if r.Context().Err() != nil {
 			return
 		}
-		log.Printf("authority proxy %s %s: %v", r.Method, r.URL.Path, err)
+		stdout.Warn("authority proxy failed", "method", r.Method, "path", logline.Redact(r.URL.Path), "error", errText(err))
 		http.Error(w, "authority unavailable", http.StatusBadGateway)
 	}
 
@@ -491,7 +492,7 @@ func (m *authorityMirror) runEventsLoop() {
 			return
 		}
 		if err := m.consumeEvents(); err != nil && m.ctx.Err() == nil {
-			log.Printf("edge authority stream: %v", err)
+			stdout.Warn("edge authority stream failed", "error", errText(err))
 		}
 		select {
 		case <-m.ctx.Done():
@@ -542,7 +543,7 @@ func (m *authorityMirror) consumeEvents() error {
 		switch {
 		case line == "":
 			if err := flush(); err != nil {
-				log.Printf("edge authority event decode: %v", err)
+				stdout.Warn("edge authority event decode failed", "error", errText(err))
 			}
 		case strings.HasPrefix(line, ":"):
 			continue
@@ -555,7 +556,7 @@ func (m *authorityMirror) consumeEvents() error {
 		}
 	}
 	if err := flush(); err != nil {
-		log.Printf("edge authority event decode: %v", err)
+		stdout.Warn("edge authority event decode failed", "error", errText(err))
 	}
 	if err := scanner.Err(); err != nil {
 		return err
@@ -749,7 +750,7 @@ func (f *entropyForwarder) enqueue(payload []byte) {
 		f.bytes -= len(dropped)
 	}
 	if f.bytes+len(chunk) > edgeEntropyBufferLimit {
-		log.Printf("edge entropy buffer full, dropping %d bytes", len(chunk))
+		stdout.Warn("edge entropy buffer full, dropping bytes", "bytes", len(chunk))
 		return
 	}
 	f.pending = append(f.pending, chunk)

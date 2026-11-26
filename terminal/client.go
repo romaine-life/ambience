@@ -23,7 +23,6 @@ import (
 	"image/color"
 	"image/png"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -741,5 +740,4 @@ func (c *Client) reportError(err error) {
 		return
 	}
 	// Silent by default. Consumers can opt in via OnError.
-	_ = log.Output // keep log imported so OnError users can pair with log.Printf
 }

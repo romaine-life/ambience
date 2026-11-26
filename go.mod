@@ -7,6 +7,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 	github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos v1.4.2
 	github.com/mattn/go-sixel v0.0.9
+	github.com/romaine-life/logline v0.1.5
 )
 
 require (

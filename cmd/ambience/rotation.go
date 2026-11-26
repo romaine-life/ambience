@@ -10,7 +10,6 @@
 package main
 
 import (
-	"log"
 	"os"
 	"sort"
 	"strconv"
@@ -49,7 +48,7 @@ func loadRotationPolicyFromEnv() rotationPolicy {
 	if raw := strings.TrimSpace(os.Getenv("AMBIENCE_ROTATION_ENABLED")); raw != "" {
 		v, err := strconv.ParseBool(raw)
 		if err != nil {
-			log.Printf("rotation: invalid AMBIENCE_ROTATION_ENABLED %q; defaulting to true", raw)
+			stdout.Warn("rotation: invalid AMBIENCE_ROTATION_ENABLED; defaulting to true", "value", raw)
 		} else {
 			p.Enabled = v
 		}
@@ -57,7 +56,7 @@ func loadRotationPolicyFromEnv() rotationPolicy {
 	if raw := strings.TrimSpace(os.Getenv("AMBIENCE_ROTATION_CADENCE")); raw != "" {
 		d, err := time.ParseDuration(raw)
 		if err != nil || d <= 0 {
-			log.Printf("rotation: invalid AMBIENCE_ROTATION_CADENCE %q; using default %s", raw, time.Duration(defaultRotationCadenceTicks)*tickRate)
+			stdout.Warn("rotation: invalid AMBIENCE_ROTATION_CADENCE; using the default", "value", raw, "default", time.Duration(defaultRotationCadenceTicks)*tickRate)
 		} else {
 			ticks := int(d / tickRate)
 			if ticks < 1 {
@@ -89,7 +88,7 @@ func (p rotationPolicy) resolvedAllowedEffects() []string {
 			if _, ok := lookupEffectDefinition(name); ok {
 				out = append(out, name)
 			} else {
-				log.Printf("rotation: ignoring unknown effect %q", name)
+				stdout.Warn("rotation: ignoring unknown effect", "effect", name)
 			}
 		}
 		sort.Strings(out)

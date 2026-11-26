@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -95,7 +94,7 @@ func savePersistedState(ctx context.Context, store persistenceStore, a *atmosphe
 		return
 	}
 	if err := store.Save(ctx, a.persistedState()); err != nil {
-		log.Printf("persist shared atmosphere: %v", err)
+		stdout.Warn("persisting the shared atmosphere failed", "error", errText(err))
 	}
 }
 
@@ -137,11 +136,11 @@ func restoreSharedAtmosphereWithPolicy(ctx context.Context, store persistenceSto
 
 	state, err := store.Load(ctx)
 	if err != nil {
-		log.Printf("restore shared atmosphere: %v; starting fresh", err)
+		stdout.Warn("restoring the shared atmosphere failed; starting fresh", "error", errText(err))
 		return fresh
 	}
 	if state == nil {
-		log.Printf("shared atmosphere persistence enabled, no prior snapshot found")
+		stdout.Info("shared atmosphere persistence enabled, no prior snapshot found")
 		return fresh
 	}
 
@@ -173,7 +172,7 @@ func restoreSharedAtmosphereWithPolicy(ctx context.Context, store persistenceSto
 
 	rt, err := newEffectRuntime(state.Type, state.Effect.GridW, state.Effect.GridH, state.Seed, state.Effect.Config)
 	if err != nil {
-		log.Printf("restore shared atmosphere: %v; starting fresh", err)
+		stdout.Warn("restoring the shared atmosphere failed; starting fresh", "error", errText(err))
 		return fresh
 	}
 
@@ -195,7 +194,7 @@ func restoreSharedAtmosphereWithPolicy(ctx context.Context, store persistenceSto
 	a.normalizeRestoredSceneLabels(state.Type)
 	a.normalizeRestoredSceneConfigs(state.Type)
 	if err := a.effect.RestorePersisted(state.Effect); err != nil {
-		log.Printf("restore %s state: %v; starting fresh", state.Type, err)
+		stdout.Warn("restoring the effect state failed; starting fresh", "effect", state.Type, "error", errText(err))
 		return fresh
 	}
 	a.entropyBytes = state.EntropyBytes
@@ -213,7 +212,7 @@ func restoreSharedAtmosphereWithPolicy(ctx context.Context, store persistenceSto
 		a.cfg = cloneRaw(state.Transition.From)
 	}
 
-	log.Printf("restored shared atmosphere from %s at tick %d", state.SavedAt.Format(time.RFC3339), a.effect.CurrentTick())
+	stdout.Info("restored the shared atmosphere", "saved_at", state.SavedAt.Format(time.RFC3339), "tick", a.effect.CurrentTick())
 	return a
 }
 
@@ -272,7 +271,7 @@ func (a *atmosphere) persistedState() persistedAtmosphere {
 
 	effectState, err := a.effect.Persisted()
 	if err != nil {
-		log.Printf("snapshot %s persisted state: %v", a.effect.Type(), err)
+		stdout.Warn("snapshotting the effect state failed", "effect", a.effect.Type(), "error", errText(err))
 		effectState = persistedEffectState{}
 	}
 	return persistedAtmosphere{

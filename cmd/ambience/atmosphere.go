@@ -11,7 +11,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"math/rand/v2"
 	"strconv"
 	"sync"
@@ -298,7 +297,7 @@ func (a *atmosphere) applyTransition(cur int) {
 	progress := easeInOutCubic(float64(elapsed) / float64(dur))
 	data, err := interpolateSceneConfig(a.effect, from, to, progress)
 	if err != nil {
-		log.Printf("scene: interpolate %s config: %v", a.effect.Type(), err)
+		stdout.Warn("scene: interpolating the config failed", "effect", a.effect.Type(), "error", errText(err))
 		return
 	}
 	_ = a.effect.ApplyConfig(data)
@@ -338,7 +337,7 @@ func (a *atmosphere) rotateScene(tick int) {
 
 	if dur == 0 && len(configData) > 0 {
 		if err := a.effect.ApplyConfig(configData); err != nil {
-			log.Printf("scene: apply %s config: %v", effectType, err)
+			stdout.Warn("scene: applying the config failed", "effect", effectType, "error", errText(err))
 		} else {
 			a.broadcast(Command{Kind: "config", Tick: tick, Data: configData})
 		}
@@ -442,7 +441,7 @@ func (a *atmosphere) rotateToEffect(cur int, effectType string) bool {
 	a.mu.Unlock()
 	rt, err := newEffectRuntime(effectType, gridW, gridH, seed, newScene.Config)
 	if err != nil {
-		log.Printf("rotation: build %s: %v; staying on current", effectType, err)
+		stdout.Warn("rotation: building the effect failed; staying on current", "effect", effectType, "error", errText(err))
 		a.mu.Lock()
 		a.rotationStartTick = cur
 		a.mu.Unlock()
@@ -470,7 +469,7 @@ func (a *atmosphere) rotateToEffect(cur int, effectType string) bool {
 	data, _ := json.Marshal(snap)
 	a.broadcast(Command{Kind: "snapshot", Tick: 0, Data: data})
 	a.broadcastMetric(0)
-	log.Printf("rotation: shared effect %s -> %s (tick %d)", previousType, effectType, cur)
+	stdout.Info("rotation: shared effect changed", "from", previousType, "to", effectType, "tick", cur)
 	return true
 }
 

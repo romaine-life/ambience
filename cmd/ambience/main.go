@@ -41,7 +41,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -50,6 +49,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/romaine-life/logline"
 )
 
 const (
@@ -109,21 +110,35 @@ var webFS embed.FS
 var shared *atmosphere
 var controlAuth *controlAuthenticator
 
+// stdout is the service's log: the estate's one log line (romaine-life/logline, AHT-204),
+// which the cluster ships.
+var stdout = logline.New(os.Stdout)
+
+// errText is an error for a log field: its text can come from outside the program (the
+// authority, a store, a config), so it is masked.
+func errText(err error) string { return logline.Redact(err.Error()) }
+
+// fatal logs why ambience can't go on, then ends it.
+func fatal(msg string, err error) {
+	stdout.Error(msg, "error", errText(err))
+	os.Exit(1)
+}
+
 func main() {
 	if len(os.Args) == 2 && os.Args[1] == "--self-test" {
 		if err := selfTest(); err != nil {
-			log.Fatal(err)
+			fatal("image self-test failed", err)
 		}
-		log.Print("image self-test passed")
+		stdout.Info("image self-test passed")
 		return
 	}
 	cfg, err := loadAppConfigFromEnv()
 	if err != nil {
-		log.Fatal(err)
+		fatal("reading the configuration failed", err)
 	}
 	web, err := fs.Sub(webFS, "web")
 	if err != nil {
-		log.Fatal(err)
+		fatal("loading the web assets failed", err)
 	}
 	static := newStaticAssets(web)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -137,7 +152,7 @@ func main() {
 	switch cfg.role {
 	case roleAll, roleAuthority:
 		if err := bootAuthority(ctx); err != nil {
-			log.Fatal(err)
+			fatal("booting the authority failed", err)
 		}
 		registerStaticRoutes(mux, static, localEffectLookup, sharedSocialImageVersion)
 		mux.HandleFunc("/og-image.png", serveOGImage(sharedFrame))
@@ -147,13 +162,14 @@ func main() {
 	case roleEdge:
 		proxy, err := newAuthorityProxy(ctx, cfg.authorityURL)
 		if err != nil {
-			log.Fatal(err)
+			fatal("starting the authority proxy failed", err)
 		}
 		baseReady = proxy.ready
 		registerStaticRoutes(mux, static, proxy.effectSchemaExists, proxy.socialImageVersion)
 		registerEdgeRoutes(mux, proxy)
 	default:
-		log.Fatalf("unsupported ambience role %q", cfg.role)
+		stdout.Error("unsupported ambience role", "role", cfg.role)
+		os.Exit(1)
 	}
 	registerCommonRoutes(mux, func() bool {
 		return !lifecycle.draining.Load() && baseReady()
@@ -162,7 +178,7 @@ func main() {
 	// AMBIENCE_ADDR overrides the bind address. For local dev, set it to
 	// "127.0.0.1:8080" so Windows Firewall doesn't prompt (loopback skips
 	// the firewall). Kubernetes keeps the default ":8080" for pod reachability.
-	log.Printf("ambience listening on %s (role=%s, grid %dx%d, tick %s)", cfg.addr, cfg.role, gridW, gridH, tickRate)
+	stdout.Info("ambience listening", "addr", cfg.addr, "role", cfg.role, "grid", fmt.Sprintf("%dx%d", gridW, gridH), "tick", tickRate)
 	srv := &http.Server{Addr: cfg.addr, Handler: mux}
 	serverErr := make(chan error, 1)
 	go func() {
@@ -179,22 +195,22 @@ func main() {
 	select {
 	case err := <-serverErr:
 		if err != nil {
-			log.Fatal(err)
+			fatal("serving failed", err)
 		}
 	case <-sigCtx.Done():
 		lifecycle.draining.Store(true)
 		if cfg.shutdownDrain > 0 {
-			log.Printf("ambience draining for %s before shutdown", cfg.shutdownDrain)
+			stdout.Info("ambience draining before shutdown", "drain", cfg.shutdownDrain)
 			time.Sleep(cfg.shutdownDrain)
 		}
 		cancel()
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal(err)
+			fatal("shutting down failed", err)
 		}
 		if err := <-serverErr; err != nil {
-			log.Fatal(err)
+			fatal("serving failed", err)
 		}
 	}
 }
@@ -246,9 +262,9 @@ func bootAuthority(ctx context.Context) error {
 	shared = restoreSharedAtmosphereWithPolicy(ctx, store, policy)
 	shared.setRotationPolicy(policy)
 	if policy.Enabled {
-		log.Printf("rotation: enabled, cadence %s, pool %v", time.Duration(policy.CadenceTicks)*tickRate, policy.resolvedAllowedEffects())
+		stdout.Info("rotation: enabled", "cadence", time.Duration(policy.CadenceTicks)*tickRate, "pool", strings.Join(policy.resolvedAllowedEffects(), " "))
 	} else {
-		log.Printf("rotation: disabled")
+		stdout.Info("rotation: disabled")
 	}
 	go shared.run(ctx)
 	if store != nil {

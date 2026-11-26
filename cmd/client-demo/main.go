@@ -18,7 +18,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -37,7 +36,8 @@ func main() {
 	flag.Parse()
 
 	if *every <= 0 {
-		log.Fatal("--every must be > 0")
+		fmt.Fprintln(os.Stderr, "--every must be > 0")
+		os.Exit(2)
 	}
 
 	c := terminal.New(terminal.Config{
@@ -46,7 +46,7 @@ func main() {
 		GridH:       *gridH,
 		RecordDir:   *out,
 		RecordEvery: *every,
-		OnError:     func(err error) { log.Printf("client: %v", err) },
+		OnError:     func(err error) { fmt.Fprintf(os.Stderr, "client: %v\n", err) },
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())

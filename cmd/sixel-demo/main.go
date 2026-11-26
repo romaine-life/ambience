@@ -8,7 +8,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -27,7 +26,7 @@ func main() {
 		ServerURL: *server,
 		GridW:     *gridW,
 		GridH:     *gridH,
-		OnError:   func(err error) { log.Printf("client: %v", err) },
+		OnError:   func(err error) { fmt.Fprintf(os.Stderr, "client: %v\n", err) },
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), *duration)
 	defer cancel()
